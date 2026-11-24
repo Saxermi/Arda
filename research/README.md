@@ -1,6 +1,6 @@
 # Scientific research in Arda
 
-This directory records the mathematics behind Arda's scientific features and compares candidates for future milestones. The [roadmap](../ROADMAP.md) tracks scope and sequencing. The [decision log](../DECISIONS.md) records the outcome of project discussions. The source and tests establish implemented behavior. This inventory was reviewed against Arda 0.14.3.
+This directory records the mathematics behind Arda's scientific features and compares candidates for future milestones. The [roadmap](../ROADMAP.md) tracks scope and sequencing. The [decision log](../DECISIONS.md) records the outcome of project discussions. The source and tests establish implemented behavior. This inventory covers the 0.14.4 release and identifies work implemented in the 0.15 development checkout.
 
 | Implemented | Planned or experimental candidates |
 | --- | --- |
@@ -22,7 +22,7 @@ For a substantial change, start with primary publications and authoritative docu
 ## Research priorities
 
 1. **0.14.4 validation.** Keep the [Moria residual and breakdown contract](../DECISIONS.md#2026-11-24--sparse-pcg-performance-and-numerical-checks). Expand the reproducible SPD corpus beyond the well-conditioned tridiagonal case. Include badly scaled and cancellation-heavy inputs, and distinguish solve time from structural checks and independent residual evaluation.
-2. **0.15 scientific foundations.** Prioritize reusable pivoted LU, Cholesky and Householder QR with tested backward error and explicit assumptions. Compare an optional LAPACK path before selecting a portable eigensolver or a randomized approximation strategy. [Numerical libraries](planned/numerical-libraries.md)
+2. **0.15 scientific foundations.** Build on reusable pivoted LU, Cholesky and Householder QR, with documented backward error checks and assumptions. Compare an optional LAPACK path before selecting a portable eigensolver or a randomized approximation strategy. [Numerical libraries](planned/numerical-libraries.md)
 3. **0.18 kernel research.** Profile matched dense and sparse workloads before changing accumulation. Test FP64 versus extended accumulation on difficult cases, and measure setup reuse for immutable sparse matrices. Evaluate FFT twiddle refresh or a more accurate recurrence if long-transform error grows measurably. Evaluate safe reuse of Dormand–Prince stages only after testing callback and numerical semantics. [Kernels](implemented/transforms-and-kernels.md) · [ODE methods](implemented/integration-and-odes.md)
 4. **Longer-term research.** Stage tensor compression, GPU, MPI and model formats behind portable baselines and measured memory and error contracts. Capture metadata and reproducible experiment manifests through the 0.27–1.0 reporting and validation milestones. [Computing systems](planned/computing-systems.md) · [Roadmap](../ROADMAP.md)
 

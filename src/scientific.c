@@ -157,57 +157,10 @@ static Obj *multiply(VM *v, Obj *a, Obj *b) {
 #endif
     return o;
 }
-/* Gaussian elimination with partial pivoting. Input is never modified.
- * Temporary arrays are GC-owned, including on a caught exception. */
 static Obj *solve(VM *v, Obj *a, Obj *b) {
     matrix(v, a);
     vector(v, b);
-    int n = A(a).rows;
-    if (n != A(a).cols || n != A(b).rows)
-        vmerror(v, "solve requires square matrix and matching vector");
-    Obj *w = like(v, a), *x = like(v, b);
-    double *m = A(w).data, *r = A(x).data;
-    memcpy(m, A(a).data, A(a).n * sizeof(double));
-    memcpy(r, A(b).data, A(b).n * sizeof(double));
-    for (size_t i = 0; i < A(a).n; i++)
-        if (!isfinite(m[i]))
-            vmerror(v, "solve requires finite inputs");
-    for (int i = 0; i < n; i++)
-        if (!isfinite(r[i]))
-            vmerror(v, "solve requires finite inputs");
-    for (int k = 0; k < n; k++) {
-        int p = k;
-        for (int i = k + 1; i < n; i++)
-            if (fabs(m[(size_t) i * n + k]) > fabs(m[(size_t) p * n + k]))
-                p = i;
-        if (m[(size_t) p * n + k] == 0)
-            vmerror(v, "singular matrix");
-        if (p != k) {
-            for (int j = k; j < n; j++) {
-                double tmp = m[(size_t) k * n + j];
-                m[(size_t) k * n + j] = m[(size_t) p * n + j];
-                m[(size_t) p * n + j] = tmp;
-            }
-            double tmp = r[k];
-            r[k] = r[p];
-            r[p] = tmp;
-        }
-        for (int i = k + 1; i < n; i++) {
-            double f = m[(size_t) i * n + k] / m[(size_t) k * n + k];
-            for (int j = k + 1; j < n; j++)
-                m[(size_t) i * n + j] -= f * m[(size_t) k * n + j];
-            r[i] -= f * r[k];
-        }
-    }
-    for (int i = n - 1; i >= 0; i--) {
-        long double s = r[i];
-        for (int j = i + 1; j < n; j++)
-            s -= (long double) m[(size_t) i * n + j] * r[j];
-        r[i] = (double)(s / m[(size_t) i * n + i]);
-        if (!isfinite(r[i]))
-            vmerror(v, "nonfinite solution");
-    }
-    return x;
+    return dense_lu_solve(v, a, b);
 }
 
 static const char *names[] = {

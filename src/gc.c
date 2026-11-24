@@ -216,6 +216,9 @@ static void trace(VM *v, Obj *o) {
     case O_SPARSE_BUILDER:
     case O_SPARSE_WORKSPACE:
         break;
+    case O_FACTOR:
+        markobj(v, o->as.factor.packed);
+        break;
     case O_ARRAY:
         markobj(v, o->as.array.owner);
         break;

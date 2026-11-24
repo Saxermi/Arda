@@ -12,6 +12,8 @@ Its long-term goal is to combine scientifically validated numerical algorithms w
 
 **Next milestone** — Arda 0.15.0 — Dense Factorizations (Rúmil)
 
+The development checkout includes reusable pivoted LU, Cholesky, and Householder QR factors through the `linalg` module. [Factorization contracts and validation](research/implemented/linear-algebra.md#reusable-float64-factorizations)
+
 > **Development status:** Arda is an early-stage scientific language. The interpreter, dense Float64 tensors, native COO/CSR sparse storage and conversions, sparse assembly and algebra, sparse solvers, selected optimized CPU kernels, and scalar automatic differentiation already exist. The adaptive compute engine, beyond-RAM storage, general mathematical introspection and distributed HPC are still roadmap goals.
 
 ## What is Arda?

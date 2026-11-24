@@ -29,7 +29,7 @@ static const char *typename(Val v) {
         {
             static const char *n[] = {
                 "string", "list", "map", "scope", "function", "native", "class", "instance", "method", "module",
-                "iterator", "array", "ad", "sparse", "sparse_builder", "sparse_workspace"
+                "iterator", "array", "ad", "sparse", "sparse_builder", "sparse_workspace", "factor"
             };
             return n[v.o->type];
         }
@@ -66,6 +66,8 @@ char *value_string(Val v) {
             for (int i = 0; i < v.o->as.array.rank; i++)
                 pos += (size_t) snprintf(b + pos, sizeof b - pos, "%s%d", i ? "x" : "", v.o->as.array.shape[i]);
             snprintf(b + pos, sizeof b - pos, ">");
+        } else if (isobj(v, O_FACTOR)) {
+            snprintf(b, sizeof b, "<linear algebra factor>");
         } else if (isobj(v, O_SPARSE_WORKSPACE)) {
             snprintf(b, sizeof b, "<sparse solver workspace>");
         } else if (isobj(v, O_SPARSE_BUILDER)) {
@@ -156,6 +158,8 @@ static void arity(VM *v, int id, int argc, int n) {
 }
 
 Val native_call(VM *v, int id, int argc, Val *a) {
+    if (id >= LINALG_BASE)
+        return linalg_call(v, id, argc, a);
     if (id >= SPARSE_BASE)
         return sparse_call(v, id, argc, a);
     if (id >= HIGH_BASE)
@@ -433,6 +437,8 @@ Val native_call(VM *v, int id, int argc, Val *a) {
 }
 
 Obj *native_module(VM *v, const char *name) {
+    if (!strcmp(name, "linalg"))
+        return linalg_module(v);
     if (!strcmp(name, "sparse"))
         return sparse_module(v);
     if (!strcmp(name, "high"))

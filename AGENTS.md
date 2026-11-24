@@ -31,6 +31,7 @@ Arda is CPU-first, not CPU-only. Preserve the small portable runtime while enabl
 | `src/lexer.c`, `src/parser.c`, `src/compiler.c`, `src/frontend.c` | Source preparation, parsing and bytecode compilation |
 | `src/vm.c`, `src/gc.c`, `src/native.c` | Execution, object lifetime and native module dispatch |
 | `src/tensor.c`, `src/scientific.c` | Tensor representation and numerical kernels |
+| `src/linalg.c` | Dense factorizations and reusable triangular solves |
 | `src/sparse.c`, `src/sparse.h` | Native COO/CSR storage, conversion, assembly, and budget accounting |
 | `src/sparse_algebra.c`, `src/sparse_market.c`, `src/sparse_solver.c` | Sparse operators, Matrix Market I/O, and CG/PCG |
 | `src/calculus.c`, `src/autodiff.c`, `src/highdim.c` | Numerical methods, scalar AD and structured solvers |

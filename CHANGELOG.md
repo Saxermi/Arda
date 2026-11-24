@@ -2,6 +2,10 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
+## Unreleased — 0.15 development
+
+- Added immutable, reusable dense LU, Cholesky, and Householder QR factors and solves for vector and matrix right-hand sides. The one-shot `numc.solve` shares the LU kernel.
+
 ## 0.14.4 — Sparse Computing Release Validation (Moria)
 
 - Compared canonical CSR for three million unsorted COO triplets and the full million-row SpMV result against SciPy.

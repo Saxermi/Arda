@@ -122,7 +122,7 @@ typedef struct {
 } Val;
 typedef enum {
     O_STRING, O_LIST, O_MAP, O_ENV, O_FUNC, O_NATIVE, O_CLASS, O_INSTANCE, O_BOUND, O_MODULE, O_ITER,
-    O_ARRAY, O_AD, O_SPARSE, O_SPARSE_BUILDER, O_SPARSE_WORKSPACE
+    O_ARRAY, O_AD, O_SPARSE, O_SPARSE_BUILDER, O_SPARSE_WORKSPACE, O_FACTOR
 } OType;
 
 static inline int sparse_owns_payload(OType type) {
@@ -205,6 +205,10 @@ struct Obj {
             Obj *a, *b;
             unsigned char visited;
         } ad;
+        struct {
+            Obj *packed;
+            int kind;
+        } factor;
         Sparse sparse;
         SparseBuilder sparse_builder;
         struct {
@@ -364,6 +368,10 @@ void install_tensor(VM *v, Obj *module);
 #define AD_BASE 400
 #define HIGH_BASE 500
 #define SPARSE_BASE 600
+#define LINALG_BASE 700
+Val linalg_call(VM *v, int id, int argc, Val *a);
+Obj *linalg_module(VM *v);
+Obj *dense_lu_solve(VM *v, Obj *a, Obj *b);
 Val sparse_call(VM *v, int id, int argc, Val *a);
 Obj *sparse_module(VM *v);
 void sparse_abort(VM *v);

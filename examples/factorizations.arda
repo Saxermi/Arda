@@ -1,0 +1,18 @@
+# Reuse an immutable factor for multiple right-hand sides.
+tol linalg as la
+tol numc as nc
+
+esta a = nc.array([[0,2],[1,3]])
+esta factor = la.lu(a)
+esta rhs = nc.array([[4,2],[7,5]])
+esta solution = la.solve(factor,rhs)
+pedo(nc.tolist(solution))
+pedo(nc.norm(nc.matmul(a,solution)-rhs))
+
+esta positive = nc.array([[4,2],[2,5]])
+esta cholesky = la.cholesky(positive)
+pedo(nc.tolist(la.solve(cholesky,nc.array([6,7]))))
+
+esta tall = nc.array([[1,0],[0,2],[0,0]])
+esta qr = la.qr(tall)
+pedo(nc.tolist(la.solve(qr,nc.array([3,8,7]))))
