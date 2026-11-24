@@ -2,6 +2,8 @@
 void account(VM *v, Obj *o, size_t old, size_t now) {
     if (!o)
         return;
+    if (sparse_owns_payload(o->type))
+        v->sparse_bytes = v->sparse_bytes - old + now;
     o->bytes = o->bytes - old + now;
     v->bytes = v->bytes - old + now;
 }
@@ -211,6 +213,8 @@ static void trace(VM *v, Obj *o) {
     case O_STRING:
     case O_NATIVE:
     case O_SPARSE:
+    case O_SPARSE_BUILDER:
+    case O_SPARSE_WORKSPACE:
         break;
     case O_ARRAY:
         markobj(v, o->as.array.owner);
@@ -283,11 +287,9 @@ static void release(Obj *o) {
         free(o->as.str.s);
         break;
     case O_SPARSE:
-        free(o->as.sparse.row);
-        free(o->as.sparse.col);
-        free(o->as.sparse.offset);
-        free(o->as.sparse.values);
-        free(o->as.sparse.work);
+    case O_SPARSE_BUILDER:
+    case O_SPARSE_WORKSPACE:
+        sparse_release_payload(o);
         break;
     case O_ARRAY:
         if (!o->as.array.owner)
@@ -342,6 +344,8 @@ void gcstep(VM *v, int force) {
             p = &o->next;
         } else {
             *p = o->next;
+            if (sparse_owns_payload(o->type))
+                v->sparse_bytes -= o->bytes - sizeof *o;
             v->bytes -= o->bytes;
             v->live--;
             release(o);

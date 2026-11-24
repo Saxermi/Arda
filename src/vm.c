@@ -6,6 +6,8 @@ _Noreturn void vmerror(VM *v, const char *fmt, ...) {
     va_start(a, fmt);
     vsnprintf(v->error, sizeof v->error, fmt, a);
     va_end(a);
+    if (v->sparse_active)
+        sparse_abort(v);
     longjmp(v->trap, 1);
 }
 
@@ -372,6 +374,7 @@ void remember_proto(VM *v, Proto *p) {
 void vm_init(VM *v, int stress) {
     v->stress = stress;
     v->next_gc = 65536;
+    v->sparse_limit = SIZE_MAX;
     v->builtins = environment(v, NULL);
     v->global = environment(v, v->builtins);
     install_builtins(v);

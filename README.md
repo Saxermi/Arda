@@ -6,9 +6,9 @@ Arda is an experimental, open-source, standalone scientific programming language
 
 Arda combines a dynamic, indentation-based language with native numerical data structures and algorithms. Its long-term ambition is to unite high-performance numerical computing, resource-aware execution, differentiable programming and mathematical documentation in one coherent runtime — from an ordinary student laptop without a dedicated GPU to a multi-node scientific computing cluster.
 
-**Current version: 0.14.0 — Moria (Sparse Foundations). Next milestone: 0.14.1 — Sparse Assembly.**
+**Current version: 0.14.3 — Moria (Sparse Solvers and Memory Budgets). Next milestone: 0.14.4 — Moria Release Validation.**
 
-> **Development status:** Arda is an early-stage scientific language. The interpreter, dense Float64 tensors, native COO/CSR sparse storage and conversions, selected optimized CPU kernels, numerical solvers and scalar automatic differentiation already exist. Sparse assembly builders and algebra, the adaptive compute engine, beyond-RAM storage, general mathematical introspection and distributed HPC are still roadmap goals.
+> **Development status:** Arda is an early-stage scientific language. The interpreter, dense Float64 tensors, native COO/CSR sparse storage and conversions, sparse assembly and algebra, sparse solvers, selected optimized CPU kernels, and scalar automatic differentiation already exist. The adaptive compute engine, beyond-RAM storage, general mathematical introspection and distributed HPC are still roadmap goals.
 
 ## What is Arda?
 
@@ -43,7 +43,7 @@ A faster processor cannot fix every inefficient mathematical representation. Con
 
 Similarly, a regular-grid differential operator can often be applied directly to a vector using a stencil without storing any matrix at all. Arda already has a specialized matrix-free Poisson solver in its `high` module. For a grid of 128 × 128 × 128 points, a hypothetical dense operator would occupy 32 TiB; six Float64 work vectors occupy only 96 MiB. These figures describe theoretical storage, not measured peak memory or a universal solver workspace requirement.
 
-Arda's development strategy is to exploit such mathematical structure first, then optimize the resulting kernels using cache locality, SIMD, parallelism and suitable external libraries. Native COO/CSR storage and bidirectional conversion are available in Moria 0.14.0; typed assembly, sparse algebra, tensor compression and a unified linear-operator interface follow.
+Arda's development strategy is to exploit such mathematical structure first, then optimize the resulting kernels using cache locality, SIMD, parallelism and suitable external libraries. Moria provides native COO/CSR storage, typed assembly, sparse algebra, and a shared internal operator interface for dense, CSR, and matrix-free Poisson kernels.
 
 This approach applies equally to scientific simulation and machine learning. Quantization, low-rank approximations, activation checkpointing and selective data loading can reduce the resources needed by suitable models. They do not eliminate the computational cost of arbitrary problems, and approximate methods must be explicitly permitted.
 
@@ -184,9 +184,10 @@ print(magnitude(3, 4))
 | CPU kernels | Portable C, SSE2 elementwise arithmetic, blocked matrix multiplication with runtime-dispatched AVX2 on supported x86 CPUs; optional CBLAS and LAPACK |
 | Numerical methods | Composite quadrature, radix-2 FFT/IFFT, RK4, adaptive Dormand–Prince RK45, L-BFGS |
 | Differentiation | Scalar reverse-mode AD, SGD and Adam vector updates |
-| Large structured problems | Dense Jacobi-PCG, CGLS, specialized matrix-free 1–8D Cartesian Poisson solver |
+| Large structured problems | Dense and sparse Jacobi-PCG, sparse CG, CGLS, specialized matrix-free 1–8D Cartesian Poisson solver |
+| Sparse matrices | Immutable COO/CSR, typed assembly, CSR algebra, Matrix Market I/O, sparse memory budget |
 
-Native immutable COO/CSR matrices and direct conversions are implemented. Sparse builders, sparse algebra and solvers, tensor AD, general multithreading, GPU execution, MPI, disk-backed tensors and general mathematical introspection are **not implemented yet**.
+Tensor AD, general multithreading, GPU execution, MPI, disk-backed tensors and general mathematical introspection remain roadmap goals.
 
 ## Moria: native sparse matrices
 
@@ -196,11 +197,17 @@ esta A = sp.coo(3,4,[2,0,0,2,0],[3,1,1,0,3],[7,2,3,4,-1])
 esta B = sp.to_csr(A)
 pedo(sp.components(B))
 pedo(sp.components(sp.to_coo(B)))
+
+tol numc as nc
+esta K = sp.tridiag(5,-1,4,-1)
+esta rhs = sp.matvec(K,nc.array([1,2,3,4,5]))
+esta result = sp.pcg(K,rhs,1e-10,100)
+pedo(result["reason"],result["residual"],nc.tolist(result["solution"]))
 ```
 
 Expected CSR components: `[[0, 2, 2, 4], [1, 3, 0, 3], [5, -1, 4, 7]]`.
 
-COO allows duplicates and explicit zeros; CSR uses strictly sorted columns within each row, combines duplicates in input order, and omits exact zeros. No dense intermediate is required. Explicit `sp.todense` and `sp.from_dense` bridges are available, along with shape, nnz, bytes, format, checked get, copied components, and static `sp.describe` conversion metadata. See the [Moria specification and validation](docs/MORIA_0.14.0.md) for API contracts, complexity, memory layout and measured conversion performance.
+COO allows duplicates and explicit zeros; CSR uses strictly sorted columns within each row, combines duplicates in input order, and omits exact zeros. No dense intermediate is required. Explicit `sp.todense` and `sp.from_dense` bridges are available, along with shape, nnz, bytes, format, checked get, copied components, and static `sp.describe` conversion metadata. See the [Moria 0.14.3 guide](docs/MORIA_0.14.3.md) for assembly, algebra, solver and budget contracts, plus local validation and benchmarks. The [0.14.0 report](docs/MORIA_0.14.0.md) covers the original storage layout and conversion measurements.
 
 ## Numerical standard library
 
@@ -312,7 +319,9 @@ The REPL accepts one statement per line and blocks terminated by a blank line. `
 | `docs/` | Historical reference documentation |
 | `ROADMAP.md` | Full development roadmap (German, with English technical terminology) |
 | `ROADMAP_0.14.md` | Moria sparse milestone scope |
-| `docs/MORIA_0.14.0.md` | Implemented sparse API, mathematical contracts and local validation |
+| [`DECISIONS.md`](DECISIONS.md) | Engineering decisions, evidence, and when to revisit them |
+| `docs/MORIA_0.14.0.md` | Sparse storage and conversion foundations |
+| `docs/MORIA_0.14.3.md` | Assembly, algebra, solvers, memory budgets and local validation |
 | `CHANGELOG.md` | Release history |
 | `MAINTENANCE.md` | 0.13.1 changes and measured validation |
 | `CONTRIBUTING.md` | Local development and validation policy |
@@ -346,7 +355,7 @@ make test-reference
 
 | Version | Codename | Focus |
 | --- | --- | --- |
-| 0.14 | Moria | COO/CSR foundations implemented in 0.14.0; assembly, sparse algebra, solvers and budgets planned |
+| 0.14 | Moria | Foundations, assembly, algebra, and solvers implemented through 0.14.3. Release validation follows in 0.14.4. |
 | 0.15 | Rúmil | Scientific foundations and mathematical documentation |
 | 0.16 | Mithril | Virtual tensors, file-backed storage and compact representations |
 | 0.17 | Vilya | Memory-efficient tensor autodiff |

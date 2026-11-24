@@ -122,8 +122,12 @@ typedef struct {
 } Val;
 typedef enum {
     O_STRING, O_LIST, O_MAP, O_ENV, O_FUNC, O_NATIVE, O_CLASS, O_INSTANCE, O_BOUND, O_MODULE, O_ITER,
-    O_ARRAY, O_AD, O_SPARSE
+    O_ARRAY, O_AD, O_SPARSE, O_SPARSE_BUILDER, O_SPARSE_WORKSPACE
 } OType;
+
+static inline int sparse_owns_payload(OType type) {
+    return type == O_SPARSE || type == O_SPARSE_BUILDER || type == O_SPARSE_WORKSPACE;
+}
 typedef struct {
     char *key;
     Val val;
@@ -202,6 +206,11 @@ struct Obj {
             unsigned char visited;
         } ad;
         Sparse sparse;
+        SparseBuilder sparse_builder;
+        struct {
+            size_t length;
+            double *data;
+        } sparse_workspace;
     } as;
 };
 typedef struct {
@@ -229,6 +238,10 @@ typedef struct VM {
     Obj **gray;
     size_t ng, gcap, live, bytes, next_gc, cycles;
     int marking, stress;
+    size_t sparse_bytes, sparse_limit;
+    Obj *sparse_checkpoint;
+    FILE *sparse_file;
+    int sparse_active;
     Proto **programs;
     int np, pcap;
     jmp_buf trap;
@@ -353,6 +366,8 @@ void install_tensor(VM *v, Obj *module);
 #define SPARSE_BASE 600
 Val sparse_call(VM *v, int id, int argc, Val *a);
 Obj *sparse_module(VM *v);
+void sparse_abort(VM *v);
+void sparse_release_payload(Obj *o);
 Val high_call(VM *v, int id, int argc, Val *a);
 Obj *high_module(VM *v);
 #endif

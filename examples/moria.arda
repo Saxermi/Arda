@@ -8,3 +8,16 @@ pedo(sp.components(sp.to_coo(B)))
 pedo(sp.todense(B))
 pedo(sp.bytes(A), sp.bytes(B))
 pedo(sp.describe("to_csr"))
+
+# Build the same matrix from two batches and solve a sparse SPD system.
+tol numc as nc
+esta builder = sp.builder(3, 4, 5)
+sp.append(builder, 2, 3, 7)
+sp.extend(builder, [0,0,2,0], [1,1,0,3], [2,3,4,-1])
+pedo(sp.components(sp.finish(builder)))
+
+esta K = sp.tridiag(5, -1, 4, -1)
+esta rhs = sp.matvec(K, nc.array([1,2,3,4,5]))
+esta result = sp.pcg(K, rhs, 1e-10, 100)
+pedo(result["reason"], result["iterations"], sp.verify(K, rhs, result["solution"]))
+pedo(nc.tolist(result["solution"]))

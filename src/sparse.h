@@ -14,4 +14,11 @@ typedef struct {
     double *values;
     void *work;
 } Sparse;
+
+typedef struct {
+    uint32_t rows, cols;
+    size_t count, capacity, limit;
+    void *data;
+    int finished;
+} SparseBuilder;
 #endif

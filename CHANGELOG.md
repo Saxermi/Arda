@@ -2,6 +2,24 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
+## 0.14.3 — Moria (Sparse Solvers and Memory Budgets)
+
+- CG and Jacobi-PCG for sparse SPD systems. Results include the independently recomputed residual, solution, iteration count, and convergence reason.
+- Reusable solver workspace, explicit residual verification, and a configurable budget for managed sparse payload and solver storage.
+- See the [Moria 0.14.3 guide](docs/MORIA_0.14.3.md) for API contracts, validation, and local measurements.
+
+## 0.14.2 — Moria (Sparse Algebra and Operators)
+
+- Sparse matrix–vector and sparse–dense matrix multiplication, transpose, addition, scaling, and diagonal extraction.
+- Real coordinate Matrix Market general and symmetric I/O, static operation descriptors, and a sparse matvec workspace estimate.
+- Shared internal linear operator interface for dense, CSR, and matrix-free Poisson kernels.
+
+## 0.14.1 — Moria (Sparse Assembly)
+
+- Native typed assembly with atomic batch insertion, checked capacity growth, and canonical CSR finalization.
+- Direct identity, diagonal, and tridiagonal CSR constructors.
+- In-place row sorting bounds canonicalization scratch while preserving the order of duplicate summation.
+
 ## 0.14.0 — Moria (Sparse Foundations)
 
 - Native immutable COO and canonical CSR/CRS matrices, checked indices, finite Float64 values and GC-owned, accounted payloads.
@@ -9,7 +27,7 @@ All notable changes to Arda are recorded here. Planned features are documented i
 - Shape, format, nnz, payload bytes, checked lookup, copied components and explicit dense bridges honoring tensor strides and the existing dense limit.
 - Versioned static mathematical descriptions of conversion algorithms, preparing the future Rúmil engine.
 - Ten new regression methods and one independent SciPy reference method (24 cases), with 136 regular and nine reference methods passing locally in default, BLAS/LAPACK and sanitizer configurations.
-- See [Moria specification and validation](docs/MORIA_0.14.0.md). Builder, sparse algebra, solvers and hard budgets remain planned for 0.14.1–0.14.4.
+- See [Moria specification and validation](docs/MORIA_0.14.0.md). Assembly, algebra, solvers and budgets arrived in subsequent Moria milestones.
 
 ## 0.13.1 — Scientific maintenance
 

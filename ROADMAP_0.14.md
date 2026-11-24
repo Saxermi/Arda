@@ -1,22 +1,21 @@
 # Arda 0.14 — Sparse foundations
 
-**Status:** 0.14.0 foundations implemented. See [Moria specification](docs/MORIA_0.14.0.md) for the actual API and validated behavior; the remaining assembly, algebra and solver milestones are proposals.
+**Status** — Assembly, algebra, and solvers are implemented through 0.14.3. See the [foundations report](docs/MORIA_0.14.0.md) and the [current API and validation guide](docs/MORIA_0.14.3.md). The 0.14.4 release validation follows.
 
 CSR (Compressed Sparse Row) and CRS (Compressed Row Storage) are synonyms. Use `csr` as the primary API name and consider `crs` as an alias. COO (Coordinate format) is also a first-class format, not a temporary dense matrix.
 
-## Proposed APIs
+## Foundation APIs
 
 - `sp.coo(rows, cols, row_indices, col_indices, values)`
 - `sp.csr(rows, cols, row_ptr, col_indices, values)`
 - `sp.to_csr(coo)` and `sp.to_coo(csr)`; optionally `sp.to_crs` alias
 - `sp.shape`, `sp.nnz`, `sp.bytes`, `sp.todense`, `sp.from_dense`, `sp.matvec`
-- Later: sparse CG/GMRES, transpose, sparse addition and general linear operators.
 
-The constructors, conversions, inspection and dense bridges are implemented in 0.14.0. `sp.matvec` and the later algebra/solver APIs remain proposals.
+For the implemented builder, diagonal constructors, sparse algebra, and CG/PCG, see [Moria 0.14.3](docs/MORIA_0.14.3.md).
 
 ## Storage and conversion contract
 
-Use zero-based integer row/column indices; use checked size_t row offsets, Float64 values, and GC-managed buffers. Validate dimensions, array lengths, bounds, overflow and row pointer monotonicity. `row_ptr` has `rows + 1` entries, begins at 0 and ends at nnz. Empty rows have repeated offsets. Rectangular and empty matrices are supported; no dense allocation during conversion. Canonical CSR sorts column indices per row and combines duplicate COO coordinates by summation. Define explicit zero handling (proposed: drop exact zeros after summation, with a documented opt-in retention policy later). Preserve the mathematical matrix on round trips, not original ordering or duplicate identity. Conversion may use sorting (O(nnz log nnz)) or counting/prefix sums followed by per-row sorting. CSR -> COO takes O(rows + nnz).
+Use zero-based integer row/column indices; use checked size_t row offsets, Float64 values, and GC-managed buffers. Validate dimensions, array lengths, bounds, overflow and row pointer monotonicity. `row_ptr` has `rows + 1` entries, begins at 0 and ends at nnz. Empty rows have repeated offsets. Rectangular and empty matrices are supported; no dense allocation during conversion. Canonical CSR sorts column indices per row and combines duplicate COO coordinates by summation. Canonical CSR drops exact zeros after summation. Preserve the mathematical matrix on round trips, not original ordering or duplicate identity. Conversion uses counting and prefix sums followed by in-place sorting of unsorted rows. CSR -> COO takes O(rows + nnz).
 
 Example (3 x 4):
 

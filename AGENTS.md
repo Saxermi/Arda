@@ -13,7 +13,7 @@ The Elvish-inspired syntax and Tolkien release codenames are part of the project
 - Read [README.md](README.md), [CONTRIBUTING.md](CONTRIBUTING.md), [CHANGELOG.md](CHANGELOG.md), and the relevant section of [ROADMAP.md](ROADMAP.md).
 - The source and tests describe implemented behavior; the roadmap describes proposals, not promises. Inspect the latest repository state rather than assuming a planned API exists.
 - At the time this guide was introduced, the baseline was 0.13.1 (Scientific Maintenance), with dense rank-1–8 Float64 tensors, scalar reverse-mode AD, selected SIMD kernels, numerical methods and a specialized matrix-free Poisson solver.
-- Moria 0.14.0 now implements native immutable COO/CSR, direct conversions, inspection, dense bridges and static conversion descriptions. Read [docs/MORIA_0.14.0.md](docs/MORIA_0.14.0.md). Next is 0.14.1 sparse assembly; algebra and solvers remain later milestones.
+- Moria 0.14.3 implements native COO/CSR, typed assembly, sparse algebra, Matrix Market I/O, CG/PCG, and sparse memory budgets. Read [docs/MORIA_0.14.3.md](docs/MORIA_0.14.3.md) and [the foundations report](docs/MORIA_0.14.0.md). Next is 0.14.4 release validation.
 - Do not implement unrelated future milestones, invent benchmark results, or bump the version unless the requested task warrants it.
 
 ## Repository map
@@ -24,7 +24,8 @@ The Elvish-inspired syntax and Tolkien release codenames are part of the project
 | `src/lexer.c`, `src/parser.c`, `src/compiler.c`, `src/frontend.c` | Source preparation, parsing and bytecode compilation |
 | `src/vm.c`, `src/gc.c`, `src/native.c` | Execution, object lifetime and native module dispatch |
 | `src/tensor.c`, `src/scientific.c` | Tensor representation and numerical kernels |
-| `src/sparse.c`, `src/sparse.h` | Native COO/CSR storage, conversion and inspection |
+| `src/sparse.c`, `src/sparse.h` | Native COO/CSR storage, conversion, assembly, and budget accounting |
+| `src/sparse_algebra.c`, `src/sparse_market.c`, `src/sparse_solver.c` | Sparse operators, Matrix Market I/O, and CG/PCG |
 | `src/calculus.c`, `src/autodiff.c`, `src/highdim.c` | Numerical methods, scalar AD and structured solvers |
 | `lib/` | Arda standard-library sources, including ODE and optimization algorithms |
 | `tools/` | Embedded-library generators |

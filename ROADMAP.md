@@ -4,7 +4,7 @@
 
 **Planungsstand:** 24. November 2026 · **Ausgangsversion:** 0.13.1 · **Ziel:** 1.0 · **Dokumentrevision:** 2.0 (konsolidiert)
 
-Dieses Dokument ist ein Entwicklungsplan, kein Bericht über bereits implementierte Features. 0.14.0 (Moria Foundations, S0–S5) ist implementiert; alle folgenden APIs bleiben Entwürfe. Siehe [Moria specification and validation](docs/MORIA_0.14.0.md). Zahlen mit der Bezeichnung „Ziel“ oder „Modellrechnung“ sind keine Benchmarkergebnisse. Die bisherigen Ziele bleiben bestehen; Resource-Efficient Computing, maximale praktische Hardwareauslastung, Beyond-RAM Computing, mathematische Introspektion, überprüfbare Numerik und verteiltes HPC sind Querschnittsziele. Diese Revision ersetzt die frühere Planungsdatei, nicht deren Ziele. Die Quellcode-Version ist jetzt 0.14.0.
+Dieses Dokument ist ein Entwicklungsplan, kein Bericht über bereits implementierte Features. Moria ist bis 0.14.3 (S0–S8) implementiert. Siehe [Moria 0.14.3](docs/MORIA_0.14.3.md) für die aktuellen APIs und lokalen Messungen. Zahlen mit der Bezeichnung „Ziel“ oder „Modellrechnung“ sind keine Benchmarkergebnisse. Die bisherigen Ziele bleiben bestehen; Resource-Efficient Computing, maximale praktische Hardwareauslastung, Beyond-RAM Computing, mathematische Introspektion, überprüfbare Numerik und verteiltes HPC sind Querschnittsziele. Diese Revision ersetzt die frühere Planungsdatei, nicht deren Ziele. Die Quellcode-Version ist jetzt 0.14.3.
 
 ## 1. Mission und Nicht-Ziele
 
@@ -128,13 +128,13 @@ CPU-first, nicht CPU-only: serieller Pfad und identische mathematische API für 
 
 **0.14.0 (Fortsetzung: Conversion, implemented):** COO → CSR ohne Dense: Zeilen zählen, Prefix-Sum, Einträge verteilen, pro Zeile stabil nach Spalte sortieren, Duplikate in dokumentierter Reihenfolge addieren, exakte Nullen entfernen, Offsets kompakt neu schreiben. Alternativ globales Sortieren als Referenz. Ziel O(rows + nnz + sum(k_i log k_i)), sortierter Input schneller; O(rows + nnz) Workspace, keine Kopie in Dense. Endliche Summen prüfen. CSR → COO linear. CSR-Konstruktor verlangt streng steigende Spalten je Zeile, gültige Offsets und keine strukturell gespeicherten Nullen. COO erlaubt explizite Nullen und Duplikate; `nnz` zählt gespeicherte Einträge. `sp.from_dense`, `sp.todense` mit Vorabprüfung des gesamten Outputs. 
 
-**0.14.1 Assembly:** Native Builder `sp.builder`, `sp.append`, `sp.extend`, `sp.finish` (API-Entwurf): geometrisches Wachstum oder reservierte Kapazität, Limit vor Wachstum, batchweise Einfügung ohne Millionen VM-Objekte. Builder nach Finalisierung klar definierter Zustand. Direkte Konstruktoren `sp.eye`, `sp.diags`, `sp.tridiag` ohne große Listen.
+**0.14.1 Assembly (implemented):** `sp.builder`, `sp.append`, `sp.extend` und `sp.finish` verwenden typisierte native Puffer. Batches werden vor der Einfügung geprüft. Kapazitätswachstum berücksichtigt die gleichzeitig belegte alte und neue Kapazität. Erfolgreiche Finalisierung gibt kanonisches CSR zurück und schließt den Builder. `sp.eye`, `sp.diags` und `sp.tridiag` erzeugen CSR direkt.
 
-**0.14.2 Algebra & Operators:** CSR-SpMV, COO-SpMV (ggf. explizit konvertieren), transpose, add, scale, diagonal, SpMM (Sparse × Dense), Matrix Market coordinate real general/symmetric Import/Export, validierte 1-basierte Dateikoordinaten. Interne `LinearOperator`-Schnittstelle für shape, apply, optional apply_transpose und workspace estimate. Dense, CSR und vorhandenen Poisson-Operator anbinden; kein allgemeiner Callback-JIT. Reproduzierbarer einfacher serieller Kernel, Benchmarks gegen SciPy. Optional BSR/DIA erst nach Bedarf, Sparse×Sparse als getrenntes Feature mit Symbolik- und Fill-in-Prüfung.
+**0.14.2 Algebra & Operators (implemented):** `sp.matvec` und `sp.spmm` verwenden einen seriellen CSR-Kernel mit bei Bedarf vorgeschalteter COO-Kanonisierung. `sp.transpose`, `sp.add`, `sp.scale`, `sp.diagonal`, `sp.read_mm` und `sp.write_mm` unterstützen Sparse-Algebra und Matrix Market (coordinate real general/symmetric). Die interne Schnittstelle `LinearOperator` bindet Dense, CSR und den matrixfreien Poisson-Operator an. `sp.estimate` meldet Form, gespeicherte Einträge und den zusätzlichen Matvec-Workspace.
 
-**0.14.3 Solvers & Budget:** Sparse-CG/PCG für SPD-Systeme, Jacobi-Vorkonditionierung, reusable workspace, Norm- und Breakdown-Prüfungen, tatsächliches Schlussresiduum, `converged`, `iterations`, `reason`, `solution`. Kein stiller Erfolg bei Nichtkonvergenz. Erste Speicherbudget-API für native Sparse- und Solver-Allokationen, später auf übrige Runtime ausweiten. Budget-Ablehnung vor massiver Allokation und Regressionstests für Fehlerpfade. Direkte tridiagonale Lösung für geeignete Systeme in 0.15; SPD-Benchmark mit wohldefinierter Konditionierung.
+**0.14.3 Solvers & Budget (implemented):** `sp.cg` und `sp.pcg` lösen SPD-Systeme mit optional wiederverwendbarem Workspace und berechnen das wahre Schlussresiduum. `sp.verify` prüft Lösungen separat. `sp.set_budget` und `sp.memory` begrenzen und erfassen verwaltete Sparse- und Solver-Puffer. Ergebnisse und Grenzen sind in der [Moria-Spezifikation](docs/MORIA_0.14.3.md) dokumentiert. Ein direkter tridiagonaler Solver ist für 0.15 geplant.
 
-**Querschnitt:** Ab 0.14.0 schmale versionierte mathematische Deskriptoren für COO/CSR-Kanonisierung und Konvertierung; keine volle MathIR oder allgemeine Metadaten-Engine in diesem Patch. 0.14.2 SpMV/Algebra-Formeln, shape/nnz/Workspace-Estimator; 0.14.3 `sp.verify`/Solver-Residuum und optional kompakte Iterationsereignisse. 0.14.4 Dokumentation mathematischer Verträge, bekannte Komplexitäten, Tests gegen Deskriptoren. Globale/local Index-Trennung als Design-Notiz, keine MPI-Abhängigkeit. Builder-Budget inklusive alter und neuer Kapazität während Realloc. Release-Gate 0.14.0: keine Regression und vollständige Foundations, nicht die spätere Million-row-CG-Abnahme.
+**Querschnitt:** Versionierte statische mathematische Deskriptoren decken Konvertierung, Sparse-Algebra und Solver ab. Mathematische Verträge und Komplexitätsangaben werden mit der abschließenden 0.14.4-Validierung konsolidiert. Globale und lokale Indizes bleiben getrennte Konzepte.
 
 **0.14.4 Release gate:** Matrix Market, Dokumentation, ASan/UBSan/LSan, GC-Stress, automatisierte SciPy-Randomtests, Peak-RSS und Laufzeit für Builder, Conversion, SpMV und CG getrennt. Bestehende 126+8 Baseline-Tests weiterhin grün. Ziel: 1 Mio. Zeilen tridiagonal, 2.999.998 gespeicherte Werte, direkter CSR-Aufbau plus SpMV <256 MiB Peak RSS im definierten Linux-Test; COO-Build/Conversion separat messen und dokumentieren. SPD-Test A=tridiag(-1,4,-1) mit erzeugtem b=A*x_ref, relatives Residuum ≤1e-8 und normierter Lösungsfehler dokumentiert, Ziel <512 MiB. Keine Dense-Materialisierung; kein Anheben des alten Dense-Limits nur für Sparse.
 
@@ -349,7 +349,7 @@ P0: sparse, accounting, safe allocation/ownership, matrix-free, validated math, 
 
 Suggested lokale Validierung targets: `make test`, `make test-reference`, `make sanitize`, `make check-generated`, `make format-check` (current targets); later `make test-sparse`, `make test-memory`, `make bench-laptop`, `make bench-beyond-ram`, `make fuzz`, `make test-threads` (proposals). Use fixed seeds and small lokale Validierung workloads; large data tests opt-in on suitably provisioned machines.
 
-## 9. Immediate implementation order (0.14.0 first)
+## 9. Moria implementation order
 
 | Work package | Deliverable | Depends on |
 |---|---|---|
@@ -364,7 +364,7 @@ Suggested lokale Validierung targets: `make test`, `make test-reference`, `make 
 | S8 | Operator contract, PCG and workspace | S7 |
 | S9 | SciPy comparisons, sanitizer, million-row benchmark, examples and release archive | S0–S8 |
 
-0.14.0 implements S0–S5, including bidirectional conversion (see docs/MORIA_0.14.0.md); 0.14.1 follows when S6 is validated. Final 0.14 gate includes S9. Scope creep into full tensor rewrite, JIT or transformer engines is explicitly excluded. Update this roadmap and version-specific specs when evidence changes implementation choices.
+0.14.0 implements S0–S5. Milestones 0.14.1–0.14.3 implement S6–S8. The remaining 0.14.4 release gate is S9. Scope creep into full tensor rewrite, JIT or transformer engines is explicitly excluded. Update this roadmap and version-specific specs when evidence changes implementation choices.
 
 ## 10. Zusätzliche Abnahmebenchmarks: AMDE, Numerik, HPC
 

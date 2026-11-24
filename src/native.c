@@ -29,7 +29,7 @@ static const char *typename(Val v) {
         {
             static const char *n[] = {
                 "string", "list", "map", "scope", "function", "native", "class", "instance", "method", "module",
-                "iterator", "array", "ad", "sparse"
+                "iterator", "array", "ad", "sparse", "sparse_builder", "sparse_workspace"
             };
             return n[v.o->type];
         }
@@ -66,6 +66,10 @@ char *value_string(Val v) {
             for (int i = 0; i < v.o->as.array.rank; i++)
                 pos += (size_t) snprintf(b + pos, sizeof b - pos, "%s%d", i ? "x" : "", v.o->as.array.shape[i]);
             snprintf(b + pos, sizeof b - pos, ">");
+        } else if (isobj(v, O_SPARSE_WORKSPACE)) {
+            snprintf(b, sizeof b, "<sparse solver workspace>");
+        } else if (isobj(v, O_SPARSE_BUILDER)) {
+            snprintf(b, sizeof b, "<sparse builder>");
         } else if (isobj(v, O_SPARSE)) {
             Sparse *s = &v.o->as.sparse;
             snprintf(b, sizeof b, "<%s shape=%" PRIu32 "x%" PRIu32 " nnz=%zu>",
