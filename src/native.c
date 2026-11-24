@@ -169,6 +169,8 @@ static void arity(VM *v, int id, int argc, int n) {
 }
 
 Val native_call(VM *v, int id, int argc, Val *a) {
+    if (id >= SPECIAL_BASE)
+        return special_call(v, id, argc, a);
     if (id >= MATHDOC_BASE)
         return mathdoc_call(v, id, argc, a);
     if (id >= LINOP_BASE)
@@ -469,6 +471,8 @@ Obj *named_native_module(VM *v, const char *name, const char *const *names, size
 }
 
 Obj *native_module(VM *v, const char *name) {
+    if (!strcmp(name, "special"))
+        return special_module(v);
     if (!strcmp(name, "mathdoc"))
         return mathdoc_module(v);
     if (!strcmp(name, "complex"))

@@ -65,3 +65,9 @@ Enable bounded compact user-function MathIR by default; retain `--mathdoc=none` 
 Allow bounded, display-only formal scalar-real identities in level 0 for call-free, external-free expressions: integer additive/multiplicative identity literals, double negation and repeated parameter factors. Levels 1 and 3 preserve source operations; assumptions distinguish the mathematical display from runtime type, domain, overflow and rounding semantics. Do not remove arbitrary operands, cancel denominators, fold numerical operations or change the executable IR. Broader symbolic algebra remains in 0.24.3.
 
 **Revisit** — Measure compilation time, RSS and execution overhead with compact metadata enabled and disabled; expand simplification only with documented assumptions and regression evidence. [Contracts](research/implemented/mathdoc.md#limited-mathematical-simplification-accepted-0154-policy)
+
+## 2026-11-24 — Scalar numerical methods and range-loop documentation
+
+Use libm for established real special functions. Combine the log-Gamma terms analytically for unbalanced Beta arguments to reduce cancellation. Use sign brackets for Brent and safeguarded Newton. The natural cubic spline has a linear-cost tridiagonal setup. Gauss–Kronrod quadrature reuses samples between its two rules and uses a panel budget with explicit failure. Keep the older Simpson routine for uniform fixed grids. [Library contracts and method comparisons](research/implemented/mathematical-library.md)
+
+AMDE models one source loop with a local accumulator and a literal nonzero step. Check that the captured `range` binding resolves to the native callable at query time. Render pure additions and multiplications in closed sum and product notation, and preserve the ordered update in recurrence and source views. The model uses metadata independent of the number of iterations. [Range-loop contract](research/implemented/mathdoc.md#single-range-loops)

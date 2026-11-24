@@ -17,12 +17,39 @@ enum {
     CLIP,
     ONLINE,
     UPDATE,
-    SUMMARY
+    SUMMARY,
+    VARIANCE,
+    STDDEV,
+    NORMAL_PDF,
+    NORMAL_CDF,
+    NORMAL_SF,
+    EXPONENTIAL_PDF,
+    EXPONENTIAL_CDF,
+    EXPONENTIAL_SF
 };
-static const char *const names[] = {
-    "sum",       "cumsum", "median", "quantile", "covariance", "correlation", "regression",
-    "histogram", "argmin", "argmax", "clip",     "online",     "update",      "summary"};
-static const int arities[] = {1, 1, 1, 2, 2, 2, 2, 2, 1, 1, 3, 0, 2, 1};
+static const char *const names[] = {"sum",
+                                    "cumsum",
+                                    "median",
+                                    "quantile",
+                                    "covariance",
+                                    "correlation",
+                                    "regression",
+                                    "histogram",
+                                    "argmin",
+                                    "argmax",
+                                    "clip",
+                                    "online",
+                                    "update",
+                                    "summary",
+                                    "variance",
+                                    "stddev",
+                                    "normal_pdf",
+                                    "normal_cdf",
+                                    "normal_sf",
+                                    "exponential_pdf",
+                                    "exponential_cdf",
+                                    "exponential_sf"};
+static const int arities[] = {1, 1, 1, 2, 2, 2, 2, 2, 1, 1, 3, 0, 2, 1, 1, 1, 3, 3, 3, 2, 2, 2};
 _Static_assert(sizeof names / sizeof *names == sizeof arities / sizeof *arities,
                "stats arity table");
 
@@ -154,6 +181,45 @@ static long double centered(double value, double origin, double scale) {
     return (long double)value / scale - (long double)origin / scale;
 }
 
+static Val dispersion(VM *v, Obj *x, Val correction, int standard_deviation) {
+    int n = A(x).rows;
+    if (correction.t != V_INT || correction.i < 0 || correction.i >= n)
+        vmerror(v, "variance and stddev require 0 <= integer ddof < vector length");
+    double origin = element(x, 0), scale = vector_scale(x);
+    long double mean = 0, squares = 0;
+    for (int i = 0; i < n; i++) {
+        long double value = centered(element(x, i), origin, scale), delta = value - mean;
+        mean += delta / (i + 1);
+        squares += delta * (value - mean);
+    }
+    long double deviation = sqrtl(squares / (n - correction.i)) * scale;
+    return number(representable(v, standard_deviation ? deviation : deviation * deviation));
+}
+
+static Val distribution(VM *v, int op, Val *args) {
+    double x = finite_number(v, args[0]), parameter = finite_number(v, args[1]);
+    if (op <= NORMAL_SF) {
+        double deviation = finite_number(v, args[2]);
+        if (deviation <= 0)
+            vmerror(v, "normal deviation must be positive");
+        long double z = centered(x, parameter, deviation);
+        if (op == NORMAL_PDF) {
+            const long double log_sqrt_two_pi = 0.91893853320467274178032973640561764L;
+            return number(representable(v, expl(-z * z / 2 - logl(deviation) - log_sqrt_two_pi)));
+        }
+        long double tail = z / sqrtl(2);
+        return number((double)(erfcl(op == NORMAL_CDF ? -tail : tail) / 2));
+    }
+    if (parameter <= 0)
+        vmerror(v, "exponential rate must be positive");
+    if (x < 0)
+        return number(op == EXPONENTIAL_SF ? 1 : 0);
+    long double t = (long double)x * parameter;
+    if (op == EXPONENTIAL_PDF)
+        return number((double)fminl(parameter, expl(logl(parameter) - t)));
+    return number((double)(op == EXPONENTIAL_CDF ? -expm1l(-t) : expl(-t)));
+}
+
 static Val paired_statistics(VM *v, Obj *x, Obj *y, int op) {
     int n = A(x).rows;
     if (n < 2 || A(y).rows != n)
@@ -239,15 +305,20 @@ Val stats_call(VM *v, int id, int argc, Val *args) {
     int op = id - STATS_BASE;
     if (op < 0 || (size_t)op >= sizeof names / sizeof *names)
         vmerror(v, "unknown stats operation");
-    if (argc != arities[op])
+    if (argc != arities[op] && !((op == VARIANCE || op == STDDEV) && argc == 2))
         vmerror(v, "invalid stats.%s arity", names[op]);
-    if (op >= ONLINE)
+    if (op >= NORMAL_PDF)
+        return distribution(v, op, args);
+    if (op >= ONLINE && op <= SUMMARY)
         return online_moments(v, op, args);
     if (op == CLIP)
         return clip(v, args[0], finite_number(v, args[1]), finite_number(v, args[2]));
 
     Obj *x = vector(v, args[0]);
     switch (op) {
+    case VARIANCE:
+    case STDDEV:
+        return dispersion(v, x, argc == 2 ? args[1] : integer(0), op == STDDEV);
     case SUM:
     case CUMSUM:
         return compensated_sum(v, x, op == CUMSUM);

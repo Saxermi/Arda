@@ -234,6 +234,7 @@ Proto *compile(Node *root, const char *path);
 void freeproto(Proto *p);
 void mathir_set_enabled(int enabled);
 MathIR *mathir_extract(const Node *function);
+int mathir_has_loop(const Proto *p);
 int mathir_tex(const Proto *p, int level, char *out, size_t size);
 const char *mathir_assumptions(const Proto *p);
 const char *mathir_algorithm(const Proto *p);
@@ -530,6 +531,7 @@ void install_tensor(VM *v, Obj *module);
 #define COMPLEX_BASE 1000
 #define LINOP_BASE 1100
 #define MATHDOC_BASE 1200
+#define SPECIAL_BASE 1300
 Val linalg_call(VM *v, int id, int argc, Val *a);
 const char *linalg_name(int id);
 Val linalg_eigh(VM *v, Val a);
@@ -549,6 +551,9 @@ Obj *linop_module(VM *v);
 Val linop_call(VM *v, int id, int argc, Val *a);
 Obj *mathdoc_module(VM *v);
 Val mathdoc_call(VM *v, int id, int argc, Val *a);
+Val special_call(VM *v, int id, int argc, Val *a);
+Obj *special_module(VM *v);
+int vm_uses_builtin(VM *v, Obj *env, const char *name);
 Val mathdoc_attribute(VM *v, Val target, const char *name);
 Obj *dense_lu_solve(VM *v, Obj *a, Obj *b);
 Val sparse_call(VM *v, int id, int argc, Val *a);

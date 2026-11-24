@@ -1,4 +1,5 @@
 #include "arda.h"
+#include "numerics_source.h"
 #include "ode_source.h"
 #include "opt_source.h"
 _Noreturn void vmerror(VM *v, const char *fmt, ...) {
@@ -56,6 +57,13 @@ static Val *lookup(Obj *env, Constant *k) {
             return &x->val;
     }
     return NULL;
+}
+
+int vm_uses_builtin(VM *v, Obj *env, const char *name) {
+    Constant key = {.s = (char *)name, .hash = hashstr(name)};
+    Val *current = lookup(env, &key);
+    Entry *builtin = tablefind(&v->builtins->as.env.tab, name);
+    return builtin && current && isobj(*current, O_NATIVE) && current->o == builtin->val.o;
 }
 
 static Val get(VM *v, Obj *e, Constant *k) {
@@ -503,14 +511,21 @@ static void module_import(VM *v, Frame *f, const char *name) {
         strcat(candidate, ".arda");
     char *path = realpath(candidate, NULL);
     free(candidate);
-    int embedded = 0;
-    if (!path && !strcmp(name, "ode")) {
-        path = copystr("<stdlib:ode>");
-        embedded = 1;
-    }
-    if (!path && !strcmp(name, "opt")) {
-        path = copystr("<stdlib:opt>");
-        embedded = 2;
+    const char *embedded = NULL;
+    static const struct {
+        const char *name, *path, *source;
+    } stdlib[] = {
+        {"ode", "<stdlib:ode>", ode_source},
+        {"opt", "<stdlib:opt>", opt_source},
+        {"numerics", "<stdlib:numerics>", numerics_source},
+    };
+    if (!path) {
+        for (size_t i = 0; i < sizeof stdlib / sizeof *stdlib; i++)
+            if (!strcmp(name, stdlib[i].name)) {
+                path = copystr(stdlib[i].path);
+                embedded = stdlib[i].source;
+                break;
+            }
     }
     if (!path) {
         Obj *mod = native_module(v, name);
@@ -531,7 +546,7 @@ static void module_import(VM *v, Frame *f, const char *name) {
         push(v, objval(o));
         return;
     }
-    char *src = embedded ? copystr(embedded == 1 ? ode_source : opt_source) : readfile(path);
+    char *src = embedded ? copystr(embedded) : readfile(path);
     if (!src) {
         free(path);
         vmerror(v, "cannot read module '%s'", name);

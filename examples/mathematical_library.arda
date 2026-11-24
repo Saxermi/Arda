@@ -1,0 +1,30 @@
+tol numerics as n
+tol special as s
+tol stats
+tol random as r
+
+pedo(s.gamma(5),s.beta(2,3),s.bessel_j(1,2),s.erfc(4))
+
+caro residual(x):
+    nan x*x-2
+
+pedo(n.brent(residual,0,2),n.newton(residual,lambda x: 2*x,0,2))
+pedo(n.quad(lambda x: abs(x-0.2),0,1))
+
+esta interpolate = n.spline([0,1,2],[0,1,0])
+pedo(interpolate(0.5),interpolate(1))
+
+esta sample = r.exponential(r.generator(42),2,64)
+pedo(stats.normal_sf(8,0,1),stats.stddev(sample,1))
+
+caro square_sum(stop):
+    esta total = 0
+    an i in range(6,stop,-2):
+        total = total + i*i
+    nan total
+
+pedo(square_sum.getTex(0))
+pedo(square_sum.getTex(1))
+pedo(square_sum.getTex(2))
+pedo(square_sum.getTex(3))
+pedo(square_sum(2),square_sum(6))

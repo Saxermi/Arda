@@ -291,7 +291,10 @@ Val mathdoc_call(VM *v, int id, int argc, Val *args) {
         level = (int)args[1].i;
     }
     if (isobj(args[0], O_FUNC)) {
-        const Proto *p = args[0].o->as.func.p;
+        Obj *function = args[0].o;
+        const Proto *p = function->as.func.p;
+        if (mathir_has_loop(p) && !vm_uses_builtin(v, function->as.func.env, "range"))
+            return nil();
         if (method == TEX) {
             char tex[MATHIR_TEX_LIMIT];
             return mathir_tex(p, level, tex, sizeof tex) ? text_or_nil(v, tex) : nil();

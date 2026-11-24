@@ -8,13 +8,13 @@ Arda is an independent, open-source, research-driven scientific programming lang
 
 Its long-term goal is to combine scientifically validated numerical algorithms with adaptive execution, from ordinary laptops to distributed research clusters. The language brings native numerical data structures and algorithms to an indentation-based runtime for physics, engineering, and other computational research.
 
-**Current version** — Arda 0.15.4 — Mathematical Documentation (AMDE v1)
+**Current version** — Arda 0.15.5 — Mathematical Library
 
 *Development codename: Rúmil*
 
-**Next milestone** — Arda 0.15.5 — Mathematical Library
+**Next roadmap task** — Arda Wiki, followed by Arda 0.16 — Virtual Tensors and Memory Management
 
-Arda supports static mathematical queries, complex scalars, compact matrix operators, seeded sampling, and streaming statistics. The optional LAPACK build adds randomized SVD for dense, sparse, and structured operators. [Structured computing contracts](research/implemented/structured-computing.md) · [0.15.4 release validation](docs/RUMIL_0.15.4.md)
+Arda supports static mathematical queries, scalar special functions and numerical solvers, complex scalars, compact matrix operators, seeded sampling, and streaming statistics. The optional LAPACK build adds randomized SVD for dense, sparse, and structured operators. [0.15.5 release validation](docs/RUMIL_0.15.5.md)
 
 > **Development status:** Arda is an early-stage scientific language. The interpreter, dense Float64 tensors, native COO/CSR sparse storage and conversions, sparse assembly and algebra, sparse solvers, selected optimized CPU kernels, and scalar automatic differentiation already exist. The adaptive compute engine, beyond-RAM storage, general mathematical introspection and distributed HPC are still roadmap goals.
 
@@ -69,7 +69,7 @@ Beyond-RAM execution is not a promise that an SSD performs like RAM. Disk-backed
 
 ## Mathematical documentation and introspection
 
-The **Arda Mathematical Documentation Engine (AMDE)**, development codename *Rúmil*, makes the mathematics behind a function available independently of its execution. It documents selected native functions and supported straight-line user functions. `nc.solve.getTex(3)` shows the pivoted LU algorithm, and `nc.solve.getCost({"shape":[10,10]})` estimates arithmetic and buffer sizes from dimensions. [Current query contracts](research/implemented/mathdoc.md) · [Runnable example](examples/mathdoc_queries.arda)
+The **Arda Mathematical Documentation Engine (AMDE)**, development codename *Rúmil*, documents selected native functions, straight-line user functions and supported single range loops. `nc.solve.getTex(3)` shows pivoted LU, and `nc.solve.getCost({"shape":[10,10]})` estimates arithmetic and buffer sizes from dimensions. [Query contracts](research/implemented/mathdoc.md) · [Runnable example](examples/mathdoc_queries.arda)
 
 A simple energy function can be written today using existing language syntax:
 
@@ -268,7 +268,7 @@ pedo(nc.tolist(la.pinv(a)))  # [[0.25, 0, 0], [0, 1, 0]]
 
 ### `random` and `stats`
 
-`random.generator(seed[,stream])` creates an explicit PCG32 generator. Use it with `uniform`, `normal`, `integer`, `poisson`, `choice`, or `shuffle`. `stats` computes quantiles, covariance, correlation, regression, histograms and other vector statistics. `stats.online()` accumulates a count, mean and population variance without storing the samples. Both modules are available in portable builds. [Runnable example](examples/random_statistics.arda) · [API contracts](research/implemented/random-and-statistics.md)
+`random.generator(seed[,stream])` creates an explicit PCG32 generator for uniform, normal, exponential, integer and Poisson draws, as well as choice and shuffle. `stats` provides quantiles, covariance, correlation, regression, histograms, variance and standard deviation, plus normal and exponential probability functions. `stats.online()` accumulates a count, mean and population variance without storing samples. [Base API contracts](research/implemented/random-and-statistics.md) · [Distribution and dispersion APIs](research/implemented/mathematical-library.md#distributions-and-dispersion)
 
 ### `complex`, `linop`, and randomized SVD
 
@@ -288,6 +288,10 @@ pedo(nc.tolist(la.pinv(a)))  # [[0.25, 0, 0], [0, 1, 0]]
 | `opt.lbfgs(f,x0,tolerance=1e-6,maxiter=500,memory=10)` | User-supplied gradient, L-BFGS with Armijo backtracking; returns `[x,iterations,gradient_norm,converged,value]` |
 
 The `ode` and `opt` modules are written in Arda and embedded at build time. Callback functions should not mutate their inputs. FFT lengths must be powers of two up to 1,048,576. The optional LAPACK routines require a LAPACK build; `nc.solve` is available in the portable build. RK45 controls estimated local error, not a guaranteed global error. There is no general stiff solver or event detection yet.
+
+### `special` and `numerics`
+
+The `special` module provides real Gamma, Beta, integer-order Bessel and error functions. Use `numerics.brent(f,a,b)` for a sign bracket, `numerics.newton(f,df,a,b)` when a derivative is available, and `numerics.quad(f,a,b)` for adaptive scalar integration. `numerics.linear(x,y)` and `numerics.spline(x,y)` return reusable interpolants. [API contracts](research/implemented/mathematical-library.md) · [Runnable example](examples/mathematical_library.arda)
 
 ### `ad`: scalar automatic differentiation
 
@@ -369,6 +373,7 @@ The REPL accepts one statement per line and blocks terminated by a blank line. `
 | `docs/RUMIL_0.15.2.md` | Random generator and statistics release validation |
 | `docs/RUMIL_0.15.3.md` | Complex scalars, matrix operators and derivative-free optimization |
 | `docs/RUMIL_0.15.4.md` | Mathematical documentation and AMDE overhead measurements |
+| `docs/RUMIL_0.15.5.md` | Scalar mathematical library and static range-loop validation |
 | `CHANGELOG.md` | Release history |
 | `MAINTENANCE.md` | 0.13.1 changes and measured validation |
 | `CONTRIBUTING.md` | Local development and validation policy |
@@ -422,7 +427,7 @@ make test-reference
 
 Read the [full master roadmap](ROADMAP.md) for detailed subversions, architecture, benchmark targets, research references, and development codenames.
 
-The roadmap extends mathematical queries with loop recognition, `getPlan()`, `verify()` and bounded `trace()`. Execution tracing and verification will be optional, with no per-element logging in the normal high-performance path. Planned memory and compute engines will combine sparse and structured representations, SIMD, parallel execution, memory mapping, streaming, quantization and optional MPI/GPU backends. These are goals, not present features. Full 70B-model training on ordinary laptops is not a project promise.
+The roadmap extends mathematical queries with nested loop and control-flow analysis, `getPlan()`, `verify()` and bounded `trace()`. Execution tracing and verification will be optional, with no per-element logging in the normal high-performance path. Planned memory and compute engines will combine sparse and structured representations, SIMD, parallel execution, memory mapping, streaming, quantization and optional MPI/GPU backends. These are goals, not present features. Full 70B-model training on ordinary laptops is not a project promise.
 
 ## Limitations and safety
 

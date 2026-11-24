@@ -1,0 +1,379 @@
+tol high as _high
+
+caro _finite(x):
+    nan (type(x) == "int" or type(x) == "float") and _high.finite(x)
+
+caro _value(x):
+    qui not _finite(x):
+        throw "numerics requires finite real scalars"
+    nan float(x)
+
+caro _mid(a, b):
+    nan a + (b-a)*0.5
+
+caro _max(a, b):
+    qui a > b:
+        nan a
+    nan b
+
+caro _within(x, a, b):
+    nan (a < x and x < b) or (b < x and x < a)
+
+caro _opposite(a, b):
+    nan (a < 0) != (b < 0)
+
+caro _check_interval(a, b, xtol, rtol, maxiter):
+    qui not _finite(b-a) or xtol <= 0 or rtol < 0 or rtol >= 1 or type(maxiter) != "int" or maxiter < 1:
+        throw "invalid root bracket, tolerances or iteration limit"
+
+caro _converged(a, b, xtol, rtol):
+    # The returned endpoint may be one full bracket width from the root.
+    nan abs(b-a) <= _max(xtol, rtol*abs(b))
+
+caro _bracketed(fa, fb):
+    qui fa != 0 and fb != 0 and not _opposite(fa, fb):
+        throw "root requires a sign-changing bracket"
+
+caro _secant(a, b, fa, fb):
+    # b is the better endpoint, so |fb/fa| <= 1.
+    esta r = abs(fb/fa)
+    nan b + (a-b)*(r/(1+r))
+
+caro _inverse_quadratic(a, b, c, fa, fb, fc):
+    esta scale = _max(abs(fa), _max(abs(fb), abs(fc)))
+    esta y = fa/scale
+    esta z = fb/scale
+    esta w = fc/scale
+    qui y == z or y == w or z == w:
+        nan _secant(a, b, fa, fb)
+    # Interpolate the inverse at zero, with b as the origin for x.
+    nan b + (a-b)*(z/(y-z))*(w/(y-w)) + (c-b)*(y/(w-y))*(z/(w-z))
+
+# Brent-Dekker, with inverse interpolation guarded by bisection.
+caro brent(f, a, b, xtol = 1e-12, rtol = 1e-12, maxiter = 100):
+    a = _value(a)
+    b = _value(b)
+    xtol = _value(xtol)
+    rtol = _value(rtol)
+    _check_interval(a, b, xtol, rtol, maxiter)
+    esta fa = _value(f(a))
+    qui fa == 0:
+        nan a
+    esta fb = _value(f(b))
+    qui fb == 0:
+        nan b
+    _bracketed(fa, fb)
+    esta c = a
+    esta fc = fa
+    esta d = c
+    esta bisected = true
+    esta iter = 0
+    tenna true:
+        qui abs(fa) < abs(fb):
+            esta tmp = b
+            b = a
+            a = tmp
+            tmp = fb
+            fb = fa
+            fa = tmp
+        qui fb == 0 or _converged(a, b, xtol, rtol):
+            nan b
+        qui iter >= maxiter:
+            throw "Brent iteration limit"
+        esta s = _inverse_quadratic(a, b, c, fa, fb, fc)
+        esta span = abs(c-d)
+        qui bisected:
+            span = abs(b-c)
+        esta guard = a + (b-a)*0.25
+        esta tolerance = _max(xtol, rtol*abs(b))
+        bisected = not _finite(s) or not _within(s, guard, b) or abs(s-b) >= span*0.5 or span <= tolerance
+        qui bisected:
+            s = _mid(a, b)
+        qui not _within(s, a, b):
+            throw "Brent bracket reached Float64 resolution"
+        esta fs = _value(f(s))
+        qui fs == 0:
+            nan s
+        d = c
+        c = b
+        fc = fb
+        qui _opposite(fa, fs):
+            b = s
+            fb = fs
+        ai:
+            a = s
+            fa = fs
+        iter = iter+1
+
+# Newton proposals stay inside the sign-changing bracket. Alternate with
+# bisection when a Newton update has not reduced the bracket sufficiently.
+caro newton(f, derivative, a, b, xtol = 1e-12, rtol = 1e-12, maxiter = 100):
+    a = _value(a)
+    b = _value(b)
+    xtol = _value(xtol)
+    rtol = _value(rtol)
+    _check_interval(a, b, xtol, rtol, maxiter)
+    esta fa = _value(f(a))
+    qui fa == 0:
+        nan a
+    esta fb = _value(f(b))
+    qui fb == 0:
+        nan b
+    _bracketed(fa, fb)
+    esta bisect = false
+    esta iter = 0
+    tenna true:
+        esta x = b
+        esta fx = fb
+        esta other = a
+        qui abs(fa) < abs(fb):
+            x = a
+            fx = fa
+            other = b
+        qui _converged(other, x, xtol, rtol):
+            nan x
+        qui iter >= maxiter:
+            throw "Newton iteration limit"
+        esta s = _mid(a, b)
+        esta width = abs(b-a)
+        qui not bisect:
+            esta df = _value(derivative(x))
+            qui df != 0:
+                esta proposal = x-fx/df
+                qui _within(proposal, a, b):
+                    s = proposal
+        qui not _within(s, a, b):
+            throw "Newton bracket reached Float64 resolution"
+        esta fs = _value(f(s))
+        qui fs == 0:
+            nan s
+        qui _opposite(fa, fs):
+            b = s
+            fb = fs
+        ai:
+            a = s
+            fa = fs
+        bisect = abs(b-a) > width*0.5
+        iter = iter+1
+
+caro _samples(xs, ys):
+    qui (type(xs) != "list" and type(xs) != "array") or (type(ys) != "list" and type(ys) != "array"):
+        throw "interpolation requires lists or vectors"
+    esta n = len(xs)
+    qui n < 2 or n != len(ys):
+        throw "interpolation requires equal lengths of at least two"
+    esta x = []
+    esta y = []
+    esta i = 0
+    tenna i < n:
+        esta knot = _value(xs[i])
+        qui i > 0 and (knot <= x[i-1] or not _finite(knot-x[i-1])):
+            throw "interpolation knots must be strictly increasing with finite spacing"
+        push(x, knot)
+        push(y, _value(ys[i]))
+        i = i+1
+    nan [x,y]
+
+caro _segment(x, q):
+    qui q < x[0] or q > x[-1]:
+        throw "interpolation query is outside the knot interval"
+    esta low = 0
+    esta high = len(x)-1
+    tenna high-low > 1:
+        esta mid = low + int((high-low)/2)
+        qui q < x[mid]:
+            high = mid
+        ai:
+            low = mid
+    nan low
+
+# Return a reusable linear interpolant with a private copy of the samples.
+caro linear(xs, ys):
+    esta data = _samples(xs, ys)
+    esta x = data[0]
+    esta y = data[1]
+    caro evaluate(q):
+        q = _value(q)
+        esta i = _segment(x, q)
+        esta t = (q-x[i])/(x[i+1]-x[i])
+        nan _value((1-t)*y[i] + t*y[i+1])
+    nan evaluate
+
+# Natural cubic spline, using a row-scaled tridiagonal system for the
+# second derivatives and storing coefficients in the local coordinate t.
+caro spline(xs, ys):
+    esta data = _samples(xs, ys)
+    esta x = data[0]
+    esta y = data[1]
+    esta n = len(x)
+    esta upper = [0.0]
+    esta second = [0.0]
+    esta i = 1
+    esta left = x[1]-x[0]
+    esta slope = (y[1]-y[0])/left
+    tenna i < n-1:
+        esta right = x[i+1]-x[i]
+        esta next_slope = (y[i+1]-y[i])/right
+        esta scale = _max(left, right)
+        esta width = left/scale + right/scale
+        esta p = (left/scale)/width
+        esta diagonal = 2-p*upper[i-1]
+        esta rhs = (6/width)*((next_slope-slope)/scale)
+        push(upper, ((right/scale)/width)/diagonal)
+        push(second, _value((rhs-p*second[i-1])/diagonal))
+        left = right
+        slope = next_slope
+        i = i+1
+    push(second, 0.0)
+    i = n-2
+    tenna i > 0:
+        second[i] = _value(second[i]-upper[i]*second[i+1])
+        i = i-1
+    esta left_cubic = []
+    esta right_cubic = []
+    i = 0
+    tenna i < n-1:
+        esta h = x[i+1]-x[i]
+        push(left_cubic, _value((h*(second[i]/6))*h))
+        push(right_cubic, _value((h*(second[i+1]/6))*h))
+        i = i+1
+    caro evaluate(q):
+        q = _value(q)
+        esta i = _segment(x, q)
+        qui q == x[i]:
+            nan y[i]
+        qui q == x[i+1]:
+            nan y[i+1]
+        esta t = (q-x[i])/(x[i+1]-x[i])
+        esta s = 1-t
+        esta correction = -s*t*((s+1)*left_cubic[i]+(t+1)*right_cubic[i])
+        nan _value(s*y[i] + t*y[i+1] + correction)
+    nan evaluate
+
+# Nonnegative abscissae and weights of the 7/15 Gauss-Kronrod pair.
+# Each rule's weights sum to two after accounting for symmetric pairs.
+caro _quadrature_rule():
+    nan [
+        [0.9914553711208126,0.02293532201052922,0.0],
+        [0.9491079123427585,0.06309209262997855,0.1294849661688697],
+        [0.8648644233597691,0.1047900103222502,0.0],
+        [0.7415311855993944,0.1406532597155259,0.2797053914892766],
+        [0.5860872354676911,0.1690047266392679,0.0],
+        [0.4058451513773972,0.1903505780647854,0.3818300505051189],
+        [0.2077849550078985,0.2044329400752989,0.0],
+        [0.0,0.2094821410847278,0.4179591836734694]
+    ]
+
+caro _panel(f, a, b, rule):
+    esta m = _mid(a, b)
+    esta width = b-a
+    esta half = width*0.5
+    qui not _within(m, a, b):
+        throw "quadrature interval reached Float64 resolution"
+    esta center = _value(f(m))
+    esta kronrod = (rule[7][1]*0.5)*center
+    esta gauss = (rule[7][2]*0.5)*center
+    esta mass = (rule[7][1]*0.5)*abs(center)
+    esta left = []
+    esta right = []
+    esta j = 0
+    tenna j < 7:
+        esta offset = half*rule[j][0]
+        esta v1 = _value(f(m-offset))
+        esta v2 = _value(f(m+offset))
+        push(left, v1)
+        push(right, v2)
+        esta kw = rule[j][1]*0.5
+        esta gw = rule[j][2]*0.5
+        kronrod = kronrod + (kw*v1 + kw*v2)
+        gauss = gauss + (gw*v1 + gw*v2)
+        mass = mass + (kw*abs(v1) + kw*abs(v2))
+        j = j+1
+    # Rescale the discrepancy by the sampled absolute deviation and impose
+    # a floating-point floor proportional to the absolute integral estimate.
+    esta asc = abs((rule[7][1]*0.5)*center-(rule[7][1]*0.5)*kronrod)
+    j = 0
+    tenna j < 7:
+        esta kw = rule[j][1]*0.5
+        asc = asc + abs(kw*left[j]-kw*kronrod) + abs(kw*right[j]-kw*kronrod)
+        j = j+1
+    esta difference = abs(kronrod-gauss)
+    esta err = difference
+    qui asc > 0 and difference > 0:
+        esta ratio = 200*(difference/asc)
+        err = asc
+        qui ratio < 1:
+            err = asc*ratio*sqrt(ratio)
+    err = _max(err, (50*2.220446049250313e-16)*mass)
+    nan [a,b,_value(width*kronrod),_value(width*err)]
+
+caro _heap_push(heap, panel):
+    esta i = len(heap)
+    push(heap, panel)
+    tenna i > 0:
+        esta parent = int((i-1)/2)
+        qui heap[parent][3] >= panel[3]:
+            break
+        heap[i] = heap[parent]
+        i = parent
+    heap[i] = panel
+
+caro _heap_pop(heap):
+    esta top = heap[0]
+    esta last = pop(heap)
+    esta n = len(heap)
+    qui n == 0:
+        nan top
+    esta i = 0
+    tenna 2*i+1 < n:
+        esta child = 2*i+1
+        qui child+1 < n and heap[child+1][3] > heap[child][3]:
+            child = child+1
+        qui heap[child][3] <= last[3]:
+            break
+        heap[i] = heap[child]
+        i = child
+    heap[i] = last
+    nan top
+
+# Refine the interval with the largest estimated error. The returned error is
+# a sampling-based estimate, and the evaluation count includes all panels.
+caro quad(f, a, b, rtol = 1e-9, atol = 1e-12, max_intervals = 1024):
+    a = _value(a)
+    b = _value(b)
+    rtol = _value(rtol)
+    atol = _value(atol)
+    qui not _finite(b-a) or rtol < 0 or rtol >= 1 or atol < 0 or (rtol == 0 and atol == 0) or type(max_intervals) != "int" or max_intervals < 1 or max_intervals > 1000000:
+        throw "invalid quadrature interval, tolerances or interval limit"
+    qui a == b:
+        nan [0.0,0.0,0]
+    esta sign = 1
+    qui a > b:
+        esta tmp = a
+        a = b
+        b = tmp
+        sign = -1
+    esta rule = _quadrature_rule()
+    esta panel = _panel(f, a, b, rule)
+    esta heap = [panel]
+    esta total = panel[2]
+    esta adjustment = 0.0
+    esta error = panel[3]
+    esta evaluations = 15
+    tenna error > _max(atol, rtol*abs(total)):
+        qui len(heap) >= max_intervals:
+            throw "quadrature interval limit before reaching tolerance"
+        panel = _heap_pop(heap)
+        esta m = _mid(panel[0], panel[1])
+        esta left = _panel(f, panel[0], m, rule)
+        esta right = _panel(f, m, panel[1], rule)
+        # Keep cancellation in the running integral separate from panel error.
+        esta delta = (left[2]+right[2]-panel[2])-adjustment
+        esta next = _value(total+delta)
+        adjustment = (next-total)-delta
+        total = next
+        error = _value(_max(0.0, error-panel[3]) + left[3] + right[3])
+        evaluations = evaluations+30
+        _heap_push(heap, left)
+        _heap_push(heap, right)
+    nan [sign*total,error,evaluations]
