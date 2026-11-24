@@ -2,6 +2,13 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
+## 0.15.5 — Mathematical Library
+
+- Added Gamma, Beta, integer-order Bessel and error functions with logarithmic and tail APIs.
+- Added bracketed Brent and Newton methods, linear and natural cubic interpolants, and adaptive Gauss–Kronrod quadrature.
+- Added Gaussian and exponential density, CDF and survival functions, seeded exponential draws, and batch variance and standard deviation.
+- Extended AMDE to describe a single supported range loop as a sum, product or recurrence. [Release validation](docs/RUMIL_0.15.5.md)
+
 ## 0.15.4 — Mathematical Documentation (AMDE v1)
 
 - Added static native mathematical documentation through callable queries and the `mathdoc` module. Shape-based cost estimates cover dense solve, matrix multiply, dot product, and CSR matrix–vector multiply. [Contracts](research/implemented/mathdoc.md)

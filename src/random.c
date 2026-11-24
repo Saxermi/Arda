@@ -3,10 +3,10 @@
 
 #define A(o) ((o)->as.array)
 
-enum { GENERATOR, UINT32, UNIFORM, NORMAL, INTEGER, POISSON, SHUFFLE, CHOICE };
-static const char *const names[] = {"generator", "uint32",  "uniform", "normal",
-                                    "integer",   "poisson", "shuffle", "choice"};
-static const int arities[] = {1, 1, 3, 3, 3, 2, 2, 2};
+enum { GENERATOR, UINT32, UNIFORM, NORMAL, INTEGER, POISSON, SHUFFLE, CHOICE, EXPONENTIAL };
+static const char *const names[] = {"generator", "uint32",  "uniform", "normal",     "integer",
+                                    "poisson",   "shuffle", "choice",  "exponential"};
+static const int arities[] = {1, 1, 3, 3, 3, 2, 2, 2, 2};
 _Static_assert(sizeof names / sizeof *names == sizeof arities / sizeof *arities,
                "random arity table");
 
@@ -178,6 +178,9 @@ static Val draw_samples(VM *v, RandomState *rng, int op, int argc, Val *args) {
             if (first < 0 || first > 1e8)
                 vmerror(v, "Poisson mean must be in [0, 1e8]");
             parameters = poisson_parameters(first);
+        } else if (op == EXPONENTIAL) {
+            if (first <= 0)
+                vmerror(v, "exponential rate must be positive");
         } else {
             second = finite_parameter(v, args[2]);
             if (op == UNIFORM && first >= second)
@@ -200,6 +203,13 @@ static Val draw_samples(VM *v, RandomState *rng, int op, int argc, Val *args) {
         case INTEGER:
             sample = integer(signed_bits(lower + bounded(rng, width)));
             break;
+        case EXPONENTIAL: {
+            long double value = -log1pl(-unit(rng)) / first;
+            if (!isfinite(value) || value > DBL_MAX)
+                vmerror(v, "exponential sample is outside the Float64 range");
+            sample = number((double)value);
+            break;
+        }
         default:
             sample = integer(poisson(rng, parameters));
             break;

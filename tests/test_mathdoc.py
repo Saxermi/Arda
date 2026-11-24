@@ -209,8 +209,9 @@ class MathDocTests(unittest.TestCase):
         pedo(q(0))
         caro loop(n):
             esta s = 0
-            an i in range(n):
-                s = s+i
+            tenna n > 0:
+                s = s+n
+                n = n-1
             nan s
         caro default(x=1):
             nan x
@@ -233,6 +234,115 @@ class MathDocTests(unittest.TestCase):
         pedo(f.getTex(),helper.g.getTex(),cos.getTex(),f(2))
         """, r"mun mun \cos(x) 3", flags=("--mathdoc=none",),
                       files={"helper.arda": "caro g(x):\n    nan x*x\n"}, stress=True)
+
+    def test_range_sum_product_and_recurrence(self):
+        output = self.run_code("""
+        caro descending(n):
+            esta s = 1
+            an i in range(6,n,-2):
+                s = s+i*i
+            nan s
+        caro product(n):
+            esta p = 2
+            an i in range(n):
+                p = p*(i+1)
+            nan p
+        caro recurrence(n,b):
+            esta x = b
+            esta lo = 1
+            an i in range(lo,n):
+                x = 2*x+i
+            nan x
+        esta saved = descending.getTex
+        pedo(descending(0),descending(2),descending(6),descending(9))
+        descending = mun
+        collect()
+        pedo(saved(0))
+        pedo(saved(1))
+        pedo(saved(2))
+        pedo(saved(3))
+        pedo(product.getTex(),product(3),product(0))
+        pedo(recurrence.getTex(),recurrence(4,3))
+        pedo(recurrence.getAlgorithm())
+        pedo(recurrence.getAssumptions())
+        pedo(recurrence.getComplexity(),recurrence.getCost({}))
+        """, stress=True).splitlines()
+        self.assertEqual(output[0], "57 53 1 1")
+        self.assertIn(r"\frac{n-6}{-2}", output[1])
+        self.assertIn(r"+\sum_{\mathsf{k}=0}^{\mathsf{N}-1}", output[1])
+        self.assertIn(r"s_{\mathsf{k}+1}&=s_{\mathsf{k}}+", output[2])
+        self.assertIn("An empty range returns the initial state", output[3])
+        self.assertIn(r"\operatorname{range}\left(6,n,-2\right)", output[4])
+        self.assertIn(r"\prod_{\mathsf{k}=0}^{\mathsf{N}-1}", output[5])
+        self.assertTrue(output[5].endswith(" 12 2"))
+        self.assertIn(r"x_{\mathsf{k}+1}&=2\cdot x_{\mathsf{k}}+i_{\mathsf{k}}", output[6])
+        self.assertTrue(output[6].endswith(" 35"))
+        self.assertIn("one ordered scalar accumulator update", output[7])
+        self.assertIn("round differently", output[8])
+        self.assertEqual(output[9], "mun mun")
+
+    def test_range_rebinding_and_opaque_updates_do_not_execute(self):
+        output = self.run_code("""
+        esta calls = 0
+        caro effect(x):
+            calls = calls+1
+            throw "executed target"
+        caro sum(n):
+            esta s = 0
+            an i in range(n):
+                s = s+i
+            nan s
+        caro captured(range):
+            caro inner(n):
+                esta s = 0
+                an i in range(n):
+                    s = s+i
+                nan s
+            nan inner
+        caro opaque(n):
+            esta s = 0
+            an i in range(n):
+                s = s+effect(i)
+            nan s
+        esta builtin_range = range
+        esta ask = sum.getTex
+        pedo(ask(0))
+        esta range = effect
+        collect()
+        pedo(ask(0),sum.getAlgorithm(),sum.getAssumptions(),captured(effect).getTex(),opaque.getTex(),calls)
+        range = builtin_range
+        pedo(ask(0),captured(builtin_range).getTex())
+        """, stress=True).splitlines()
+        self.assertIn(r"\sum", output[0])
+        self.assertEqual(output[1], "mun mun mun mun mun 0")
+        self.assertEqual(output[2].count(r"\sum"), 2)
+
+    def test_range_limits_and_unsupported_control_flow(self):
+        patterns = (
+            ("range(n,0,0)", "s = s+i"),
+            ("range(0,n,n)", "s = s+i"),
+            ("range(1.5)", "s = s+i"),
+            ("range(1000001)", "s = s+i"),
+            ("range(n)", "break"),
+            ("range(n)", "continue"),
+            ("range(n)", "s = s+i\n        s = s+1"),
+            ("range(n)", "an j in range(n):\n            s = s+j"),
+            ("range(n)", "s[0] = s[0]+i"),
+            ("range(n)", "s = " + "+".join(["i"] * 80)),
+        )
+        for call, statement in patterns:
+            with self.subTest(call=call, statement=statement):
+                code = (f"caro f(n):\n    esta s = 0\n    an i in {call}:\n"
+                        f"        {statement}\n    nan s\npedo(f.getTex())\n")
+                self.run_code(code, "mun", stress=True)
+        self.run_code("""
+        caro f(n):
+            esta s = 0
+            an i in range(n):
+                s = s+i
+            nan s
+        pedo(f.getTex(0),f.getTex(3),f(4))
+        """, "mun mun 6", flags=("--mathdoc=none",), stress=True)
 
     def test_metadata_bounds(self):
         expression = "+".join(["x"] * 90)

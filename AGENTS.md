@@ -21,7 +21,7 @@ Arda is CPU-first, not CPU-only. Preserve the small portable runtime while enabl
 - The source and tests describe implemented behavior; the roadmap describes proposals, not promises. Inspect the latest repository state rather than assuming a planned API exists.
 - At the time this guide was introduced, the baseline was 0.13.1 (Scientific Maintenance), with dense rank-1–8 Float64 tensors, scalar reverse-mode AD, selected SIMD kernels, numerical methods and a specialized matrix-free Poisson solver.
 - Arda 0.14.3 (development codename Moria) implements native COO/CSR, typed assembly, sparse algebra, Matrix Market I/O, CG/PCG, and sparse memory budgets. Read [docs/MORIA_0.14.3.md](docs/MORIA_0.14.3.md) and [the foundations report](docs/MORIA_0.14.0.md). Arda 0.14.4 closes sparse release validation. See [the sparse release report](docs/MORIA_0.14.4.md).
-- Arda 0.15.0 (development codename Rúmil) adds [dense factorizations and direct solvers](docs/RUMIL_0.15.0.md). Arda 0.15.1 adds [optional LAPACK SVD and eigenvalue routines](docs/RUMIL_0.15.1.md). Arda 0.15.2 adds [random generators and statistics](docs/RUMIL_0.15.2.md). Arda 0.15.3 adds [complex scalars, structured operators and zeroth-order optimization](docs/RUMIL_0.15.3.md). Arda 0.15.4 adds [static mathematical documentation](docs/RUMIL_0.15.4.md). Next is the 0.15.5 mathematical library milestone, including limited static loop analysis.
+- Arda 0.15.0 (development codename Rúmil) adds [dense factorizations and direct solvers](docs/RUMIL_0.15.0.md). Arda 0.15.1 adds [optional LAPACK SVD and eigenvalue routines](docs/RUMIL_0.15.1.md). Arda 0.15.2 adds [random generators and statistics](docs/RUMIL_0.15.2.md). Arda 0.15.3 adds [complex scalars, structured operators and zeroth-order optimization](docs/RUMIL_0.15.3.md). Arda 0.15.4 adds [static mathematical documentation](docs/RUMIL_0.15.4.md). Arda 0.15.5 adds a [scalar mathematical library and limited static loop analysis](docs/RUMIL_0.15.5.md). The wiki is the closing task before 0.16.
 - Do not implement unrelated future milestones, invent benchmark results, or bump the version unless the requested task warrants it.
 
 ## Repository map
@@ -100,7 +100,7 @@ python -m pip install -r requirements-dev.txt
 make test-reference
 ```
 
-Use the Makefile's separate build configurations; no clean build is required merely to switch BLAS/LAPACK/sanitizer settings. Use `make format-check` when clang-format is available. Do not hand-edit the generated `src/ode_source.h` and `src/opt_source.h`; update the corresponding `lib/*.arda` source and regenerate using the Makefile.
+Use the Makefile's separate build configurations. Use `make format-check` when clang-format is available. Update the corresponding `lib/*.arda` source and regenerate the `src/*_source.h` headers using the Makefile.
 
 Add focused regression tests for fixes and numerical tests for new algorithms. Include edge cases, invalid inputs, overflow, empty shapes, error cleanup and GC stress where applicable. Compare numerical outputs against independent references using justified tolerances, residuals and conditioning information. Report precisely which tests actually ran and which were skipped; do not imply that a local run establishes general correctness or cross-platform support.
 

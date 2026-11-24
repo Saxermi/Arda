@@ -12,6 +12,8 @@ typedef enum {
     MI_PARAM,
     MI_EXTERNAL,
     MI_LOCAL,
+    MI_INDEX,
+    MI_STATE,
     MI_NEG,
     MI_ADD,
     MI_SUB,
@@ -27,14 +29,21 @@ typedef struct {
     double real;
     const char *name;
 } MathNode;
+typedef enum { NO_LOOP, RECURRENCE, SUM, PRODUCT } LoopKind;
+typedef struct {
+    LoopKind kind;
+    int index, accumulator, start, stop, step, update;
+} MathLoop;
 struct MathIR {
     int count, result, has_calls, has_external;
+    const MathLoop *loop;
     MathNode nodes[];
 };
 typedef struct {
     MathNode nodes[MAX_NODES];
     int count, has_calls, has_external;
     const Node *fn;
+    MathLoop loop;
 } Extract;
 
 /* Accepted 0.15.4 policy: compact metadata is on by default. */
@@ -86,9 +95,12 @@ static int expression(Extract *e, const Node *n, int depth) {
         }
         return i;
     case N_VAR:
+        if (e->loop.kind != NO_LOOP && !strcmp(e->nodes[e->loop.index].name, n->str))
+            return add(e, MI_INDEX, n->str, -1, -1);
         a = binding(e, n->str);
         if (a >= 0)
-            return add(e, MI_LOCAL, n->str, a, -1);
+            return add(e, e->loop.kind != NO_LOOP && a == e->loop.accumulator ? MI_STATE : MI_LOCAL,
+                       n->str, a, -1);
         if (parameter(e, n->str) >= 0)
             return add(e, MI_PARAM, n->str, -1, -1);
         e->has_external = 1;
@@ -124,7 +136,7 @@ static int expression(Extract *e, const Node *n, int depth) {
         /* Source names are not identities: mutable lexical environments can
          * rebind even a builtin. Document the spelling, not a guessed callee. */
         const Node *callee = n->a;
-        if (!callee ||
+        if (e->loop.kind != NO_LOOP || !callee ||
             (callee->t != N_VAR && (callee->t != N_ATTR || !callee->a || callee->a->t != N_VAR)))
             return -1;
         int qualifier = -1;
@@ -152,6 +164,85 @@ static int expression(Extract *e, const Node *n, int depth) {
     }
 }
 
+// A literal can be valid (1), invalid (-1), or unavailable for a symbolic bound (0).
+static int range_literal(const Node *n, int64_t *value) {
+    int negative = n->t == N_UNARY && n->op == T_MINUS;
+    if (negative)
+        n = n->a;
+    if (!n || n->t != N_NUM)
+        return 0;
+    long double x = n->isint ? (long double)n->integer : n->num;
+    if (!isfinite(x) || fabsl(x) > 9e15L || truncl(x) != x)
+        return -1;
+    *value = negative ? -(int64_t)x : (int64_t)x;
+    return 1;
+}
+
+static int range_bounds_valid(const Node *first, const Node *last, const Node *stride) {
+    int64_t start, stop, step;
+    int known_start = range_literal(first, &start);
+    int known_stop = range_literal(last, &stop);
+    if (known_start < 0 || known_stop < 0 || range_literal(stride, &step) != 1 || !step)
+        return 0;
+    if (known_start && known_stop) {
+        int64_t distance = step > 0 ? stop - start : start - stop;
+        int64_t width = step > 0 ? step : -step;
+        return distance <= 0 || (distance - 1) / width < INT64_C(1000000);
+    }
+    return 1;
+}
+
+static int loop_expression(Extract *e, const Node *loop, const Node *ret) {
+    const Node *range = loop->a;
+    const Node *body = loop->b;
+    if (range->t != N_CALL || range->a->t != N_VAR || strcmp(range->a->str, "range") ||
+        range->count < 1 || range->count > 3 || parameter(e, "range") >= 0 ||
+        binding(e, "range") >= 0 || !valid_name(loop->str) || parameter(e, loop->str) >= 0 ||
+        binding(e, loop->str) >= 0 || body->count != 1 || body->items[0]->t != N_EXPR || !ret ||
+        ret->t != N_VAR)
+        return 0;
+    const Node *assignment = body->items[0]->a;
+    if (assignment->t != N_ASSIGN || assignment->a->t != N_VAR ||
+        strcmp(assignment->a->str, ret->str))
+        return 0;
+    int accumulator = binding(e, ret->str);
+    if (accumulator < 0)
+        return 0;
+    // Bounds are evaluated before the loop variable and iteration state exist.
+    const Node zero = {.t = N_NUM, .isint = 1};
+    const Node one = {.t = N_NUM, .isint = 1, .integer = 1};
+    const Node *first = range->count == 1 ? &zero : range->items[0];
+    const Node *last = range->items[range->count == 1 ? 0 : 1];
+    const Node *stride = range->count == 3 ? range->items[2] : &one;
+    if (!range_bounds_valid(first, last, stride))
+        return 0;
+    int start = expression(e, first, 0);
+    int stop = expression(e, last, 0);
+    int step = expression(e, stride, 0);
+    int index = add(e, MI_INDEX, loop->str, -1, -1);
+    if (start < 0 || stop < 0 || step < 0 || index < 0 || e->has_calls || e->has_external)
+        return 0;
+    e->loop = (MathLoop){.kind = RECURRENCE,
+                         .index = index,
+                         .accumulator = accumulator,
+                         .start = start,
+                         .stop = stop,
+                         .step = step};
+    int update = expression(e, assignment->b, 0);
+    if (update < 0 || e->has_external)
+        return 0;
+    e->loop.update = update;
+    const MathNode *value = &e->nodes[update];
+    if ((value->kind == MI_ADD || value->kind == MI_MUL) && e->nodes[value->a].kind == MI_STATE) {
+        int occurrences = 0;
+        for (int i = index + 1; i <= update; i++)
+            occurrences += e->nodes[i].kind == MI_STATE;
+        if (occurrences == 1)
+            e->loop.kind = value->kind == MI_ADD ? SUM : PRODUCT;
+    }
+    return 1;
+}
+
 static MathIR *extract(const Node *fn) {
     if (!fn || !valid_name(fn->str) || fn->n_names > MAX_PARAMS)
         return NULL;
@@ -175,9 +266,13 @@ static MathIR *extract(const Node *fn) {
                 int value = expression(&e, s->a, 0);
                 if (value < 0 || add(&e, MI_BIND, s->str, value, -1) < 0)
                     return NULL;
-            } else if (s->t == N_RETURN && i == body->count - 1)
+            } else if (s->t == N_FOR && i == body->count - 2 && body->items[i + 1]->t == N_RETURN) {
+                if (!loop_expression(&e, s, body->items[i + 1]->a))
+                    return NULL;
+            } else if (s->t == N_RETURN && i == body->count - 1) {
+                // The return in a supported loop is the final accumulator.
                 result = expression(&e, s->a, 0);
-            else
+            } else
                 return NULL;
         }
     }
@@ -189,18 +284,25 @@ static MathIR *extract(const Node *fn) {
         if (e.nodes[i].kind == MI_EXTERNAL && binding(&e, e.nodes[i].name) >= 0)
             return NULL;
     size_t bytes = sizeof(MathIR) + (size_t)e.count * sizeof(MathNode);
+    size_t loop_bytes = e.loop.kind == NO_LOOP ? 0 : sizeof(MathLoop);
     size_t names = 0;
     for (int i = 0; i < e.count; i++)
         if (e.nodes[i].name)
             names += strlen(e.nodes[i].name) + 1;
     /* Both counts are bounded by the constants above. */
-    MathIR *ir = front_mem(bytes + names);
+    MathIR *ir = front_mem(bytes + loop_bytes + names);
     ir->count = e.count;
     ir->result = result;
     ir->has_calls = e.has_calls;
     ir->has_external = e.has_external;
     memcpy(ir->nodes, e.nodes, (size_t)e.count * sizeof(MathNode));
     char *dst = (char *)ir + bytes;
+    ir->loop = NULL;
+    if (loop_bytes) {
+        memcpy(dst, &e.loop, loop_bytes);
+        ir->loop = (const MathLoop *)dst;
+        dst += loop_bytes;
+    }
     for (int i = 0; i < ir->count; i++)
         if (ir->nodes[i].name) {
             size_t len = strlen(ir->nodes[i].name) + 1;
@@ -336,7 +438,7 @@ static void render(Writer *w, const MathIR *ir, int i, int expand, int minimum, 
         return;
     }
     const MathNode *n = &ir->nodes[i];
-    if (n->kind == MI_LOCAL && expand) {
+    if (n->kind == MI_LOCAL && expand > 0) {
         render(w, ir, ir->nodes[n->a].a, expand, minimum, depth + 1);
         return;
     }
@@ -344,7 +446,7 @@ static void render(Writer *w, const MathIR *ir, int i, int expand, int minimum, 
      * simplify. These are formal scalar identities, not VM rewrites. Never
      * erase a nonliteral operand, cancel a denominator or fold arithmetic.
      * Levels 1 and 3 preserve the source operations. */
-    if (expand) {
+    if (expand > 0) {
         int keep = -1;
         if (n->kind == MI_NEG && ir->nodes[n->a].kind == MI_NEG)
             keep = ir->nodes[n->a].a;
@@ -396,6 +498,12 @@ static void render(Writer *w, const MathIR *ir, int i, int expand, int minimum, 
     case MI_EXTERNAL:
     case MI_LOCAL:
         identifier(w, n->name);
+        break;
+    case MI_INDEX:
+    case MI_STATE:
+        identifier(w, n->name);
+        if (expand < 0)
+            put(w, "_{\\mathsf{k}}");
         break;
     case MI_NEG:
         put(w, "-");
@@ -452,9 +560,89 @@ static void signature(Writer *w, const Proto *p) {
     put(w, "\\right)");
 }
 
+static void render_bindings(Writer *w, const MathIR *ir, int level) {
+    for (int i = 0; i < ir->count; i++)
+        if (ir->nodes[i].kind == MI_BIND) {
+            identifier(w, ir->nodes[i].name);
+            put(w, level == 3 ? "&\\gets " : "&=");
+            render(w, ir, ir->nodes[i].a, 0, 0, 0);
+            put(w, "\\\\");
+        }
+}
+
+static void render_loop(Writer *w, const Proto *p, int level) {
+    const MathIR *ir = p->mathir;
+    const MathLoop *loop = ir->loop;
+    const char *index = ir->nodes[loop->index].name;
+    const char *state = ir->nodes[loop->accumulator].name;
+    put(w, "\\begin{aligned}");
+    render_bindings(w, ir, level);
+    if (level == 3) {
+        put(w, "\\text{for }");
+        identifier(w, index);
+        put(w, "&\\in\\operatorname{range}\\left(");
+        render(w, ir, loop->start, 0, 0, 0);
+        put(w, ",");
+        render(w, ir, loop->stop, 0, 0, 0);
+        put(w, ",");
+        render(w, ir, loop->step, 0, 0, 0);
+        put(w, "\\right)\\\\");
+        identifier(w, state);
+        put(w, "&\\gets ");
+        render(w, ir, loop->update, 0, 0, 0);
+        put(w, "\\\\\\text{return}&\\quad ");
+        identifier(w, state);
+    } else {
+        put(w, "\\mathsf{N}&=\\max\\left(0,\\left\\lceil\\frac{");
+        render(w, ir, loop->stop, 0, 1, 0);
+        put(w, "-");
+        render(w, ir, loop->start, 0, 2, 0);
+        put(w, "}{");
+        render(w, ir, loop->step, 0, 0, 0);
+        put(w, "}\\right\\rceil\\right)\\\\");
+        identifier(w, index);
+        put(w, "_{\\mathsf{k}}&=");
+        render(w, ir, loop->start, 0, 1, 0);
+        put(w, "+\\mathsf{k}\\cdot ");
+        render(w, ir, loop->step, 0, 4, 0);
+        put(w, ",\\quad 0\\le\\mathsf{k}<\\mathsf{N}\\\\");
+        identifier(w, state);
+        put(w, "_0&=");
+        identifier(w, state);
+        put(w, "\\\\");
+        if (level == 0 && loop->kind != RECURRENCE) {
+            signature(w, p);
+            put(w, "&=");
+            identifier(w, state);
+            put(w, loop->kind == SUM ? "_0+\\sum_{\\mathsf{k}=0}^{\\mathsf{N}-1}"
+                                     : "_0\\cdot\\prod_{\\mathsf{k}=0}^{\\mathsf{N}-1}");
+            render(w, ir, ir->nodes[loop->update].b, -1, 3, 0);
+        } else {
+            identifier(w, state);
+            put(w, "_{\\mathsf{k}+1}&=");
+            render(w, ir, loop->update, -1, 0, 0);
+            put(w, "\\\\");
+            signature(w, p);
+            put(w, "&=");
+            identifier(w, state);
+            put(w, "_{\\mathsf{N}}");
+        }
+    }
+    put(w, "\\end{aligned}");
+}
+
+int mathir_has_loop(const Proto *p) {
+    return p->mathir && p->mathir->loop;
+}
+
 const char *mathir_assumptions(const Proto *p) {
     if (!p->mathir)
         return NULL;
+    if (mathir_has_loop(p))
+        return "Native range at query time, bounded integral endpoints, a nonzero integer step "
+               "and at most 1000000 iterations. Numeric scalar accumulator operations assumed. "
+               "The half-open range can be empty. A mathematical sum or product may round "
+               "differently from the ordered source updates.";
     return "Source-level mathematical notation conditional on numeric operands and compatible "
            "operations. "
            "Level 0 may use formal identities for ordinary finite scalar real arithmetic; "
@@ -465,6 +653,9 @@ const char *mathir_assumptions(const Proto *p) {
 }
 
 const char *mathir_algorithm(const Proto *p) {
+    if (mathir_has_loop(p))
+        return "Single half-open native range and one ordered scalar accumulator update per "
+               "iteration, followed by return of the final accumulator.";
     return p->mathir ? "Straight-line source expressions and local declarations; actual dynamic "
                        "dispatch and native call implementations are not inferred."
                      : NULL;
@@ -476,6 +667,18 @@ int mathir_tex(const Proto *p, int level, char *out, size_t size) {
         return 0;
     Writer w = {.out = out, .size = size};
     out[0] = 0;
+    if (ir->loop) {
+        if (level == 2) {
+            put(&w,
+                "\\begin{gathered}\\text{Half-open native range with integral bounds and "
+                "nonzero step.}"
+                "\\\\\\text{An empty range returns the initial state.}"
+                "\\\\\\text{Real-valued formulas can round differently from sequential updates.}"
+                "\\end{gathered}");
+        } else
+            render_loop(&w, p, level);
+        return !w.failed;
+    }
     if (level == 2) {
         put(&w, "\\text{Numeric operands assumed; types, shapes and domains unknown.}");
         if (!ir->has_calls && !ir->has_external)
@@ -499,13 +702,7 @@ int mathir_tex(const Proto *p, int level, char *out, size_t size) {
         out[0] = 0;
     }
     put(&w, "\\begin{aligned}");
-    for (int i = 0; i < ir->count; i++)
-        if (ir->nodes[i].kind == MI_BIND) {
-            identifier(&w, ir->nodes[i].name);
-            put(&w, level == 3 ? "&\\gets " : "&=");
-            render(&w, ir, ir->nodes[i].a, 0, 0, 0);
-            put(&w, "\\\\");
-        }
+    render_bindings(&w, ir, level);
     if (level == 3)
         put(&w, "\\text{return}&\\quad ");
     else {

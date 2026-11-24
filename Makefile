@@ -24,7 +24,7 @@ SRC := $(wildcard src/*.c)
 OBJ := $(patsubst src/%.c,$(BUILD)/%.o,$(SRC))
 BIN := $(BUILD)/arda
 STAMP := $(BUILD)/flags.txt
-GENERATED := src/ode_source.h src/opt_source.h
+GENERATED := src/ode_source.h src/opt_source.h src/numerics_source.h
 .PHONY: all arda test test-reference sanitize clean FORCE check-generated format format-check
 all: arda
 arda: $(BIN)
@@ -47,9 +47,12 @@ src/ode_source.h: lib/ode.arda tools/embed_ode.py tools/embed_module.py
 	$(PYTHON) tools/embed_ode.py
 src/opt_source.h: lib/opt.arda tools/embed_opt.py tools/embed_module.py
 	$(PYTHON) tools/embed_opt.py
+src/numerics_source.h: lib/numerics.arda tools/embed_numerics.py tools/embed_module.py
+	$(PYTHON) tools/embed_numerics.py
 check-generated:
 	$(PYTHON) tools/embed_ode.py --check
 	$(PYTHON) tools/embed_opt.py --check
+	$(PYTHON) tools/embed_numerics.py --check
 
 test: arda
 	ARDA_BIN="$(abspath $(BIN))" $(PYTHON) -m unittest discover -s tests -v
