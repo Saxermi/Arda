@@ -1,0 +1,19 @@
+tol linalg as la
+tol numc as nc
+
+# Dense utilities and the inverse residual.
+esta a = nc.array([[0,2],[1,3]])
+esta inverse = la.inv(a)
+pedo(la.det(a),la.trace(a),nc.tolist(la.diag(a)))
+pedo(nc.tolist(inverse))
+pedo(nc.norm(nc.matmul(a,inverse)-nc.array([[1,0],[0,1]])))
+
+# Thomas solve for a strictly diagonally dominant tridiagonal matrix.
+esta off = nc.array([-1,-1])
+esta diagonal = nc.array([4,4,4])
+pedo(nc.tolist(la.solve_tridiag(off,diagonal,off,nc.array([2,4,10]))))
+
+# The zero first pivot needs a row swap. This compact band has one upper
+# diagonal, the main diagonal, and one lower diagonal, in that order.
+esta bands = nc.array([[0,1,1],[0,2,2],[1,1,0]])
+pedo(nc.tolist(la.solve_banded(1,1,bands,nc.array([2,8,8]))))

@@ -162,7 +162,7 @@ Baseline reproduzieren. `O_SPARSE` oder zwei explizite Objekttypen, `src/sparse.
 
 **Status** — Implementiert.
 
-`sp.cg` und `sp.pcg` lösen SPD-Systeme mit optional wiederverwendbarem Workspace und berechnen das wahre Schlussresiduum. `sp.verify` prüft Lösungen separat. `sp.set_budget` und `sp.memory` begrenzen und erfassen verwaltete Sparse- und Solver-Puffer. Ergebnisse und Grenzen sind in der [0.14.3-Spezifikation für Sparse-Solver und Speicherbudgets](docs/MORIA_0.14.3.md) dokumentiert. Ein direkter tridiagonaler Solver ist für 0.15 geplant.
+`sp.cg` und `sp.pcg` lösen SPD-Systeme mit optional wiederverwendbarem Workspace und berechnen das wahre Schlussresiduum. `sp.verify` prüft Lösungen separat. `sp.set_budget` und `sp.memory` begrenzen und erfassen verwaltete Sparse- und Solver-Puffer. Ergebnisse und Grenzen sind in der [0.14.3-Spezifikation für Sparse-Solver und Speicherbudgets](docs/MORIA_0.14.3.md) dokumentiert. Der direkte tridiagonale Solver gehört zu [0.15.0](#arda-015--numerical-methods-and-mathematical-documentation).
 
 **Querschnitt:** Versionierte statische mathematische Deskriptoren decken Konvertierung, Sparse-Algebra und Solver ab. Mathematische Verträge und Komplexitätsangaben werden mit der abschließenden 0.14.4-Validierung konsolidiert. Globale und lokale Indizes bleiben getrennte Konzepte.
 
@@ -181,7 +181,7 @@ Matrix Market, Dokumentation, ASan/UBSan/LSan, GC-Stress, automatisierte SciPy-R
 *Development codename: Rúmil*
 
 - **0.15.0:** LU mit partieller Pivotisierung, determinant, trace, diag, inv als Solve, Cholesky, Householder-QR, tridiagonaler Thomas-Algorithmus nur unter geeigneten Stabilitätsbedingungen; banded solve; bestehende `solve`-API erhalten. Rekonstruktion und Residuen für ill-conditioned/indefinite Fälle, Singulärität melden.
-  - **Entwicklungsstand:** Wiederverwendbare LU-, Cholesky- und Householder-QR-Faktoren sind im Entwicklungsstand implementiert und gegen SciPy geprüft. Der bisherige Vektoraufruf von `numc.solve` bleibt verfügbar. Die übrigen Aufgaben von 0.15.0 folgen. [Numerische Verträge](research/implemented/linear-algebra.md#reusable-float64-factorizations)
+  - **Entwicklungsstand:** Wiederverwendbare LU-, Cholesky- und Householder-QR-Faktoren, Determinante, Spur, Diagonale, Inverse und direkte Tridiagonal- und Bandsolver sind im Entwicklungsstand implementiert und gegen SciPy geprüft. Der bisherige Vektoraufruf von `numc.solve` bleibt verfügbar. Die Release-Abnahme für 0.15.0 folgt. [Numerische Verträge](research/implemented/linear-algebra.md#reusable-float64-factorizations)
 - **0.15.1:** SVD, Pseudoinverse, Rank, Konditionsschätzung, `eigh`, `eig` mit optional LAPACK und dokumentierter Verfügbarkeit; portable Fallbacks nur wenn validiert. Komplexe Eigenwerte als komplexe Skalare bzw. Real/Imag-Ausgabe bis 0.16.
 - **0.15.2:** PCG- oder anderer spezifizierter PRNG, explizite Generatorobjekte, Seeds, Uniform/Normal/Integer/Shuffle/Choice/Poisson, Statistik (Median, Quantile, Kovarianz, Korrelation, Histogramm, Regression, cumsum, argmin/max, clip); Online-Welford und stabile Summen. Zufallsfolge versionsgebunden, keine Krypto-Eignung versprechen.
 - **0.15.3:** Komplexe Skalare, `conj`, Betrag, Argument, komplexe Elementfunktionen. Low-rank Matrixoperator U,V; Randomized SVD mit Oversampling, Power-Iteration und Fehlerprüfung; kein vollständiger Dense-Output für Operator-Eingaben. Kronecker/diagonal/band/Toeplitz-Operatoren. Zero-order Optimierung (finite Differenzen, zufällige Richtungen, optional MeZO-artige Experimente) im opt-Modul.

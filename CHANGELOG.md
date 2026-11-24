@@ -5,6 +5,7 @@ All notable changes to Arda are recorded here. Planned features are documented i
 ## Unreleased — 0.15 development
 
 - Added immutable, reusable dense LU, Cholesky, and Householder QR factors and solves for vector and matrix right-hand sides. The one-shot `numc.solve` shares the LU kernel.
+- Added determinant, trace, diagonal extraction, inverse via one LU factorization, guarded Thomas tridiagonal solves, and pivoted compact band solves.
 
 ## 0.14.4 — Sparse Computing Release Validation (Moria)
 

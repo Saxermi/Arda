@@ -5,9 +5,15 @@
 #define F(o) ((o)->as.factor)
 
 typedef enum { LU, CHOLESKY, QR } FactorKind;
-enum { PARTS = QR + 1, SOLVE };
+enum { PARTS = QR + 1, SOLVE, DET, TRACE, DIAG, INV, SOLVE_TRIDIAG, SOLVE_BANDED };
 
-static const char *names[] = {"lu", "cholesky", "qr", "parts", "solve"};
+static const char *names[] = {
+    "lu", "cholesky", "qr", "parts", "solve", "det", "trace", "diag", "inv",
+    "solve_tridiag", "solve_banded"
+};
+static const int arities[] = {1, 1, 1, 1, 2, 1, 1, 1, 1, 4, 4};
+_Static_assert(sizeof names / sizeof *names == sizeof arities / sizeof *arities,
+               "linalg arity table");
 
 static size_t index_at(const Obj *o, int row, int col) {
     return (size_t) row * A(o).cols + col;
@@ -38,11 +44,12 @@ static void finite_packed(VM *v, const Obj *x, const char *message) {
             vmerror(v, "%s", message);
 }
 
-static void lu_factor(VM *v, Obj *f) {
+static int lu_factor(VM *v, Obj *f) {
     Obj *a = F(f).packed;
     double *w = A(a).data;
     int n = A(a).rows;
     int *perm = (int *) (f + 1);
+    int sign = 1;
     for (int i = 0; i < n; i++)
         perm[i] = i;
     for (int k = 0; k < n; k++) {
@@ -53,9 +60,12 @@ static void lu_factor(VM *v, Obj *f) {
         double diag = w[index_at(a, pivot, k)];
         if (!isfinite(diag))
             vmerror(v, "nonfinite LU factorization");
-        if (diag == 0.0)
-            vmerror(v, "singular matrix");
+        if (diag == 0.0) {
+            finite_packed(v, a, "nonfinite LU factorization");
+            return 0;
+        }
         if (pivot != k) {
+            sign = -sign;
             for (int j = 0; j < n; j++) {
                 size_t i = index_at(a, k, j), p = index_at(a, pivot, j);
                 double tmp = w[i];
@@ -75,6 +85,7 @@ static void lu_factor(VM *v, Obj *f) {
         }
     }
     finite_packed(v, a, "nonfinite LU factorization");
+    return sign;
 }
 
 static void cholesky_factor(VM *v, Obj *a) {
@@ -150,7 +161,8 @@ static void qr_factor(VM *v, Obj *f) {
     }
 }
 
-static Obj *factorize(VM *v, Obj *input, FactorKind kind, const char *nonfinite) {
+static Obj *factorize(VM *v, Obj *input, FactorKind kind, const char *nonfinite,
+                      int *det_sign) {
     if (A(input).rank != 2)
         vmerror(v, "factorization expects a matrix");
     if (kind != QR && A(input).rows != A(input).cols)
@@ -159,9 +171,14 @@ static Obj *factorize(VM *v, Obj *input, FactorKind kind, const char *nonfinite)
     Obj *w = F(f).packed;
     finite_packed(v, w, nonfinite);
     switch (kind) {
-    case LU:
-        lu_factor(v, f);
+    case LU: {
+        int sign = lu_factor(v, f);
+        if (det_sign)
+            *det_sign = sign;
+        else if (!sign)
+            vmerror(v, "singular matrix");
         break;
+    }
     case CHOLESKY:
         cholesky_factor(v, w);
         break;
@@ -270,7 +287,7 @@ Obj *dense_lu_solve(VM *v, Obj *a, Obj *b) {
     if (A(a).rows != A(a).cols || A(a).rows != A(b).rows)
         vmerror(v, "solve requires square matrix and matching vector");
     finite_packed(v, b, "solve requires finite inputs");
-    return solve_factor(v, factorize(v, a, LU, "solve requires finite inputs"), b);
+    return solve_factor(v, factorize(v, a, LU, "solve requires finite inputs", NULL), b);
 }
 
 static Val factor_parts(VM *v, const Obj *f) {
@@ -315,16 +332,231 @@ static Val factor_parts(VM *v, const Obj *f) {
     return objval(out);
 }
 
+static Obj *numeric_array(VM *v, Val value) {
+    if (!isobj(value, O_ARRAY))
+        vmerror(v, "expected numeric array");
+    return value.o;
+}
+
+static double at(const Obj *a, int row, int col) {
+    return A(a).data[(size_t) row * A(a).stride[0] + (size_t) col * A(a).stride[1]];
+}
+
+static double determinant(VM *v, Obj *input) {
+    int sign;
+    Obj *f = factorize(v, input, LU, "determinant requires finite inputs", &sign);
+    if (!sign)
+        return 0;
+    const Obj *a = F(f).packed;
+    /* Renormalize each term to keep the intermediate product in range.
+     * A square Float64 tensor has at most 4000 rows, so int is enough
+     * for the sum of the Float64 exponents. */
+    long double mantissa = sign;
+    int exponent = 0;
+    for (int i = 0; i < A(a).rows; i++) {
+        int diagonal_exp, product_exp;
+        double diagonal = frexp(A(a).data[index_at(a, i, i)], &diagonal_exp);
+        mantissa = frexpl(mantissa * diagonal, &product_exp);
+        exponent += diagonal_exp + product_exp;
+    }
+    long double result = ldexpl(mantissa, exponent);
+    if (!isfinite(result) || fabsl(result) > DBL_MAX)
+        vmerror(v, "determinant overflow");
+    return (double) result;
+}
+
+static Val diagonal(VM *v, const Obj *a, int trace) {
+    if (A(a).rank != 2)
+        vmerror(v, "trace and diag expect a matrix");
+    int n = A(a).rows < A(a).cols ? A(a).rows : A(a).cols;
+    Obj *result = trace ? NULL : array_new(v, 1, n, 1);
+    long double sum = 0;
+    for (int i = 0; i < n; i++) {
+        double value = at(a, i, i);
+        if (!isfinite(value))
+            vmerror(v, "trace and diag require finite diagonal entries");
+        if (trace)
+            sum += value;
+        else
+            A(result).data[i] = value;
+    }
+    return trace ? number(checked(v, sum)) : objval(result);
+}
+
+static Obj *inverse(VM *v, Obj *input) {
+    Obj *f = factorize(v, input, LU, "inverse requires finite inputs", NULL);
+    const Obj *a = F(f).packed;
+    int n = A(a).rows;
+    Obj *out = array_new(v, 2, n, n);
+    const int *perm = (const int *) (f + 1);
+    /* Form P*I directly in the output before solving with L and U. */
+    for (int i = 0; i < n; i++)
+        A(out).data[index_at(out, i, perm[i])] = 1;
+    lu_forward(a, out);
+    back_substitute(v, a, out, n, 0);
+    return out;
+}
+
+static Obj *structured_rhs(VM *v, Val rhs, int n) {
+    Obj *b = numeric_array(v, rhs);
+    if ((A(b).rank != 1 && A(b).rank != 2) || A(b).rows != n)
+        vmerror(v, "structured solve requires a matching vector or matrix right-hand side");
+    Obj *out = rhs_copy(v, b, NULL);
+    finite_packed(v, out, "solve requires finite right-hand sides");
+    return out;
+}
+
+static Obj *solve_tridiag(VM *v, Val *args) {
+    const Obj *lower = numeric_array(v, args[0]);
+    const Obj *diag = numeric_array(v, args[1]);
+    const Obj *upper = numeric_array(v, args[2]);
+    int n = A(diag).rows, edges = n ? n - 1 : 0;
+    if (A(lower).rank != 1 || A(diag).rank != 1 || A(upper).rank != 1 ||
+        A(lower).rows != edges || A(upper).rows != edges)
+        vmerror(v, "tridiagonal solve expects vectors of lengths n-1, n, n-1");
+    Obj *out = structured_rhs(v, args[3], n);
+    Obj *workspace = array_new(v, 1, edges, 1);
+    double *super = A(workspace).data, *x = A(out).data;
+    int nrhs = A(out).cols;
+    for (int i = 0; i < n; i++) {
+        double d = at(diag, i, 0);
+        double l = i ? at(lower, i - 1, 0) : 0;
+        double u = i < edges ? at(upper, i, 0) : 0;
+        if (!isfinite(d) || !isfinite(l) || !isfinite(u))
+            vmerror(v, "tridiagonal solve requires finite coefficients");
+        double largest = fmax(fabs(l), fabs(u));
+        if (!(fabs(d) - largest > fmin(fabs(l), fabs(u))))
+            vmerror(v, "Thomas solve requires strict row diagonal dominance");
+
+        /* Normalize each row by its diagonal before elimination. Its two
+         * off-diagonal coefficients then have absolute sum below one. */
+        long double ell = (long double) l / d;
+        long double pivot = i ? 1.0L - ell * super[i - 1] : 1.0L;
+        if (!(pivot > 0.0L))
+            vmerror(v, "Thomas pivot breakdown");
+        if (i < edges)
+            super[i] = checked(v, ((long double) u / d) / pivot);
+        for (int c = 0; c < nrhs; c++) {
+            size_t p = index_at(out, i, c);
+            long double value = (long double) x[p] / d;
+            if (i)
+                value -= ell * x[index_at(out, i - 1, c)];
+            x[p] = checked(v, value / pivot);
+        }
+    }
+    for (int i = edges - 1; i >= 0; i--)
+        for (int c = 0; c < nrhs; c++) {
+            size_t p = index_at(out, i, c);
+            x[p] = checked(v, (long double) x[p] - (long double) super[i] * x[index_at(out, i + 1, c)]);
+        }
+    return out;
+}
+
+static int bandwidth(VM *v, Val value, int limit) {
+    if (value.t != V_INT || value.i < 0 || value.i > limit)
+        vmerror(v, "bandwidth must be a nonnegative integer within the matrix size");
+    return (int) value.i;
+}
+
+static size_t band_at(const Obj *band, int lower, int row, int col) {
+    return index_at(band, row, lower + col - row);
+}
+
+static void swap(double *a, double *b) {
+    double tmp = *a;
+    *a = *b;
+    *b = tmp;
+}
+
+static Obj *solve_banded(VM *v, Val *args) {
+    const Obj *input = numeric_array(v, args[2]);
+    if (A(input).rank != 2)
+        vmerror(v, "band storage must be a rank-two tensor");
+    int n = A(input).cols, last = n ? n - 1 : 0;
+    int lower = bandwidth(v, args[0], last), upper = bandwidth(v, args[1], last);
+    if (A(input).rows != lower + upper + 1)
+        vmerror(v, "band storage must have lower + upper + 1 rows");
+    Obj *out = structured_rhs(v, args[3], n);
+    int fill_upper = lower + upper < last ? lower + upper : last;
+    Obj *band = array_new(v, 2, n, lower + fill_upper + 1);
+    double *a = A(band).data, *x = A(out).data;
+    int nrhs = A(out).cols;
+    for (int j = 0; j < n; j++) {
+        int first = j > upper ? j - upper : 0;
+        for (int i = first; i < n && i <= j + lower; i++) {
+            double value = at(input, upper + i - j, j);
+            if (!isfinite(value))
+                vmerror(v, "banded solve requires finite coefficients");
+            a[band_at(band, lower, i, j)] = value;
+        }
+    }
+    for (int k = 0; k < n; k++) {
+        int pivot_row = k;
+        for (int i = k + 1; i < n && i <= k + lower; i++)
+            if (fabs(a[band_at(band, lower, i, k)]) > fabs(a[band_at(band, lower, pivot_row, k)]))
+                pivot_row = i;
+        double pivot = a[band_at(band, lower, pivot_row, k)];
+        if (pivot == 0)
+            vmerror(v, "singular banded matrix");
+        int end = k + fill_upper < last ? k + fill_upper : last;
+        /* Only the active columns are needed since row operations on the
+         * right-hand sides are performed alongside elimination. */
+        if (pivot_row != k) {
+            for (int j = k; j <= end; j++)
+                swap(&a[band_at(band, lower, k, j)], &a[band_at(band, lower, pivot_row, j)]);
+            for (int c = 0; c < nrhs; c++)
+                swap(&x[index_at(out, k, c)], &x[index_at(out, pivot_row, c)]);
+        }
+        for (int i = k + 1; i < n && i <= k + lower; i++) {
+            double multiplier = a[band_at(band, lower, i, k)] / pivot;
+            if (multiplier == 0)
+                continue;
+            for (int j = k + 1; j <= end; j++) {
+                size_t p = band_at(band, lower, i, j);
+                a[p] = checked(v, (long double) a[p] - (long double) multiplier * a[band_at(band, lower, k, j)]);
+            }
+            for (int c = 0; c < nrhs; c++) {
+                size_t p = index_at(out, i, c);
+                x[p] = checked(v, (long double) x[p] - (long double) multiplier * x[index_at(out, k, c)]);
+            }
+        }
+    }
+    for (int i = n - 1; i >= 0; i--)
+        for (int c = 0; c < nrhs; c++) {
+            size_t p = index_at(out, i, c);
+            long double value = x[p];
+            for (int j = i + 1; j < n && j <= i + fill_upper; j++)
+                value -= (long double) a[band_at(band, lower, i, j)] * x[index_at(out, j, c)];
+            x[p] = checked(v, value / a[band_at(band, lower, i, i)]);
+        }
+    return out;
+}
+
 Val linalg_call(VM *v, int id, int argc, Val *a) {
     int op = id - LINALG_BASE;
     if (op < 0 || op >= (int) (sizeof names / sizeof *names))
         vmerror(v, "unknown linalg operation");
-    if (argc != (op == SOLVE ? 2 : 1))
+    if (argc != arities[op])
         vmerror(v, "invalid linalg.%s arity", names[op]);
     if (op <= QR) {
         if (!isobj(a[0], O_ARRAY))
             vmerror(v, "factorization expects a numeric array");
-        return objval(factorize(v, a[0].o, (FactorKind) op, "factorization requires finite inputs"));
+        return objval(factorize(v, a[0].o, (FactorKind) op, "factorization requires finite inputs", NULL));
+    }
+    switch (op) {
+    case DET:
+        return number(determinant(v, numeric_array(v, a[0])));
+    case TRACE:
+    case DIAG:
+        return diagonal(v, numeric_array(v, a[0]), op == TRACE);
+    case INV:
+        return objval(inverse(v, numeric_array(v, a[0])));
+    case SOLVE_TRIDIAG:
+        return objval(solve_tridiag(v, a));
+    case SOLVE_BANDED:
+        return objval(solve_banded(v, a));
+    default:
+        break;
     }
     if (!isobj(a[0], O_FACTOR))
         vmerror(v, "expected a linear algebra factor");

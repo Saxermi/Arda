@@ -1,6 +1,6 @@
 # Dense linear algebra and reductions
 
-**Status** — Dense solves and reductions were already implemented in 0.14.3. Reusable factorizations are implemented in the 0.15 development checkout. Work and storage below exclude inputs unless specified. View packing can allocate a copy of each non-contiguous operand.
+**Status** — Dense solves and reductions were already implemented in 0.14.3. Reusable factorizations, dense utilities, and structured direct solvers are implemented in the 0.15 development checkout. Work and storage below exclude inputs unless specified. View packing can allocate a copy of each non-contiguous operand.
 
 ## Gaussian elimination and external LAPACK
 
@@ -26,6 +26,37 @@ The portable kernels use original code based on the classical formulas and the d
 
 **Validation** — Regression tests cover factor lifetime under GC stress, input and output isolation, strided right-hand sides, shape errors, singularity, nonsymmetry and breakdown. Independent SciPy checks cover a pivoted LU reconstruction, multiple right-hand sides, backward error on a matrix with condition number near $10^{10}$, Cholesky reconstruction and SPD solves, and tall/wide Householder reconstruction and orthogonality. QR tests compare least-squares solutions and exercise scales around $10^{±200}$. [Regression tests](../../tests/test_linalg.py) · [Reference tests](../../tests/reference_linalg.py)
 
+## Dense matrix utilities
+
+- `la.det(A)` computes $\det(A)=\operatorname{sign}(P)\prod_i U_{ii}$ from one pivoted LU of a square matrix. It tracks permutation parity and normalizes the mantissa/exponent product so intermediate products can cross the Float64 range. An exact zero LU pivot returns zero, a determinant beyond the finite Float64 range raises an error, and a tiny result can underflow to zero. The empty determinant is one. Near singularity, the determinant can be sensitive to roundoff.
+- `la.inv(A)` uses one pivoted LU and solves $AX=I$ column by column using the same triangular substitution code as the reusable LU API. It initializes the permuted identity directly in the result and raises an error for a singular matrix. Use `la.solve` for ordinary systems when the inverse itself is unnecessary.
+- `la.trace(A)` sums $\sum_i A_{ii}$ with extended accumulation. `la.diag(A)` returns a new Float64 vector of entries $A_{ii}$. Both read the strides directly, accept rectangular rank-two inputs, and inspect $k=\min(m,n)$ finite diagonal entries. An empty diagonal gives trace zero and an empty vector.
+
+Determinant and inverse cost $O(n^3)$ work and $O(n^2)$ storage, including the copied factor and any matrix output. Trace and diagonal extraction cost $O(k)$ work with constant trace workspace and $O(k)$ storage for the extracted diagonal. Regression checks cover pivot parity, zero pivots, scaled products and empty shapes. The reference tests include strided ill-conditioned input and both left and right inverse residuals. [Code](../../src/linalg.c) · [SciPy reference tests](../../tests/reference_linalg.py) · [Examples](../../examples/direct_linear_algebra.arda)
+
+## Structured direct solvers
+
+`la.solve_tridiag(lower, diagonal, upper, b)` accepts rank-one Float64 tensors of lengths $n-1,n,n-1$ for a nonempty system. The empty system accepts three empty tensors. Each row must satisfy $|d_i|>|l_i|+|u_i|$, with missing edge entries treated as zero. This sufficient condition enables elimination without pivoting. Rows are normalized by their diagonals so large changes in row scale do not produce large unscaled elimination multipliers. The method sweeps forward with $p_i=1-(l_i/d_i)c_{i-1}$ and $c_i=(u_i/d_i)/p_i$, dividing the updated right-hand side by $p_i$. Back substitution uses the stored $c_i$. A nonpositive computed pivot or nonfinite result raises an error. With $r$ right-hand sides, the work is $O(n(1+r))$ and the additional storage is one $O(n)$ work vector and the $O(nr)$ output. [Stability reference](https://doi.org/10.1137/1.9780898718027)
+
+`la.solve_banded(l, u, bands, b)` accepts nonnegative integer bandwidths and a rank-two tensor of shape `[l+u+1,n]`. Store $A_{ij}$ at `bands[u+i-j,j]`. Corner padding is ignored. It uses Gaussian elimination with partial row pivoting within the lower bandwidth, applies each row operation to the right-hand sides, and back-substitutes through the upper band. The work array reserves up to $l$ additional superdiagonals for fill after swaps. With $w=1+l+u$, storage is $O(n(w+r))$ and work is $O(nw(1+l+r))$. Both sizes are linear in $n$ for fixed bandwidth and right-hand-side count. The work array is subject to Arda's existing tensor element cap. A zero pivot raises a singularity error and an unrepresentable intermediate or answer raises a numerical error. [LAPACK DGBSV](https://www.netlib.org/lapack/explore-html/db/df8/group__gbsv_gaff55317eb3aed2278a85919a488fec07.html)
+
+Both APIs accept a matching vector or a matrix with right-hand sides in columns, including strided views, and preserve their inputs. The banded solver handles cases that need pivoting, including tridiagonal matrices stored with $l=u=1$. The reference tests include zero and small first pivots, upper-only and lower-only bands, asymmetric widths, and row scaling across $10^{-120}$ to $10^{120}$ for Thomas. In the scaled case, the reference uses the same row equilibration before calling SciPy. These are original serial kernels informed by classical methods and the documented band convention. Parallel narrow-band algorithms are a separate candidate whose benefit depends on hardware and problem size. [Design decision](../../DECISIONS.md#2026-11-24--guarded-tridiagonal-and-pivoted-band-solves) · [A-Rahman and di Mare 2026](https://doi.org/10.1016/j.cam.2025.117254)
+
+## Local direct-solver benchmark
+
+Run `make arda` followed by `python3 benchmarks/direct_linalg_bench.py --rounds 7`. This run used one pinned logical CPU on an Intel Xeon Platinum 8573C, GCC 14.2 with `-O2`, Arda's portable build, SciPy 1.17.0 and NumPy 2.3.5. The harness sets one BLAS thread, warms up each case, and reports the median of seven mean per-call times. Timed calls include their allocations and input checks. Input construction and result verification are outside the timed interval. The two tridiagonal rows for the banded comparison use Arda's guarded Thomas method and SciPy's pivoted tridiagonal solver. The general dense row represents the existing `nc.solve` approach to that same $n=512$ tridiagonal system.
+
+| Workload | Size | Arda (ms) | SciPy (ms) | Maximum check error |
+| --- | ---: | ---: | ---: | ---: |
+| Dense determinant | 192 | 2.412 | 0.285 | $1.02\times10^{-14}$ |
+| Dense inverse | 192 | 9.938 | 1.071 | $9.50\times10^{-15}$ |
+| Tridiagonal solve | 512 | 0.0143 | 0.0332 | $1.14\times10^{-16}$ |
+| Same system via general dense solve | 512 | 45.790 | 4.586 | $1.11\times10^{-16}$ |
+| Tridiagonal solve | 100,000 | 2.391 | 2.783 | $9.66\times10^{-17}$ |
+| Pentadiagonal solve with an initial pivot swap | 100,000 | 6.639 | 9.140 | $1.26\times10^{-16}$ |
+
+The error column is the relative determinant difference, the Frobenius norm of $AX-I$ for the inverse, or the relative 2-norm error against the manufactured solution for the solves. Linux process peak RSS over a separate pass through all workloads was 31.8 MiB for Arda and 74.0 MiB for Python/SciPy. These are whole-process measurements that include the runtimes, imports and inputs. [Benchmark source](../../benchmarks/direct_linalg_bench.py)
+
 ## Dense products and reductions
 
 `nc.matmul` computes $C_{ij}=\sum_k A_{ik}B_{kj}$ in $O(mkn)$ time with $O(mn)$ output and constant local native workspace on packed inputs. The default path uses row-major blocking, scalar tails, and SSE2 or runtime-dispatched AVX2 when available. The optional CBLAS build calls `cblas_dgemm`. Float64 sums are rounding-sensitive and backend order or contraction can affect results. See the kernel note for dispatch details and the 0.18 baseline. [Source, `multiply` and `matmul_avx2`](../../src/scientific.c) · [Lawson et al. 1979](https://doi.org/10.1145/355841.355847) · [Goto and van de Geijn 2008](https://doi.org/10.1145/1356052.1356053) · [Kernel details](transforms-and-kernels.md)
@@ -34,4 +65,4 @@ The portable kernels use original code based on the classical formulas and the d
 
 **Validation and provenance** — The checked-in suite covers pivoting, seeded solve, product and dot comparisons against SciPy and NumPy, a scaled norm near $10^{200}$, broadcasts, LAPACK solve and eigenpair residual checks when enabled. The historical kernel records describe specific builds and sizes. The original one-shot solve, products and reductions appeared by source import `e2ba505`. Consultation of the listed scientific publications during implementation is unknown. Calls to CBLAS, LAPACK and libm establish external backend use, with provider licenses tracked separately. [Regression tests](../../tests/test_science_012.py) · [NumPy references](../../tests/reference_numerics.py) · [Historical timings](../../benchmarks/highdim-results.txt)
 
-**Bibliography keys** — `Anderson2017`, `ChanGolubLeVeque1983`, `GotoVanDeGeijn2008`, `GuanEtAl2026`, `Higham2002`, `Householder1958`, `LawsonEtAl1979`, `ReferenceLAPACK`, `Welford1962`, `Wilkinson1961`.
+**Bibliography keys** — `ARahmanDiMare2026`, `Anderson2017`, `ChanGolubLeVeque1983`, `GotoVanDeGeijn2008`, `GuanEtAl2026`, `Higham2002`, `Householder1958`, `LawsonEtAl1979`, `ReferenceLAPACK`, `Welford1962`, `Wilkinson1961`.
