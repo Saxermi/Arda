@@ -4,11 +4,11 @@
 
 **Planungsstand:** 24. November 2026 · **Ausgangsversion:** 0.13.1 · **Ziel:** 1.0 · **Dokumentrevision:** 2.0 (konsolidiert)
 
-Dieses Dokument ist ein Entwicklungsplan, kein Bericht über bereits implementierte Features. Moria ist bis 0.14.3 (S0–S8) implementiert. Siehe [Moria 0.14.3](docs/MORIA_0.14.3.md) für die aktuellen APIs und lokalen Messungen. Zahlen mit der Bezeichnung „Ziel“ oder „Modellrechnung“ sind keine Benchmarkergebnisse. Die bisherigen Ziele bleiben bestehen; Resource-Efficient Computing, maximale praktische Hardwareauslastung, Beyond-RAM Computing, mathematische Introspektion, überprüfbare Numerik und verteiltes HPC sind Querschnittsziele. Diese Revision ersetzt die frühere Planungsdatei, nicht deren Ziele. Die Quellcode-Version ist jetzt 0.14.3.
+Dieses Dokument ist ein Entwicklungsplan, kein Bericht über bereits implementierte Features. Die Sparse-Meilensteine S0–S8 sind bis Arda 0.14.3 implementiert. Siehe [Sparse-Solver und Speicherbudgets in 0.14.3](docs/MORIA_0.14.3.md) für die aktuellen APIs und lokalen Messungen. Zahlen mit der Bezeichnung „Ziel“ oder „Modellrechnung“ sind keine Benchmarkergebnisse. Die bisherigen Ziele bleiben bestehen; Resource-Efficient Computing, maximale praktische Hardwareauslastung, Beyond-RAM Computing, mathematische Introspektion, überprüfbare Numerik und verteiltes HPC sind Querschnittsziele. Diese Revision ersetzt die frühere Planungsdatei, nicht deren Ziele. Die Quellcode-Version ist jetzt 0.14.3.
 
 ## 1. Mission und Nicht-Ziele
 
-Arda ist eine eigenständige wissenschaftliche Programmiersprache mit portabler C11-Runtime. Sie soll numerische Mathematik, hochdimensionale Berechnungen, Simulationen, differenzierbare Programmierung und Machine Learning mit hoher Performance und kontrollierbarem Ressourcenverbrauch ermöglichen. Gewöhnliche Laptops ohne dedizierte GPU sind eine zentrale Zielplattform; Workstations und HPC-Systeme sollen dennoch voll genutzt werden können.
+Arda (Adaptive Runtime for Data and Algorithms) ist eine eigenständige, MIT-lizenzierte und forschungsorientierte wissenschaftliche Programmiersprache mit portabler C11-Runtime. Sie soll numerische Mathematik, hochdimensionale Berechnungen, Simulationen, differenzierbare Programmierung und Machine Learning mit hoher Performance und kontrollierbarem Ressourcenverbrauch ermöglichen. Gewöhnliche Laptops ohne dedizierte GPU sind eine zentrale Zielplattform; Workstations und HPC-Systeme sollen dennoch voll genutzt werden können.
 
 - CPU-first, nicht CPU-only. Ein portabler Referenzkernel bleibt verfügbar; optimierte Kernels werden nach Hardware gewählt.
 - Algorithmische Effizienz vor Mikrooptimierung: Struktur, Sparsity, Vorkonditionierung, Datenlokalität und adaptive Auflösung zuerst; anschließend SIMD und Parallelität.
@@ -21,7 +21,7 @@ Arda ist eine eigenständige wissenschaftliche Programmiersprache mit portabler 
 
 ### 1.1 Positionierung und Zielgruppen
 
-**Arda is a standalone, high-performance scientific programming language for resource-aware, explainable and scalable computing, from everyday laptops to HPC clusters.**
+**Arda is an independent, research-driven scientific programming language for numerical mathematics, resource-aware execution, and mathematical transparency. Its development targets hardware from everyday laptops to distributed research clusters.**
 
 Zielgruppen: Studierende, Lehrende, Ingenieure, Forschende, wissenschaftliche ML-Entwickler und Entwickler eingebetteter numerischer Anwendungen. Der erste externe Nutzen soll bereits mit Sparse-Numerik, mathematischer Dokumentation und CPU-Optimierung sichtbar werden, nicht erst in 1.0. Python/SciPy, Julia/SciML, MATLAB/Mathematica, C/C++/Fortran und PETSc/llama.cpp sind Referenzen, nicht pauschal zu ersetzende Systeme. Differenzierung: einheitliche mathematische Objekte, Ressourcenplanung, nachvollziehbare Algorithmen und überprüfbare Resultate. Benchmark für wissenschaftliche Produktivität neben Rohperformance: Zeit und Codeumfang vom Modell bis zum reproduzierbaren Bericht.
 
@@ -52,7 +52,7 @@ Basis: Archiv `arda-0.13.1-maintenance.zip`, `MAINTENANCE.md`, `ROADMAP_0.14.md`
 
 ### 3.1 Ebenen und Zuständigkeiten
 
-Core: Lexer, Parser, Compiler, VM, GC und öffentliche Werte. Numerik: mathematische Repräsentationen und Algorithmen. AME (Arda Memory Engine): Speicherbudget, Buffer-Lebensdauer, Pooling, Dateispeicher. AKE (Arda Kernel Engine): Dispatch, native Kernels, SIMD, Threads, externe Backends. ACE (Arda Adaptive Compute Engine): Planung, Kostenmodelle, Graphen, Ausführungsentscheidungen. AML (Arda Machine Learning): Autodiff, Modelle, Training, Inference. AMDE (Arda Mathematical Documentation Engine, Codename Rúmil): mathematische Metadaten, MathIR, Renderer, Verträge und optionale Traces. HPC-Schicht: Topologie, Kommunikation, Partitionierung und verteilte Operatoren; benutzt AME/AKE/ACE statt paralleler Doppelarchitekturen. Diese Bereiche wachsen inkrementell, keine sofortige Neuimplementierung.
+Core: Lexer, Parser, Compiler, VM, GC und öffentliche Werte. Numerik: mathematische Repräsentationen und Algorithmen. Arda Memory Engine (AME): Speicherbudget, Buffer-Lebensdauer, Pooling, Dateispeicher. Arda Kernel Engine (AKE): Dispatch, native Kernels, SIMD, Threads, externe Backends. Adaptive Compute Engine (ACE): Planung, Kostenmodelle, Graphen, Ausführungsentscheidungen. Arda Machine Learning (AML): Autodiff, Modelle, Training, Inference. Arda Mathematical Documentation Engine (AMDE, Codename Rúmil): mathematische Metadaten, MathIR, Renderer, Verträge und optionale Traces. HPC-Schicht: Topologie, Kommunikation, Partitionierung und verteilte Operatoren; benutzt AME/AKE/ACE statt paralleler Doppelarchitekturen. Diese Bereiche wachsen inkrementell, keine sofortige Neuimplementierung.
 
 ### 3.2 Orthogonale Eigenschaften
 
@@ -122,35 +122,73 @@ CPU-first, nicht CPU-only: serieller Pfad und identische mathematische API für 
 
 ## 4. Meilensteine und Unterversionen
 
-### 0.14 — Moria — Resource-Efficient Sparse Computing (P0, sofort)
+Technische Titel benennen das Ziel jeder Version. Unterversionen übernehmen den Entwicklungscodenamen ihrer Versionsreihe, sofern kein eigener Codename angegeben ist.
 
-**0.14.0 Foundations (implemented):** Baseline reproduzieren. `O_SPARSE` oder zwei explizite Objekttypen, `src/sparse.c/.h`, eigener nativer ID-Bereich ohne Kollision mit bisherigen Modulen. GC-Freigabe, Typanzeige, Formatierung, Modulregistrierung, Native-Dispatch. Intern geprüfte Größenarithmetik und Sparse-Allokation mit Reservierung/Fehlercleanup. Float64-Werte, uint32-Indizes, size_t-Zeilenoffsets; auf 64-Bit-Systemen 8 Byte pro Offset. Nullbasierte Indizes, leere/rechteckige Matrizen, endliche Werte. `sp.coo`, `sp.csr`, `sp.crs`, `sp.shape`, `sp.nnz`, `sp.bytes`, `sp.format`, `sp.get`, `sp.components`. Komponenten als Kopien oder unveränderliche Views, nie unkontrolliert veränderbare CSR-Struktur.
+### Arda 0.14 — Resource-Efficient Sparse Computing
 
-**0.14.0 (Fortsetzung: Conversion, implemented):** COO → CSR ohne Dense: Zeilen zählen, Prefix-Sum, Einträge verteilen, pro Zeile stabil nach Spalte sortieren, Duplikate in dokumentierter Reihenfolge addieren, exakte Nullen entfernen, Offsets kompakt neu schreiben. Alternativ globales Sortieren als Referenz. Ziel O(rows + nnz + sum(k_i log k_i)), sortierter Input schneller; O(rows + nnz) Workspace, keine Kopie in Dense. Endliche Summen prüfen. CSR → COO linear. CSR-Konstruktor verlangt streng steigende Spalten je Zeile, gültige Offsets und keine strukturell gespeicherten Nullen. COO erlaubt explizite Nullen und Duplikate; `nnz` zählt gespeicherte Einträge. `sp.from_dense`, `sp.todense` mit Vorabprüfung des gesamten Outputs. 
+*Development codename: Moria*
 
-**0.14.1 Assembly (implemented):** `sp.builder`, `sp.append`, `sp.extend` und `sp.finish` verwenden typisierte native Puffer. Batches werden vor der Einfügung geprüft. Kapazitätswachstum berücksichtigt die gleichzeitig belegte alte und neue Kapazität. Erfolgreiche Finalisierung gibt kanonisches CSR zurück und schließt den Builder. `sp.eye`, `sp.diags` und `sp.tridiag` erzeugen CSR direkt.
+*Planungspriorität: P0, sofort.*
 
-**0.14.2 Algebra & Operators (implemented):** `sp.matvec` und `sp.spmm` verwenden einen seriellen CSR-Kernel mit bei Bedarf vorgeschalteter COO-Kanonisierung. `sp.transpose`, `sp.add`, `sp.scale`, `sp.diagonal`, `sp.read_mm` und `sp.write_mm` unterstützen Sparse-Algebra und Matrix Market (coordinate real general/symmetric). Die interne Schnittstelle `LinearOperator` bindet Dense, CSR und den matrixfreien Poisson-Operator an. `sp.estimate` meldet Form, gespeicherte Einträge und den zusätzlichen Matvec-Workspace.
+#### Arda 0.14.0 — Sparse Matrix Foundations
 
-**0.14.3 Solvers & Budget (implemented):** `sp.cg` und `sp.pcg` lösen SPD-Systeme mit optional wiederverwendbarem Workspace und berechnen das wahre Schlussresiduum. `sp.verify` prüft Lösungen separat. `sp.set_budget` und `sp.memory` begrenzen und erfassen verwaltete Sparse- und Solver-Puffer. Ergebnisse und Grenzen sind in der [Moria-Spezifikation](docs/MORIA_0.14.3.md) dokumentiert. Ein direkter tridiagonaler Solver ist für 0.15 geplant.
+*Development codename: Moria*
+
+**Status** — Implementiert.
+
+Baseline reproduzieren. `O_SPARSE` oder zwei explizite Objekttypen, `src/sparse.c/.h`, eigener nativer ID-Bereich ohne Kollision mit bisherigen Modulen. GC-Freigabe, Typanzeige, Formatierung, Modulregistrierung, Native-Dispatch. Intern geprüfte Größenarithmetik und Sparse-Allokation mit Reservierung/Fehlercleanup. Float64-Werte, uint32-Indizes, size_t-Zeilenoffsets; auf 64-Bit-Systemen 8 Byte pro Offset. Nullbasierte Indizes, leere/rechteckige Matrizen, endliche Werte. `sp.coo`, `sp.csr`, `sp.crs`, `sp.shape`, `sp.nnz`, `sp.bytes`, `sp.format`, `sp.get`, `sp.components`. Komponenten als Kopien oder unveränderliche Views, nie unkontrolliert veränderbare CSR-Struktur.
+
+**Implementierte Konvertierung** — COO → CSR ohne Dense: Zeilen zählen, Prefix-Sum, Einträge verteilen, pro Zeile stabil nach Spalte sortieren, Duplikate in dokumentierter Reihenfolge addieren, exakte Nullen entfernen, Offsets kompakt neu schreiben. Alternativ globales Sortieren als Referenz. Ziel O(rows + nnz + sum(k_i log k_i)), sortierter Input schneller; O(rows + nnz) Workspace, keine Kopie in Dense. Endliche Summen prüfen. CSR → COO linear. CSR-Konstruktor verlangt streng steigende Spalten je Zeile, gültige Offsets und keine strukturell gespeicherten Nullen. COO erlaubt explizite Nullen und Duplikate; `nnz` zählt gespeicherte Einträge. `sp.from_dense`, `sp.todense` mit Vorabprüfung des gesamten Outputs.
+
+#### Arda 0.14.1 — Sparse Matrix Assembly
+
+*Development codename: Moria*
+
+**Status** — Implementiert.
+
+`sp.builder`, `sp.append`, `sp.extend` und `sp.finish` verwenden typisierte native Puffer. Batches werden vor der Einfügung geprüft. Kapazitätswachstum berücksichtigt die gleichzeitig belegte alte und neue Kapazität. Erfolgreiche Finalisierung gibt kanonisches CSR zurück und schließt den Builder. `sp.eye`, `sp.diags` und `sp.tridiag` erzeugen CSR direkt.
+
+#### Arda 0.14.2 — Sparse Algebra and Linear Operators
+
+*Development codename: Moria*
+
+**Status** — Implementiert.
+
+`sp.matvec` und `sp.spmm` verwenden einen seriellen CSR-Kernel mit bei Bedarf vorgeschalteter COO-Kanonisierung. `sp.transpose`, `sp.add`, `sp.scale`, `sp.diagonal`, `sp.read_mm` und `sp.write_mm` unterstützen Sparse-Algebra und Matrix Market (coordinate real general/symmetric). Die interne Schnittstelle `LinearOperator` bindet Dense, CSR und den matrixfreien Poisson-Operator an. `sp.estimate` meldet Form, gespeicherte Einträge und den zusätzlichen Matvec-Workspace.
+
+#### Arda 0.14.3 — Sparse Solvers and Memory Budgets
+
+*Development codename: Moria*
+
+**Status** — Implementiert.
+
+`sp.cg` und `sp.pcg` lösen SPD-Systeme mit optional wiederverwendbarem Workspace und berechnen das wahre Schlussresiduum. `sp.verify` prüft Lösungen separat. `sp.set_budget` und `sp.memory` begrenzen und erfassen verwaltete Sparse- und Solver-Puffer. Ergebnisse und Grenzen sind in der [0.14.3-Spezifikation für Sparse-Solver und Speicherbudgets](docs/MORIA_0.14.3.md) dokumentiert. Ein direkter tridiagonaler Solver ist für 0.15 geplant.
 
 **Querschnitt:** Versionierte statische mathematische Deskriptoren decken Konvertierung, Sparse-Algebra und Solver ab. Mathematische Verträge und Komplexitätsangaben werden mit der abschließenden 0.14.4-Validierung konsolidiert. Globale und lokale Indizes bleiben getrennte Konzepte.
 
-**0.14.4 Release gate:** Matrix Market, Dokumentation, ASan/UBSan/LSan, GC-Stress, automatisierte SciPy-Randomtests, Peak-RSS und Laufzeit für Builder, Conversion, SpMV und CG getrennt. Bestehende 126+8 Baseline-Tests weiterhin grün. Ziel: 1 Mio. Zeilen tridiagonal, 2.999.998 gespeicherte Werte, direkter CSR-Aufbau plus SpMV <256 MiB Peak RSS im definierten Linux-Test; COO-Build/Conversion separat messen und dokumentieren. SPD-Test A=tridiag(-1,4,-1) mit erzeugtem b=A*x_ref, relatives Residuum ≤1e-8 und normierter Lösungsfehler dokumentiert, Ziel <512 MiB. Keine Dense-Materialisierung; kein Anheben des alten Dense-Limits nur für Sparse.
+#### Arda 0.14.4 — Sparse Computing Release Validation
+
+*Development codename: Moria*
+
+Matrix Market, Dokumentation, ASan/UBSan/LSan, GC-Stress, automatisierte SciPy-Randomtests, Peak-RSS und Laufzeit für Builder, Conversion, SpMV und CG getrennt. Bestehende 126+8 Baseline-Tests weiterhin grün. Ziel: 1 Mio. Zeilen tridiagonal, 2.999.998 gespeicherte Werte, direkter CSR-Aufbau plus SpMV <256 MiB Peak RSS im definierten Linux-Test; COO-Build/Conversion separat messen und dokumentieren. SPD-Test A=tridiag(-1,4,-1) mit erzeugtem b=A*x_ref, relatives Residuum ≤1e-8 und normierter Lösungsfehler dokumentiert, Ziel <512 MiB. Keine Dense-Materialisierung; kein Anheben des alten Dense-Limits nur für Sparse.
 
 **Beispiel:** A=[[0,5,0,-1],[0,0,0,0],[4,0,0,7]]. Unsortierte COO: rows=[2,0,0,2,0], cols=[3,1,1,0,3], values=[7,2,3,4,-1]. CSR: offsets=[0,2,2,4], cols=[1,3,0,3], values=[5,-1,4,7]. Rückkonvertierung: rows=[0,0,2,2]. Matvec mit [1,2,3,4] ergibt [6,0,32]. Ein zusätzliches Paar (1,2,4) und (1,2,-4) muss beim Kanonisieren verschwinden. Für 1 Mio. Zeilen: Dense 8 TB, COO 47.999.968 B, CSR 43.999.984 B (etwa 41,96 MiB), ohne Header und Workspace.
 
-### 0.15 — Rúmil — Scientific Foundations
+### Arda 0.15 — Numerical Methods and Mathematical Documentation
+
+*Development codename: Rúmil*
 
 - **0.15.0:** LU mit partieller Pivotisierung, determinant, trace, diag, inv als Solve, Cholesky, Householder-QR, tridiagonaler Thomas-Algorithmus nur unter geeigneten Stabilitätsbedingungen; banded solve; bestehende `solve`-API erhalten. Rekonstruktion und Residuen für ill-conditioned/indefinite Fälle, Singulärität melden.
 - **0.15.1:** SVD, Pseudoinverse, Rank, Konditionsschätzung, `eigh`, `eig` mit optional LAPACK und dokumentierter Verfügbarkeit; portable Fallbacks nur wenn validiert. Komplexe Eigenwerte als komplexe Skalare bzw. Real/Imag-Ausgabe bis 0.16.
 - **0.15.2:** PCG- oder anderer spezifizierter PRNG, explizite Generatorobjekte, Seeds, Uniform/Normal/Integer/Shuffle/Choice/Poisson, Statistik (Median, Quantile, Kovarianz, Korrelation, Histogramm, Regression, cumsum, argmin/max, clip); Online-Welford und stabile Summen. Zufallsfolge versionsgebunden, keine Krypto-Eignung versprechen.
 - **0.15.3:** Komplexe Skalare, `conj`, Betrag, Argument, komplexe Elementfunktionen. Low-rank Matrixoperator U,V; Randomized SVD mit Oversampling, Power-Iteration und Fehlerprüfung; kein vollständiger Dense-Output für Operator-Eingaben. Kronecker/diagonal/band/Toeplitz-Operatoren. Zero-order Optimierung (finite Differenzen, zufällige Richtungen, optional MeZO-artige Experimente) im opt-Modul.
-- **0.15.4 — Rúmil v1:** Descriptor-Registry, LaTeX-Renderer, `getTex(0..3)`, `getAlgorithm`, `getAssumptions`, `getComplexity` für native Mathematik; einfache arithmetische benutzerdefinierte Funktionen vor AST-Freigabe extrahieren. `getCost` für bekannte Dimensionen und Kernels ohne Ausführung. Tests für Operatorpräzedenz, Escape, gebundene/unbekannte Calls, `cos`/libm-Grenze, Abschaltung und GC. Symbolische Gleichung und Algorithmus nicht verwechseln. Beispiel `caro f(x): nan x*x+2` → f(x)=x²+2. `nc.solve.getTex(3)` beschreibt Pivot, Eliminationsfaktoren und Rückwärtseinsetzen, nicht explizite Inverse als Implementierung. Wiederverwendbare LU/QR/Cholesky-Faktorobjekte, mehrere rechte Seiten; separate Lebensdauer und Mutation.
+- **Arda 0.15.4 — Mathematical Documentation (AMDE v1)** — Descriptor-Registry, LaTeX-Renderer, `getTex(0..3)`, `getAlgorithm`, `getAssumptions`, `getComplexity` für native Mathematik; einfache arithmetische benutzerdefinierte Funktionen vor AST-Freigabe extrahieren. `getCost` für bekannte Dimensionen und Kernels ohne Ausführung. Tests für Operatorpräzedenz, Escape, gebundene/unbekannte Calls, `cos`/libm-Grenze, Abschaltung und GC. Symbolische Gleichung und Algorithmus nicht verwechseln. Beispiel `caro f(x): nan x*x+2` → f(x)=x²+2. `nc.solve.getTex(3)` beschreibt Pivot, Eliminationsfaktoren und Rückwärtseinsetzen, nicht explizite Inverse als Implementierung. Wiederverwendbare LU/QR/Cholesky-Faktorobjekte, mehrere rechte Seiten; separate Lebensdauer und Mutation.
 - **0.15.5 — Mathematical library:** Gamma/Beta/Bessel/erf, stabile Spezialfunktionen, Nullstellensuche (Brent/Newton), Interpolation/Splines, adaptive Quadratur, erweiterte Verteilungen und Statistik. Numerische Referenzen inkl. Randdomänen; kein kompletter CAS. Bei 1.000 rechten Seiten einer 1.000²-Matrix ist LU-Reuse theoretisch etwa 251× weniger FLOPs als 1.000 Faktorisierungen, kein gemessener Speedup.
 - **Gate:** QR-Rekonstruktion und Orthogonalität, Cholesky für SPD und Fehlermeldung für ungeeignete Matrizen, SVD-Spektren gegen LAPACK, Low-Rank-Approximation mit gemessenem Fehler. Beispiel 100.000×100.000 rank-50: 80 GB dense, 80 MB für U,V in Float64; O(nr) Matvec. Keine Behauptung, jede Matrix habe niedrigen Rang.
 
-### 0.16 — Mithril — Virtual Tensor & Memory Engine (AME v1)
+### Arda 0.16 — Virtual Tensors and Memory Management (AME v1)
+
+*Development codename: Mithril*
 
 - **0.16.0:** Buffer-Handle mit Größe, Alignment, Ownership und Release-Funktion; bestehende O_ARRAY-API über Adapter erhalten. Shape, dtype, strides, offset, logical size, device, encoding separat. View-Aliasing, readonly, negative/zero strides, kontrollierte Mutation, sichere Pinning-Regeln. Keine globalen ABI-Zusagen vor 1.0.
 - **0.16.1:** DType registry: bool, uint8, int32/int64, float32/64, complex64/128; FP16/BF16 zunächst Storage/Conversion mit portablem Fallback. Explizite Typ-Promotion, Akkumulationsdtype, Integeroverflow und Cast-Policy. Komplexe Tensoren/FFT, batched matmul, axis reductions, mask/gather/scatter, einsum/tensordot in Etappen. Quantisierung als eigene Encoding-Schicht vorbereiten.
@@ -160,7 +198,9 @@ CPU-first, nicht CPU-only: serieller Pfad und identische mathematische API für 
 - **0.16.5 — Scientific types:** `units` v1, Dimensionsprüfung einmal pro Tensoroperation, SI/Umrechnungen/Temperaturfälle. Optional rationale/big integer und Intervallprototypen separat; garantierte Intervalle erst nach Rundungsvalidierung stabil. MathIR Tensor-/Indexnotation und DType/Shape-Verträge; globale 64-Bit-Dimensionen, lokale kompakte Indizes. Plain Tensor-ABI und Kernel ohne Units-Overhead erhalten.
 - **Gate:** 0.13.1/0.14-Kompatibilität, View-Lebensdauer, Readonly und Aliasing, Randfälle, typed references, 20-GB Streaming-Reduktion Ziel <512 MiB Peak RSS, 80-GB Dateitensor ausgewählte Operationen Ziel <1 GiB. SSD-Datei und physische I/O getrennt dokumentieren; keine Sparse-Datei als alleinigen Durchsatznachweis verwenden.
 
-### 0.17 — Vilya — Memory-Efficient Differentiable Programming
+### Arda 0.17 — Memory-Efficient Differentiable Programming
+
+*Development codename: Vilya*
 
 - **0.17.0:** Reverse-Mode-Graph für Tensoren; op tape, explizite Gradientenakkumulation, topologische Reihenfolge, gespeicherte Tensorversionen; Mutation/Aliasing erkennen. Scalar-AD kompatibel. Gradienten für arithmetic, sin/cos/exp/log, sum/mean, matmul, reshape/transpose, broadcasting und slicing.
 - **0.17.1:** `backward`, `grad`, `zero_grad`, `detach`, `no_grad`, VJP, gezielte JVP/Forward Mode und Jacobian/Hessian in Unterstufen. Sparse-Matvec-Gradienten zunächst für Werte bei festem Sparsity-Pattern (Indizes nicht differenzierbar). Solver-Adjoints später mit transponiertem Operator und Konvergenzprüfung.
@@ -169,7 +209,9 @@ CPU-first, nicht CPU-only: serieller Pfad und identische mathematische API für 
 - **0.17.4 — Sensitivity & uncertainty:** `getSensitivity(args)`, relative Sensitivität soweit definiert, JVP/VJP-basierte Unsicherheitsrechnung, strukturierte Kovarianz, Monte-Carlo-Prototyp; HVP statt volle Hessian bei großen n. MathIR Kettenregel und unterstützte symbolische Ableitung; numerischer AD-Graph und Dokumentationsgraph getrennt. Beispiel m=10±0,2 kg, a=9,81±0,05 m/s²: F=98,1±2,0247 N bei unabhängigen Standardunsicherheiten und linearer Näherung. 1 Mio. Parameter: volle Float64-Hessian 8 TB, HVP ohne Materialisierung. Verteilte Gradienten-/Parameterbesitz-Verträge vorbereiten, noch kein MPI.
 - **Gate:** Analytische, finite-difference- und unabhängige PyTorch/JAX-Referenzen; Garbage-Collection/Graph-Lifetime; gleichwertige Gradienten bei Checkpointing innerhalb Toleranz. Beispiel 1.000×8 MB Zustände: vollständige Speicherung 8 GB; 50er-Blöcke: 21 Checkpoints inkl. Start ≈168 MB plus bis ca. 400 MB Segmentzustände und übriger Workspace (nicht bloß 168 MB Peak).
 
-### 0.18 — Shadowfax II — High Performance CPU & ACE v1 (AKE v1)
+### Arda 0.18 — High-Performance CPU Execution and Adaptive Planning (AKE v1, ACE v1)
+
+*Development codename: Shadowfax II*
 
 - **0.18.0:** Reproduzierbare Microbenchmarks (GEMM, GEMV, SpMV, AXPY, reduction, sin/cos, strided copies, VM loops); `perf stat`, Cache- und Bandbreitenmessung, Laufzeit-CPU-Erkennung. Portable Kernel-Referenz. GCC/Clang LTO/PGO als optionale Builds; portable Artefakte nicht pauschal mit `-march=native` verteilen.
   - **Baseline für dichtes Float64-`matmul`:** Standardbuild ohne BLAS und optionalen OpenBLAS-Build mit Eigen und NumPy vergleichen. Quadratische Matrizen (128 × 128, 512 × 512, 1024 × 1024) mit identischen Eingaben und zunächst einem Thread messen. Hardware, Compilerflags und Backend-Versionen dokumentieren. Median wiederholter Messungen nach Warmup angeben, ohne Eingabeerzeugung und Programmstart, inklusive Ausgabeallokation. Ergebnisse gegen eine unabhängige Referenz mit dokumentierten numerischen Toleranzen prüfen.
@@ -182,7 +224,9 @@ CPU-first, nicht CPU-only: serieller Pfad und identische mathematische API für 
 - **0.18.6 — NUMA & overhead controls:** optional hwloc, CPU/Cache/NUMA-Topologie, first-touch, Pinning und Threadbudgets; Benchmarks für kleine und große Operationen sowie Oversubscription. `compute.compare` mit gleichen Toleranzen, Warmup, Wiederholungen und getrennten Backend-Parametern. Testen, dass AMDE/Trace/Units/AD deaktiviert keine Pro-Element-Kosten verursachen. Optionale LTO/PGO und Build-Feature-Schalter, keine kombinatorische ungetestete Build-Matrix. ACE v1 zeigt Kernel, Blockgröße, Threads und geschätzten Workspace; tatsächliche Auswahl im Run-Bericht.
 - **Gate:** Kein unbewiesener allgemeiner Speedup. Auf festgelegter Hardware und identischen Daten: Ziel ≤10% Regression gegenüber vorigem Release bei unveränderten kritischen Workloads (außer begründeter Sicherheit/Korrektheit); mindestens drei klar dokumentierte Kernelverbesserungen; Zeit, RSS, Datenbewegung, Genauigkeit und Threadscaling angeben. Vergleich mit optimiertem BLAS/SciPy/Julia. 10 Mio. Float64 `a*b+c*d+e`: bis zu 240 MB temporäre Allokationen entfallen, ohne Inputs/Output zu ändern.
 
-### 0.19 — Aulë — Advanced Numerical Solvers
+### Arda 0.19 — Advanced Numerical Solvers
+
+*Development codename: Aulë*
 
 - **0.19.0:** Einheitlicher Operator- und Solververtrag für dense/sparse/structured/matrix-free; `apply`, `apply_transpose`, dimensions, dtype, workspace. Standardisierte SolverResult inklusive normiertem Residuum, iterations, converged, breakdown, reason. Optional Callback-Operator mit synchroner VM-Ausführung und klaren Kosten.
 - **0.19.1:** CG/PCG, MINRES, restarted GMRES (restart begrenzt), BiCGSTAB, LSQR/LSMR, Krylov-workspace-Budgets. Jacobi/Block-Jacobi, ILU(0), incomplete Cholesky nur unter passenden Voraussetzungen. Sparse LU optional (Fill-in- und Speicherprüfung). Eigenwerte mit Lanczos/Arnoldi, Reorthogonalisierung wo nötig.
@@ -191,7 +235,9 @@ CPU-first, nicht CPU-only: serieller Pfad und identische mathematische API für 
 - **0.19.4 — Verified & communication-aware solvers:** `verify` für Linear Solve/Eigen/SVD, Fehlermaße und Konditionsschätzung; Solver-Trace mit Iteration, Residuum, Breakdown, Vorkonditionierung, toleranzbezogenen Stops. Adaptive Precision nur wenn explizit erlaubt, prüft geeignetes Fehlerkriterium. Vorbereitung von globaler Reduktion und Halo-Apply; pipelined/communication-avoiding Krylov erst nach Stabilitätsvergleich. `require`/`assume` zunächst als API-Metadaten für Operatoren.
 - **Gate:** 128³ Poisson (2.097.152 Punkte), unabhängige Manufactured Solution, relatives Residuum ≤1e-8, Fehler gegenüber exakter diskreter Lösung; Ziel <512 MiB Peak RSS, Laufzeit und Iterationszahl gegen bisheriges CG und externe Referenz. Mehrere Testgrößen zur Skalierung, keine ausschließliche Eigenvektor-Testrechte Seite. Beispiel sechs Float64-Vektoren belegen 96 MiB, weitere Puffer extra. Nichtkonvergenz sauber melden.
 
-### 0.20 — Ulmo — Scientific Simulation
+### Arda 0.20 — Scientific Simulation
+
+*Development codename: Ulmo*
 
 - **0.20.0:** ODE: vorhandenes RK4/RK45 erhalten, adaptive Toleranzen, dense output, events, Verlet/Leapfrog, saveat/streaming Zustände und Checkpoints; Fehlerkontrolle und Restart.
 - **0.20.1:** Implicit Euler, BDF/Radau in Etappen, Newton-Verfahren, Jacobian/JVP, steife Testprobleme; lineare Operatoren und Vorkonditionierung wiederverwenden. Optionale etablierte Backend-Solver statt unvalidierter eigener Implementierungen.
@@ -201,7 +247,9 @@ CPU-first, nicht CPU-only: serieller Pfad und identische mathematische API für 
 - **0.20.5 — Experiments & domains:** `compute.sweep` für unabhängige Parameterstudien mit begrenztem Task-Scheduler, Streaming-Ausgabe, Fehlertabelle und sicherer Wiederverwendung unveränderter Faktorobjekte. Persistenter Checkpoint/Resume für ausgewählte ODE/PDE-Solver; dokumentierte Randbedingungen und Diskretisierung in AMDE, mathematische Verträge und Erhaltungssätze. Partitionierbare Gitter, Ghost-Zellen und Subdomain-Verträge als MPI-Vorbereitung. Signalverarbeitung (Faltung, Filter, Wavelets), Geometrie/Rotationen, Regelungstechnik und Sparse-Graphalgorithmen als optionale Erweiterungspakete, keine Voraussetzung für alle Simulationen.
 - **Gate:** analytische Lösungen, Gitter-/Zeitschrittverfeinerung, erwartete Konvergenzordnung, Erhaltungssätze und dokumentierte Randbedingungen. Reproduzierbares Wärmeleitungs- und FEM-Beispiel auf 8-GB-Laptop.
 
-### 0.21 — Khazad-dûm — Beyond-RAM Data Processing & Visualization (AME v2)
+### Arda 0.21 — Beyond-RAM Data Processing and Visualization (AME v2)
+
+*Development codename: Khazad-dûm*
 
 - **0.21.0:** Streaming CSV/TSV, JSON, NPY/NPZ, Matrix Market (aus 0.14), VTK, optional HDF5. Sichere Header-/Dateiprüfung, bounded decompression, Endianness und untrusted size validation. Binärformate ohne Vollmaterialisierung, Formatversionen dokumentieren.
 - **0.21.1:** Disk-backed Outputs, explizites read/write tile, Chunk-Cache mit Budget, LRU oder passende Zugriffspolitik, Dirty-Block-Writeback, Crash-Cleanup und Quota. Deterministische Blockreihenfolge optional, atomare Checkpoints. Kein allgemeines transparentes SSD-Swapping beliebiger VM-Objekte.
@@ -210,7 +258,9 @@ CPU-first, nicht CPU-only: serieller Pfad und identische mathematische API für 
 - **0.21.4 — Reports & persistent state:** mathdoc/rumil-Export in LaTeX, Markdown, HTML, JSON mit Formeln, Einheiten, Algorithmus, Prüfbericht und optionalem Trace; Ausgabe budgetieren/streamen, nicht große Tensoren dumpen. Versionierte Experimentmanifeste und Checkpoint-Dateien mit Prüfsummen, Quota, atomarem Commit. Vorbereiten partitionierter Dateiformate, MPI-IO erst nach MPI-Grundmodul. Optional TSQR und blockweises External Sort nach Benchmarks.
 - **Gate:** echte Datenfiles > RAM (20 GB/80 GB), Cold/Warm getrennt, harte Linux-Testlimits ohne Swap, Ausgabevalidierung und dokumentierter I/O; Ziel Streaming-Statistik <512 MiB, 80-GB-Reduktion <1 GiB. Keine universelle Out-of-Core-Semantik versprechen.
 
-### 0.22 — Palantír — Language, Runtime & ACE v2
+### Arda 0.22 — Language Runtime and Adaptive Execution (ACE v2)
+
+*Development codename: Palantír*
 
 - **0.22.0:** Tupel, Sets, Generatoren/Lazy Range, Iteratoren, Keyword-Argumente, Typannotationen, F-Strings und Context Manager in separat getesteten Paketen. Sprachspezifikation aktualisieren; neue Syntax nicht erzwingen, existierende Programme behalten.
 - **0.22.1:** VM-Optimierungen: lokale Slots, Call/Attribute-Caches, spezialisierte Opcodes, GC-Sweep-Latenz, Bytecode-Lebensdauer und Speicherdiagnostik. Profiling vor Änderung. Ressourcenlimit für Instruktionen/Stack/Memory, kontrollierte Host-Funktionen, Abbruch; keine Behauptung einer Sicherheits-Sandbox ohne Isolation und Audit.
@@ -219,7 +269,9 @@ CPU-first, nicht CPU-only: serieller Pfad und identische mathematische API für 
 - **0.22.4 — Contracts & AMDE v2:** Funktionsanalyse für sichere Bedingungen, unterstützte Schleifen/Recurrences, rekursive Calls mit Tiefenlimit; `require`/`ensure` und `assume` (Syntax optional nach Sprachreview). Symbolische und numerische Semantik getrennt. Vollständiges `getCost/getPlan(spec)` für unterstützte Graphen, Kostenintervalle, unbekannte Pfade, gecachte Pläne; keine numerische Ausführung durch statische Analyse. CPU/RAM/SSD/Device/Netzwerk-Kostenprofile als vorbereitete Capability-Registry. Ausführungsprofile, begrenzter Trace und getAlgorithm auf Run-Objekten. Statische Verträge dürfen dynamische Seiteneffekte nicht ausführen.
 - **Gate:** deterministischer Modus, Eager/Lazy-Äquivalenz, absichtliche Mutation und Fehlerreihenfolge, unerreichbare Graphen/Buffer freigeben. Beispiel 100-GB-Datei, sum(sin(x)*exp(-x)): blockweise einlesen, fused compute + reduction, keine vollständigen Zwischentensoren; Fließkomma-Toleranz dokumentieren.
 
-### 0.23 — Eärendil — Interoperability & MPI Foundations
+### Arda 0.23 — Scientific Interoperability and MPI Foundations
+
+*Development codename: Eärendil*
 
 - **0.23.0:** `libarda.a`, `libarda.so`, öffentliches opaque C-Handle-API, Version/ABI-Verhandlung, Eval/Call/Errors, Rooting, Pin/Unpin, Buffer export/import, zwei unabhängige VM-Instanzen, dokumentierte Threadregeln. Interne `Obj`-Struktur nicht veröffentlichen. Fatalen OOM/longjmp an Host-Grenzen weiter behandeln.
 - **0.23.1:** optional FFI (libffi), explizite Signaturen, Ownership und Fehlervertrag; untrusted FFI nicht erlauben. Host-Callback-Regeln. Python-Adapter mit NumPy-/SciPy-Zero-Copy wo Layout, DType, Endian und Lifetime passen; ansonsten explizite Kopie. DLPack/Buffer Protocol optional.
@@ -228,7 +280,9 @@ CPU-first, nicht CPU-only: serieller Pfad und identische mathematische API für 
 - **0.23.4 — Metadata interoperability:** MathML, Descriptor-Registrierung für FFI/Plugins, externe Backend-Provenance; unbekannte libm/BLAS/PETSc-Innenschritte als nicht verfügbar deklarieren. Mathematische Metadaten und öffentliche C-API versionieren. Optionale FFTW, SLEPc, hypre, HDF5, ScaLAPACK nach Bedarf und Lizenzreview, nicht alle gleichzeitig.
 - **Gate:** C-Host mit mehreren VMs, Zero-Copy-Ownership-/Mutationstests, Parser-Fuzzing, Fehlermeldungen bei nicht unterstützten Encodings, Kompatibilitätsmatrix und Lizenzprüfung optionaler Backends.
 
-### 0.24 — Fëanor — Optimizing Compiler
+### Arda 0.24 — Optimizing Compiler
+
+*Development codename: Fëanor*
 
 - **0.24.0:** Typisierte numerische IR, Shape/DType-Inferenz, Graph Verification, SSA oder geeignete DAG-IR, Effect-/Alias-Analyse, Lowering zu bestehenden Kernels. Keine komplette Neuschreibung des Bytecode-Compilers.
 - **0.24.1:** Constant folding, dead code elimination, CSE, Liveness, Loop Fusion, Tiling, layout-aware contraction planning. Fast-math nur explizit; Floating-Point-Äquivalenz je Modus testen. Maximaler Workspace Teil des Optimierungsziels.
@@ -236,7 +290,9 @@ CPU-first, nicht CPU-only: serieller Pfad und identische mathematische API für 
 - **0.24.3 — Symbolic & parallel lowering:** begrenzte symbolische Vereinfachung und Ableitung (Domänen, Vorzeichen, Nichtdifferenzierbarkeit, Rewrite-Budget beachten); gemeinsame Semantik mit numerischer IR, nicht beide IRs verschmelzen. `sym` als kleiner algebraischer Kern, kein vollständiges Mathematica. Partitionierbare reine numerische Regionen, Thread- und Kommunikationsbarrieren explizit. Traced vs optimierte Ausführung eindeutig labeln.
 - **Gate:** Interpreter/IR/JIT/AOT-Referenztests, Fehlerpfade und deterministischer Modus; Nutzen gegen optimierte native Kernels und inklusive Compile-Zeit belegen. JIT bleibt optional und experimentell, kein 1.0-Blocker.
 
-### 0.25 — Ancalagon — Accelerated, Hybrid & Distributed HPC
+### Arda 0.25 — Accelerated, Hybrid, and Distributed HPC
+
+*Development codename: Ancalagon*
 
 - **0.25.0:** Device API: allocation, transfer, event, synchronize, kernel capabilities, CPU-Backend als Referenz, GPU-Fehler an VM melden. CPU und GPU-Speicher nicht gleichsetzen; Unified Memory nicht als grenzenlos behandeln.
 - **0.25.1:** Ein optionales GPU/iGPU-Backend (CUDA, Vulkan Compute, HIP oder anderes nach Zielhardware/Benchmarks), elementwise, reductions, GEMM und ausgewählte Sparse-Kernels, dtype capability checks; Float64 nicht auf jeder GPU sinnvoll schnell. Keine versteckten Kopien.
@@ -249,7 +305,9 @@ CPU-first, nicht CPU-only: serieller Pfad und identische mathematische API für 
 - **0.25.8:** Slurm-Beispiele (srun, CPU-Binding, Aufgaben/Threads/RAM), echte Cluster-Tests, strong/weak scaling, Kommunikation, I/O und Lastbalance. CPU-only MPI-Pfad obligatorisch für den stabilen HPC-Release; GPU-aware MPI/NCCL, weitere GPUs und massive Skalierung optional/experimentell.
 - **Gate:** Bei implementiertem GPU-Backend CPU/GPU-Vergleich innerhalb Toleranz, kontrolliertes Fehlverhalten ohne GPU, Benchmarks inkl. Transfers und Energie. CPU-only-Release bleibt vollständig nutzbar. HPC-Gate zusätzlich: verteiltes SpMV/PCG gegen serielle und unabhängige Referenz, globales Residuum, keine zentrale Vollmaterialisierung, reale Mehrknoten-Tests und dokumentierte Skalierung.
 
-### 0.26 — Ainulindalë — Advanced ML, Inference & Training
+### Arda 0.26 — Machine Learning Inference and Training
+
+*Development codename: Ainulindalë*
 
 - **0.26.0:** NN-Modul: linear, conv, activation, normalization, softmax, loss, datasets, metrics, SGD/Adam/AdamW, model state/save/load, kleine Referenzmodelle (Regression, MLP, kleiner Transformer). Autodiff/AME/ACE wiederverwenden, Gradient Accumulation und Checkpointing standardmäßig verfügbar.
 - **0.26.1:** Transformer-Inference: Embedding, RoPE, RMSNorm, Attention (GQA/MQA), MLP, Tokenizer und Sampling für zunächst ein klar definiertes kompatibles Modellformat/Architektur. Tiled attention/online softmax, quantisierte GEMV/GEMM, KV-Cache mit Budget, optional KV-Quantisierung und blockbasierte Caches. FlashAttention-Idee auf CPU-Cache anpassen; quadratische klassische Attention-Rechenarbeit bleibt.
@@ -259,7 +317,9 @@ CPU-first, nicht CPU-only: serieller Pfad und identische mathematische API für 
 - **0.26.5 — Distributed ML & reporting:** zunächst data parallel für kleine Modelle mit MPI-allreduce, korrekte Gradienten-Gewichtung, synchronisierte Optimiererzustände und Seed-Strategie; optional model/tensor/pipeline parallel, ZeRO-artige Sharding-/Offload-Verfahren und MoE Expert Placement als Forschung. `getTex` für Layer, Attention, Loss, Kettenregel; Run-Bericht für Parameter, Speicher, Kontext, T/s, Toleranzen und Trainingskurven. Keine vollständige Gewichts-/Gradientenaufzeichnung. GPU-Backends nicht für CPU-Training voraussetzen.
 - **Gate:** Modell-/Tokenizer-Übereinstimmung gegen unabhängige Implementierung, Logit-/Qualitätsabweichungen, prefill vs decode T/s, TTFT, context length, exact encoding, RSS, I/O und Dauerleistung. CPU-Training kleiner Modelle reproduzierbar. LoRA-Parameter und Gradienten prüfen. 70B-Experiment nur mit Hardware-/Modell-/I/O-Angabe und ohne Mindesttokenrate-Versprechen. Kein vollständiges 70B-Pretraining als Laptopziel.
 
-### 0.27 — Imladris — Developer Ecosystem
+### Arda 0.27 — Scientific Developer Tools and Ecosystem
+
+*Development codename: Imladris*
 
 - **0.27.0:** CLI `arda run/repl/test/fmt/check/doc/build/profile`, bestehende CLI kompatibel halten. Formatter/Parser-Diagnose, Stacktraces, Source Locations.
 - **0.27.1:** `arda.toml`, Lockfile, lokale/versionierte Pakete, Integritätsprüfsummen, reproduzierbare Abhängigkeiten, keine implizite Ausführung untrusted Install-Skripte. Öffentliches Register optional später.
@@ -268,7 +328,9 @@ CPU-first, nicht CPU-only: serieller Pfad und identische mathematische API für 
 - **0.27.4:** `arda doc`, IDE/Notebook-Formelansicht, Assumptions/Units/Cost/Plan, verifizierte Berichte und Reproduzierbarkeitsmanifest. `compute.reproduce` prüft Inputs und Version, nicht automatisch untrusted Programme ausführen. Profiler für MPI, I/O, NUMA und Slurm-Jobvorlagen; keine heimlichen Clusterjobs. Elbisch/Englisch-Formattermodus, Dialekt-Tokenäquivalenztests, ASCII-Modulnamen und barrierearme wissenschaftliche Tutorials.
 - **Gate:** Frische Ubuntu-Installation, Projekt anlegen, Daten importieren, wissenschaftliches Beispiel ausführen, testen, profilieren und exportieren ohne C-Änderungen.
 
-### 0.28 — Mandos — Scientific & Performance Validation
+### Arda 0.28 — Scientific and Performance Validation
+
+*Development codename: Mandos*
 
 - **0.28.0:** Plattformmatrix GCC/Clang, x86-64, ARM64, portable/BLAS/SIMD/threads/sanitize; optional macOS/Windows. Fuzzing (Lexer, Parser, Sparse, Dateien, Tensor-Shape), GC-Stress, Race Detection für Thread-Kernels. Lokale Testmatrix ab 0.14, hier vollständiger Audit. Keine GitHub Actions.
 - **0.28.1:** Numerik: konditionierte/singuläre/random/analytische Fälle, Backward Error, Residuen, Solver-Convergence, ODE/PDE-Verfeinerung, Gradcheck, mixed precision, Quantisierungsqualität; Tests mit reproduzierbaren Seeds und problemabhängigen Toleranzen. Referenzen in ausreichend präziser Ausgabe/Binärformat, nicht bloß gerundeter Text.
@@ -278,7 +340,9 @@ CPU-first, nicht CPU-only: serieller Pfad und identische mathematische API für 
 - **0.28.5:** reale MPI-Cluster-Validierung (mind. 2 physische Knoten für Mehrknotenaussage), 1/2/4/8 Ranks soweit verfügbar, strong/weak scaling, lokale RAM-/Kommunikationsstatistik, globales Residuum, gleiche Problemdefinition und Toleranz. Kein Cluster-Erfolg allein aus localhost ableiten. MPI-lokale Validierung kleine Jobs; auf Cluster optional größere Tests, Fehler-/Restart-Szenarien und dokumentierte Ausnahmen.
 - **Gate:** Keine offenen kritischen Fehler in stabilen Kernkomponenten; dokumentierte Performance-Regressionsausnahmen; unabhängige reproduzierbare Ergebnisse. Experimentelle Features klar getrennt.
 
-### 0.29 — Valinor — Release Candidate
+### Arda 0.29 — Release Candidate
+
+*Development codename: Valinor*
 
 - **0.29.0:** stabile API-Liste und Semantik-Freeze, Kompatibilitäts-/Migrationsleitfaden, öffentliche C-ABI soweit stabil, Dateiformatversionen, Fehlercodes und Ressourcenvertragsdokumentation. Experimentelle APIs separat kennzeichnen.
 - **0.29.1:** Installationspakete, reproduzierbare Builds, Lizenz- und Dependency-Audit, Sicherheitsdokumentation, klare Nicht-Sandbox-Aussage, Tutorials und Referenzanwendungen.
@@ -286,7 +350,9 @@ CPU-first, nicht CPU-only: serieller Pfad und identische mathematische API für 
 - **Zusätzliches Gate:** stabile AMDE-Detailstufen und Provenance, numerische Verträge, reproduzierbare Berichte, minimale MPI/Distributed-API, Nutzerhandbuch für Laptop/Workstation/Cluster. Tolkien-Codenamen intern von neutralen APIs trennen; Marken-/Namens-/Lizenzprüfung vor öffentlichem Branding. Stabile und experimentelle Teilbereiche auch im gleichen Release klar ausweisen.
 
 
-### 1.0 — Eä — Stable Scientific Computing Language
+### Arda 1.0 — Stable Scientific Computing Language
+
+*Development codename: Eä*
 
 Pflicht: stabile Sprache/Runtime, Dense & Sparse, validierte zentrale lineare Algebra und Solver, portable CPU-Kernels, dokumentiertes Ressourcenmanagement, begrenzte Beyond-RAM-Operationen, Tensor-Autodiff mit Checkpointing, reproduzierbare Builds, öffentliche C-API, Beispiele/Dokumentation und klare Plattform-/Feature-Matrix. Grundlegendes CPU-ML soll demonstriert sein. Zusätzlich verbindlich: statisches getTex(0–3) für dokumentierte native und unterstützte Nutzerfunktionen, getCost/getPlan für unterstützte Operationen, Verifikations-API, begrenzte Traces, reproduzierbare Experimentberichte, optionale aber stabile grundlegende MPI-Unterstützung, verteilte CSR/Vektoren und mindestens ein validierter verteilter SPD-Solver mit Mehrknoten-Nachweis. Der Standardbuild bleibt ohne MPI/GPU-Abhängigkeit nutzbar. Fortgeschrittenes GPU, vollständiger JIT, 70B-Inference, TT-Solver, vollständiges QLoRA, allgemeines AMG und massiv verteiltes ML bleiben optional/experimentell und sind keine 1.0-Blocker. Falls reale Cluster-Validierung nicht möglich ist, HPC nicht als stabil behaupten; Release-Gate offen halten oder die Änderung des 1.0-Vertrags ausdrücklich beschließen. SemVer ab 1.0: Patch kompatible Korrekturen, Minor kompatible Features, Major inkompatible Änderungen.
 
@@ -349,7 +415,7 @@ P0: sparse, accounting, safe allocation/ownership, matrix-free, validated math, 
 
 Suggested lokale Validierung targets: `make test`, `make test-reference`, `make sanitize`, `make check-generated`, `make format-check` (current targets); later `make test-sparse`, `make test-memory`, `make bench-laptop`, `make bench-beyond-ram`, `make fuzz`, `make test-threads` (proposals). Use fixed seeds and small lokale Validierung workloads; large data tests opt-in on suitably provisioned machines.
 
-## 9. Moria implementation order
+## 9. Sparse Computing Implementation Order
 
 | Work package | Deliverable | Depends on |
 |---|---|---|
@@ -389,9 +455,9 @@ Die folgenden Ziele ergänzen die ursprüngliche Benchmark-Tabelle. Keine gemess
 
 Referenz D: HPC-System mit mindestens zwei Knoten (konkrete Ausstattung erst bei Zugang), feste Rank/Thread-Zuordnung, Slurm oder vergleichbare Scheduler. Benchmark-Skalierung nicht mit reinem lokalen Multithreading verwechseln. Strong scaling S(p)=T(1)/T(p), Effizienz S(p)/p; weak scaling E(p)=T(1,n)/T(p,pn). Bei unterschiedlichen Knotenkonfigurationen die Baseline angeben. Amdahl bei 99 % parallel und 64 gleichartigen Recheneinheiten ≈39,3× idealisiert; Netzwerk kommt hinzu. Beispiel verteilter Float64-Vektor mit 20 Mrd. Elementen: 160 GB global, 20 GB pro Rank bei 8 gleich großen Partitionen, vor Workspaces/Halo. HPCG/LINPACK/STREAM als externe Referenzmethoden oder klar gekennzeichnete eigene ähnliche Workloads, keine unberechtigte Benchmark-Zertifizierung.
 
-## 11. Tolkien-Identität und Release-Codenamen
+## 11. Projektidentität und Entwicklungscodenamen
 
-Arda ist laut README ein unabhängiges MIT-lizenziertes Fan-Projekt; Schlüsselwörter sind künstlerisch von Quenya/Sindarin inspiriert und keine verbindlichen Übersetzungen. Diese Identität bleibt erhalten, ohne wissenschaftliche APIs zu verschleiern. Tolkien-Namen hier sind interne, kreative Codenamen, keine behauptete offizielle Verbindung oder rechtliche Freigabe.
+Arda ist eine unabhängige, MIT-lizenzierte wissenschaftliche Programmiersprache. Technische Meilensteine und mathematische APIs stehen im Vordergrund. Die optionalen, an Quenya und Sindarin angelehnten Schlüsselwörter und die literarischen Entwicklungscodenamen bleiben Teil der Projektkultur. Die Projektzuordnung ist im [README](README.md#license-and-attribution) erläutert.
 
 ### 11.1 Aktuelle Syntax (0.13.1, lexer.c)
 
@@ -432,25 +498,25 @@ Arda ist laut README ein unabhängiges MIT-lizenziertes Fan-Projekt; Schlüsselw
 
 ### 11.3 Vorgeschlagene Codenamen bis 1.0
 
-| Version | Codename | Technischer Schwerpunkt | Tolkien-Bezug / Metapher |
+| Version | Technischer Schwerpunkt | Entwicklungscodename | Tolkien-Bezug / Metapher |
 |---|---|---|---|
-| 0.14 | Moria | Sparse, Aufbau und Speicherfundament | Unterirdische Hallen und strukturierter Aufbau |
-| 0.15 | Rúmil | Scientific Foundations, MathIR, getTex | Gelehrter von Tirion und frühes Schriftsystem Sarati |
-| 0.16 | Mithril | Virtuelle Tensoren, kompakte Speicherformate | Leichtes, widerstandsfähiges Metall |
-| 0.17 | Vilya | Autodiff, Sensitivität, Checkpointing | Dritter der Elbenringe; Fortsetzung Narya/Nenya |
-| 0.18 | Shadowfax II | Maximale CPU-Performance | Gandalfs schnelles Pferd; Fortsetzung der Performance-Releases |
-| 0.19 | Aulë | Numerische Solver | Vala des Handwerks und der Gestaltung |
-| 0.20 | Ulmo | Physikalische Simulationen | Vala der Gewässer |
-| 0.21 | Khazad-dûm | Beyond-RAM Datenverarbeitung | Dieselbe Zwergenstadt wie Moria; hier bewusst Rückbezug auf 0.14 |
-| 0.22 | Palantír | Adaptive Planung und Introspektion | Sehende Steine als Metapher für Sicht auf den Ausführungsplan |
-| 0.23 | Eärendil | Interoperabilität und MPI-Grundlagen | Reisender und Vermittler zwischen Welten |
-| 0.24 | Fëanor | Optimierender Compiler | Handwerk, Erfindung und Tengwar |
-| 0.25 | Ancalagon | GPU, hybride und verteilte HPC-Systeme | Gewaltiger Drache als Metapher für große Rechenleistung |
-| 0.26 | Ainulindalë | ML, Training und Inference | Musik der Ainur als Metapher für viele zusammenwirkende Teile |
-| 0.27 | Imladris | Entwicklerökosystem | Elbischer Name Bruchtals; Ort des Wissensaustauschs |
-| 0.28 | Mandos | Validierung, Prüfung, Audit | Hallen und Urteil als kreative Metapher für Prüfung |
-| 0.29 | Valinor | Release Candidate | Land der Valar als Ziel der langen Reise |
-| 1.0 | Eä | Stabile wissenschaftliche Runtime | Die erschaffene Welt/Universum als Metapher für das Gesamtwerk |
+| 0.14 | Sparse, Aufbau und Speicherfundament | Moria | Unterirdische Hallen und strukturierter Aufbau |
+| 0.15 | Scientific Foundations, MathIR, getTex | Rúmil | Gelehrter von Tirion und frühes Schriftsystem Sarati |
+| 0.16 | Virtuelle Tensoren, kompakte Speicherformate | Mithril | Leichtes, widerstandsfähiges Metall |
+| 0.17 | Autodiff, Sensitivität, Checkpointing | Vilya | Dritter der Elbenringe; Fortsetzung Narya/Nenya |
+| 0.18 | Maximale CPU-Performance | Shadowfax II | Gandalfs schnelles Pferd; Fortsetzung der Performance-Releases |
+| 0.19 | Numerische Solver | Aulë | Vala des Handwerks und der Gestaltung |
+| 0.20 | Physikalische Simulationen | Ulmo | Vala der Gewässer |
+| 0.21 | Beyond-RAM Datenverarbeitung | Khazad-dûm | Dieselbe Zwergenstadt wie Moria; hier bewusst Rückbezug auf 0.14 |
+| 0.22 | Adaptive Planung und Introspektion | Palantír | Sehende Steine als Metapher für Sicht auf den Ausführungsplan |
+| 0.23 | Interoperabilität und MPI-Grundlagen | Eärendil | Reisender und Vermittler zwischen Welten |
+| 0.24 | Optimierender Compiler | Fëanor | Handwerk, Erfindung und Tengwar |
+| 0.25 | GPU, hybride und verteilte HPC-Systeme | Ancalagon | Gewaltiger Drache als Metapher für große Rechenleistung |
+| 0.26 | ML, Training und Inference | Ainulindalë | Musik der Ainur als Metapher für viele zusammenwirkende Teile |
+| 0.27 | Entwicklerökosystem | Imladris | Elbischer Name Bruchtals; Ort des Wissensaustauschs |
+| 0.28 | Validierung, Prüfung, Audit | Mandos | Hallen und Urteil als kreative Metapher für Prüfung |
+| 0.29 | Release Candidate | Valinor | Land der Valar als Ziel der langen Reise |
+| 1.0 | Stabile wissenschaftliche Runtime | Eä | Die erschaffene Welt/Universum als Metapher für das Gesamtwerk |
 
 Rúmil bleibt der interne Name für AMDE, auch nach 0.15. `mathdoc` ist der neutrale öffentliche Modulname, `rumil` ein möglicher Alias. Module `compute`, `sparse`, `linalg`, `units`, `uncertainty`, `mpi`, `distributed`, `nn` behalten beschreibende Namen. Referenzen für die Namensherkunft: [Rúmil](https://tolkiengateway.net/wiki/Rumil_of_Tirion), [Moria/Khazad-dûm](https://tolkiengateway.net/wiki/Moria), [Vilya](https://tolkiengateway.net/wiki/Vilya), [Aulë](https://tolkiengateway.net/wiki/Aul%C3%AB); übrige Namen als kreative Vorschläge. Tolkien-Primärwerke als kultureller Hintergrund: The Silmarillion und The Lord of the Rings. Vor Veröffentlichung Namens-/Markenkollisionen prüfen (auch den Namen Arda selbst); MIT-Lizenz des Codes klärt keine fremden Markenrechte.
 

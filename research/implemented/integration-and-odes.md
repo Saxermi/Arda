@@ -1,0 +1,19 @@
+# Numerical integration and ordinary differential equations
+
+**Status** — Implemented in 0.14.3. Published orders assume sufficient smoothness and a stable step regime.
+
+## Composite trapezoidal and Simpson quadrature
+
+For samples $f_i=f(a+ih)$ on $N$ equal panels, the trapezoidal rule approximates $\int_a^b f(x)\,dx$ by $h(f_0/2+\sum_{i=1}^{N-1} f_i+f_N/2)$. Composite Simpson uses $h(f_0+4\sum_{i\text{ odd}}f_i+2\sum_{i\text{ even},0<i<N}f_i+f_N)/3$ with even $N$. Global discretization error is $O(h^2)$ and $O(h^4)$, respectively, with bounded second or fourth derivatives. Both cost $O(N)$ work with $O(1)$ scalar workspace, plus any contiguous input copy for the native routine. `calc.trapz` and `calc.simpson` consume finite samples and a uniform step. `ode.integrate` evaluates a callback on the Simpson grid. Endpoint singularities and unresolved oscillations can invalidate an expected rate. There is no adaptive error estimator. [`calculus_call`](../../src/calculus.c) · [`integrate`](../../lib/ode.arda) · [NIST DLMF \3.5](https://dlmf.nist.gov/3.5) · [Piessens et al. 1983 for adaptive comparison](https://doi.org/10.1007/978-3-642-61786-7)
+
+## Classical RK4
+
+For $y'=f(t,y)$ use $k_1=f(t,y)$, $k_2=f(t+h/2,y+hk_1/2)$, $k_3=f(t+h/2,y+hk_2/2)$ and $k_4=f(t+h,y+hk_3)$. Then $y^+=y+h(k_1+2k_2+2k_3+k_4)/6$. Arda offers fixed-step callbacks in `ode.rk4` and a specialized native linear-system variant `calc.rk4_linear` with $f=Ay$ and extended-precision matrix-vector accumulation. Classical RK4 has fourth-order global error and is explicit with a bounded stability region. For $S$ steps and $d$ state elements, the callback version uses $4S$ evaluations plus $O(Sd)$ vector work and stores $O(Sd)$ trajectory output. The linear variant uses $O(Sd^2)$ work and $O(d)$ stage workspace plus output. Both impose step limits and neither is designed as a stiff solver. [`rk4` in C](../../src/calculus.c) · [`rk4` in Arda](../../lib/ode.arda) · [Hairer, Nørsett and Wanner 1993](https://doi.org/10.1007/978-3-540-78862-1)
+
+## Dormand–Prince RK45
+
+`ode.rk45` uses the seven-stage Dormand–Prince embedded 5(4) pair. It advances with the fifth-order state $y_5$ and estimates local error against $y_4$. For component $i$, $e_i=(y_{5,i}-y_{4,i})/(a_{tol}+r_{tol}\max(|y_i|,|y_{5,i}|))$ and $E=\sqrt{\sum_i e_i^2/d}$. The solver accepts $E\le1$, clips step updates based on $0.9 E^{-1/5}$ to $[0.2,5]$, and clips the last step to the endpoint. It returns final state and accepted/rejected counts. It supports forward and reverse time, recomputes all seven stages each trial and has no dense output or event localization. Cost is seven RHS evaluations and $O(d)$ vector work per trial, with $O(d)$ algorithmic live stage storage, excluding callback and GC transient allocations. Local error scaling does not guarantee a global tolerance. Explicit stability can require very small steps on stiff problems. [`rk45`](../../lib/ode.arda) · [`high_call` error metric](../../src/highdim.c) · [Dormand and Prince 1980](https://doi.org/10.1016/0771-050X%2880%2990013-3) · [Hairer et al. 1993](https://doi.org/10.1007/978-3-540-78862-1)
+
+**Validation and provenance** — Checked-in tests cover polynomial quadrature, linear rotation, forward/reverse scalar RK45 and tensor decay. The reference suite compares quadrature and ODE results with SciPy. No standalone matched ODE or quadrature timing report was located. Both native and Arda routines appear by import `e2ba505`. The papers and handbook explain the methods. Original source consultation is unknown. The routines ship under Arda's license. [Regression tests](../../tests/test_highdim.py) · [Numerical references](../../tests/reference_numerics.py) · [License](../../LICENSE)
+
+**Bibliography keys** — `DormandPrince1980`, `HairerEtAl1993`, `NISTDLMF`, `PiessensEtAl1983`.

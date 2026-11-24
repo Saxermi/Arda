@@ -1,0 +1,19 @@
+# Optimization and scalar automatic differentiation
+
+**Status** — Implemented in 0.14.3.
+
+## L-BFGS with Armijo backtracking
+
+`opt.lbfgs` minimizes a scalar objective whose callback supplies a same-shape gradient tensor. For $s_i=x_{i+1}-x_i$, $y_i=g_{i+1}-g_i$, it retains up to $m$ recent pairs and $\rho_i=1/(s_i^T y_i)$. The two-loop inverse-Hessian apply uses a backward $q\gets q-\rho_i(s_i^Tq)y_i$ and a forward correction with the stored scalars, starting with scale $(s^Ty)/(y^Ty)$ from the latest pair. Backtracking halves an initial unit trial until $f(x+\alpha p)\le f(x)+10^{-4}\alpha g^Tp$, for at most 40 trials. Unsafe curvature pairs are skipped. A non-descent direction resets history and falls back to negative gradient. For $n$ parameters, work is $O(mn)$ plus callback and $O(n)$ vector work per trial. Live history takes $O(mn)$ space. Smoothness, accurate gradients and useful curvature control performance. The code's Armijo-only search and termination do not give the guarantees of all strong-Wolfe or convex L-BFGS variants. [`lbfgs`](../../lib/opt.arda) · [Nocedal 1980](https://doi.org/10.1090/S0025-5718-1980-0572855-7) · [Liu and Nocedal 1989](https://doi.org/10.1007/BF01589116) · [Armijo 1966](https://doi.org/10.2140/pjm.1966.16.1)
+
+## SGD and Adam
+
+`ad.sgd` applies $\theta^+=\theta-\eta g$ to vectors. The caller supplies the gradient and controls sampling, batches and step schedules. `ad.adam` carries first and uncentered second moments $m_t=.9m_{t-1}+.1g_t$, $v_t=.999v_{t-1}+.001g_t^2$ and computes $\theta_t=\theta_{t-1}-\eta(m_t/(1-.9^t))/(\sqrt{v_t/(1-.999^t)}+10^{-8})$. It computes bias corrections with `expm1`, requires step numbering from one and returns new parameter and state arrays. Both cost $O(n)$ work and $O(n)$ returned storage. Adam squares gradients in Float64. The kernel checks nonfinite data and rejects negative second-moment entries, but convergence depends on the problem, sampling and step sequence. These are update rules, with no training loop or tensor AD. [`optimizer`](../../src/autodiff.c) · [Robbins and Monro 1951](https://doi.org/10.1214/aoms/1177729586) · [Kingma and Ba, ICLR 2015](https://arxiv.org/abs/1412.6980)
+
+## Reverse-mode scalar AD
+
+Each supported operation records its primal value, parent links and local derivatives. Reverse mode seeds the output adjoint with one and propagates $\bar x_i\mathrel{+}=\bar y\,\partial y/\partial x_i$ in reverse topological order. Arda builds that order using iterative postorder traversal and visits shared nodes once. A sweep uses $O(V+E)$ work and $O(V)$ order and traversal storage for $V$ nodes and $E$ links. The tape is GC-traced. Domains are checked for operations such as log and square root. This differentiates the executed differentiable scalar path. Ill-conditioned derivatives and rounding still matter. Tensor differentiation, nonsmooth conventions and higher derivatives require separate contracts. [`ad_binary`, `backward`, `ad_call`](../../src/autodiff.c) · [Baydin et al., JMLR 2018](https://www.jmlr.org/papers/v18/17-468.html)
+
+**Validation and provenance** — Regression tests include shared-expression derivatives, domain errors, SGD and Adam updates, and L-BFGS on Rosenbrock and tensor quadratics. The reference suite compares L-BFGS with SciPy. No standalone optimizer or AD performance measurement was found in the checked-in benchmark reports. These native and Arda implementations appear by `e2ba505`. Initial literature consultation is unknown. References give scientific context and the in-tree implementation is covered by [Arda's MIT license](../../LICENSE). [AD and update tests](../../tests/test_science_012.py) · [Optimization tests](../../tests/test_highdim.py) · [Reference tests](../../tests/reference_numerics.py)
+
+**Bibliography keys** — `Armijo1966`, `BaydinEtAl2018`, `KingmaBa2015`, `LiuNocedal1989`, `Nocedal1980`, `RobbinsMonro1951`.

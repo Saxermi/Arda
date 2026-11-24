@@ -1,4 +1,6 @@
-# Arda 0.14.0 — Moria: Sparse Foundations
+# Arda 0.14.0 — Sparse Matrix Foundations
+
+*Development codename: Moria*
 
 This release implements work packages S0–S5 of the master roadmap. It is the first Moria milestone, not the entire 0.14 series. No builder, sparse algebra, sparse solver, hard memory budget, MPI or general MathIR is implemented yet.
 

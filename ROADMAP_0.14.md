@@ -1,4 +1,6 @@
-# Arda 0.14 — Sparse foundations
+# Arda 0.14 — Resource-Efficient Sparse Computing
+
+*Development codename: Moria*
 
 **Status** — Assembly, algebra, and solvers are implemented through 0.14.3. See the [foundations report](docs/MORIA_0.14.0.md) and the [current API and validation guide](docs/MORIA_0.14.3.md). The 0.14.4 release validation follows.
 
@@ -11,7 +13,7 @@ CSR (Compressed Sparse Row) and CRS (Compressed Row Storage) are synonyms. Use `
 - `sp.to_csr(coo)` and `sp.to_coo(csr)`; optionally `sp.to_crs` alias
 - `sp.shape`, `sp.nnz`, `sp.bytes`, `sp.todense`, `sp.from_dense`, `sp.matvec`
 
-For the implemented builder, diagonal constructors, sparse algebra, and CG/PCG, see [Moria 0.14.3](docs/MORIA_0.14.3.md).
+For the implemented builder, diagonal constructors, sparse algebra, and CG/PCG, see [the 0.14.3 sparse computing guide](docs/MORIA_0.14.3.md).
 
 ## Storage and conversion contract
 

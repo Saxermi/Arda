@@ -1,6 +1,8 @@
-# Moria 0.14.3 — Sparse assembly, algebra, and solvers
+# Arda 0.14.3 — Sparse Solvers and Memory Budgets
 
-This guide covers 0.14.1 through 0.14.3. See [Moria 0.14.0](MORIA_0.14.0.md) for the original COO/CSR representation, inspection, and conversion contracts. Import the module with `tol sparse as sp`.
+*Development codename: Moria*
+
+This guide covers 0.14.1 through 0.14.3. See [the 0.14.0 sparse matrix foundations report](MORIA_0.14.0.md) for the original COO/CSR representation, inspection, and conversion contracts. Import the module with `tol sparse as sp`.
 
 ## Assembly
 

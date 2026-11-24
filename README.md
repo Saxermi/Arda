@@ -1,24 +1,28 @@
 # Arda
 
-**Compute. Optimize. Understand.**
+**Adaptive Runtime for Data and Algorithms**
 
-Arda is an experimental, open-source, standalone scientific programming language written in C11. It is designed around a central idea: scientists and engineers should be able to express complex mathematics naturally, execute it efficiently within the resources available to them, and understand how the result was obtained.
+*Compute. Optimize. Understand.*
 
-Arda combines a dynamic, indentation-based language with native numerical data structures and algorithms. Its long-term ambition is to unite high-performance numerical computing, resource-aware execution, differentiable programming and mathematical documentation in one coherent runtime — from an ordinary student laptop without a dedicated GPU to a multi-node scientific computing cluster.
+Arda is an independent, open-source, research-driven scientific programming language for numerical mathematics, resource-aware execution, and mathematical transparency. Its standalone C11 implementation is distributed under the MIT license.
 
-**Current version: 0.14.3 — Moria (Sparse Solvers and Memory Budgets). Next milestone: 0.14.4 — Moria Release Validation.**
+Its long-term goal is to combine scientifically validated numerical algorithms with adaptive execution, from ordinary laptops to distributed research clusters. The language brings native numerical data structures and algorithms to an indentation-based runtime for physics, engineering, and other computational research.
+
+**Current version** — Arda 0.14.3 — Sparse Solvers and Memory Budgets
+
+**Next milestone** — Arda 0.14.4 — Sparse Computing Release Validation
+
+*Development codename: Moria*
 
 > **Development status:** Arda is an early-stage scientific language. The interpreter, dense Float64 tensors, native COO/CSR sparse storage and conversions, sparse assembly and algebra, sparse solvers, selected optimized CPU kernels, and scalar automatic differentiation already exist. The adaptive compute engine, beyond-RAM storage, general mathematical introspection and distributed HPC are still roadmap goals.
 
 ## What is Arda?
 
-Arda is a programming language in its own right, rather than a Python package, a wrapper around an existing interpreter, or a collection of mathematical scripts. Source files use the `.arda` extension. A native compiler translates the source into bytecode, which is executed by a stack-based virtual machine. The runtime manages objects, function calls, modules and garbage collection, while performance-sensitive numerical operations are implemented in native C.
+The standalone `arda` executable compiles `.arda` source files to bytecode and runs them in a stack-based virtual machine. The runtime manages objects, function calls, modules and garbage collection, while performance-sensitive numerical operations are implemented in native C.
 
 This design aims to combine the convenience of a high-level scripting language with the efficiency of specialized numerical kernels. A user can write a differential equation, manipulate a tensor, define a function or implement an optimization algorithm without manually managing every memory allocation. At the same time, the numerical layer can operate directly on contiguous native buffers instead of interpreting every scalar operation as a separate language instruction.
 
 Arda is **CPU-first, not CPU-only**. Its portable implementation does not require a dedicated GPU or a large external numerical framework. Optimized hardware-specific kernels and optional libraries complement the portable implementation. GPU acceleration, multi-core scheduling and distributed execution are intended to extend this foundation, not replace it.
-
-The language also has a distinctive literary identity: its name, optional Elvish-inspired keywords and release codenames draw on Tolkien's legendarium. Conventional English keyword aliases are equally valid and compile to the same internal tokens. Scientific APIs retain familiar names such as `solve`, `matmul`, and `sin`.
 
 ## Why develop another scientific language?
 
@@ -61,9 +65,9 @@ The planned **Adaptive Compute Engine (ACE)** will use problem structure, shape,
 
 Beyond-RAM execution is not a promise that an SSD performs like RAM. Disk-backed algorithms must explicitly control data movement and working storage, and their practical speed depends on I/O bandwidth and access patterns. Very large quantized model inference is an experimental research goal, not a guarantee of interactive performance; full pretraining of a 70B model on an ordinary laptop is not a project target.
 
-## Explainable mathematics: the Rúmil vision
+## Mathematical documentation and introspection
 
-Arda's planned mathematical documentation engine (AMDE, codename **Rúmil**) aims to make the mathematics behind a function available independently of its execution. For example, a simple energy function can be written today using existing language syntax:
+The planned **Arda Mathematical Documentation Engine (AMDE)**, development codename *Rúmil*, aims to make the mathematics behind a function available independently of its execution. For example, a simple energy function can be written today using existing language syntax:
 
 ```arda
 caro energy(m, v, h):
@@ -97,6 +101,8 @@ A key architectural requirement is **zero-cost scientific introspection as a des
 
 ## Architecture and development philosophy
 
+Arda compares established methods with relevant research before making substantial numerical changes. The research notes record mathematical assumptions, implementation provenance, and local validation. Algorithm choices prioritize accuracy, numerical reliability, portability, and resource use under equivalent workloads. [Scientific research](research/README.md)
+
 The current runtime is deliberately small. The roadmap expands it incrementally into the following logical subsystems, rather than replacing the existing interpreter:
 
 ```text
@@ -108,7 +114,7 @@ Arda source (.arda)
   |
   +-- Planned scientific infrastructure
           |
-          +-- AMDE / Rumil   Mathematical descriptions and reports
+          +-- AMDE           Mathematical descriptions and reports
           +-- AML            Differentiation and machine learning
           +-- ACE            Adaptive planning and scheduling
                  |
@@ -117,7 +123,14 @@ Arda source (.arda)
                  +-- HPC     Partitioning, MPI and distributed operators
 ```
 
-AME (Arda Memory Engine) will distinguish logical tensor size from physical storage; AKE (Arda Kernel Engine) will manage optimized numerical execution; ACE will plan supported operations using resource and algorithm cost models. AML and AMDE will build on these shared representations. The HPC layer will extend the same operator and storage abstractions to distributed memory. The portable C11 baseline remains available throughout development.
+The name describes Arda's architectural direction.
+
+- **Adaptive** refers to algorithm selection and resource-aware planning through the planned Adaptive Compute Engine (ACE).
+- **Runtime** refers to the standalone compiler, virtual machine, and numerical execution environment.
+- **Data** includes dense tensors and sparse matrices today, with additional structured representations and beyond-RAM storage planned through the Arda Memory Engine (AME). AME will distinguish logical tensor size from physical storage.
+- **Algorithms** include native numerical kernels and research-driven methods. The planned Arda Kernel Engine (AKE) will manage optimized execution. Mathematical documentation and Arda Machine Learning (AML) will build on the same representations.
+
+The planned distributed computing and HPC infrastructure will extend the shared operator and storage abstractions to distributed memory. The portable C11 runtime is the development baseline.
 
 Performance is measured, not assumed. Comparisons should use equivalent problems, precision, convergence criteria, hardware and optimized reference implementations. Runtime, peak memory, data movement, numerical error and scientific productivity all matter. The detailed [master roadmap](ROADMAP.md) sets out the release milestones and validation goals.
 
@@ -189,7 +202,7 @@ print(magnitude(3, 4))
 
 Tensor AD, general multithreading, GPU execution, MPI, disk-backed tensors and general mathematical introspection remain roadmap goals.
 
-## Moria: native sparse matrices
+## Native sparse matrices
 
 ```arda
 tol sparse as sp
@@ -207,7 +220,7 @@ pedo(result["reason"],result["residual"],nc.tolist(result["solution"]))
 
 Expected CSR components: `[[0, 2, 2, 4], [1, 3, 0, 3], [5, -1, 4, 7]]`.
 
-COO allows duplicates and explicit zeros; CSR uses strictly sorted columns within each row, combines duplicates in input order, and omits exact zeros. No dense intermediate is required. Explicit `sp.todense` and `sp.from_dense` bridges are available, along with shape, nnz, bytes, format, checked get, copied components, and static `sp.describe` conversion metadata. See the [Moria 0.14.3 guide](docs/MORIA_0.14.3.md) for assembly, algebra, solver and budget contracts, plus local validation and benchmarks. The [0.14.0 report](docs/MORIA_0.14.0.md) covers the original storage layout and conversion measurements.
+COO allows duplicates and explicit zeros; CSR uses strictly sorted columns within each row, combines duplicates in input order, and omits exact zeros. No dense intermediate is required. Explicit `sp.todense` and `sp.from_dense` bridges are available, along with shape, nnz, bytes, format, checked get, copied components, and static `sp.describe` conversion metadata. See the [0.14.3 sparse computing guide](docs/MORIA_0.14.3.md) for assembly, algebra, solver and budget contracts, plus local validation and benchmarks. The [0.14.0 report](docs/MORIA_0.14.0.md) covers the original storage layout and conversion measurements.
 
 ## Numerical standard library
 
@@ -277,7 +290,7 @@ The iterative solvers return `[solution,iterations,relative_residual,converged]`
 
 ## Language identity
 
-The keywords are artistically inspired by Quenya and Sindarin, not authoritative linguistic translations. Both spelling sets map to identical internal tokens and can be mixed.
+Both keyword spellings are supported and can be mixed. Each pair maps to the same internal token. The optional spellings draw on Quenya and Sindarin as artistic inspiration, with keyword semantics defined by Arda.
 
 | Arda | English | Meaning |
 | --- | --- | --- |
@@ -320,6 +333,7 @@ The REPL accepts one statement per line and blocks terminated by a blank line. `
 | `ROADMAP.md` | Full development roadmap (German, with English technical terminology) |
 | `ROADMAP_0.14.md` | Moria sparse milestone scope |
 | [`DECISIONS.md`](DECISIONS.md) | Engineering decisions, evidence, and when to revisit them |
+| [`research/`](research/README.md) | Scientific references, implementation provenance, and future algorithm comparisons |
 | `docs/MORIA_0.14.0.md` | Sparse storage and conversion foundations |
 | `docs/MORIA_0.14.3.md` | Assembly, algebra, solvers, memory budgets and local validation |
 | `CHANGELOG.md` | Release history |
@@ -349,31 +363,31 @@ make test-reference
 
 `make sanitize` enables ASan, UBSan and leak detection. `make format` and `make format-check` require clang-format. Generated module headers should not be formatted by hand.
 
-0.14.0 passed 136 regular and nine independent reference methods locally in all three build configurations; see the [Moria report](docs/MORIA_0.14.0.md). The 0.13.1 maintenance report records 126 regular and eight independent reference test methods passing in default, BLAS/LAPACK and sanitizer builds on Debian 13/GCC 14.2. These are historical local results, not GitHub CI results or a general numerical correctness guarantee. Historical performance measurements are in `benchmarks/`; compare only under matching configurations and accuracy requirements.
+0.14.0 passed 136 regular and nine independent reference methods locally in all three build configurations; see the [0.14.0 sparse foundations report](docs/MORIA_0.14.0.md). The 0.13.1 maintenance report records 126 regular and eight independent reference test methods passing in default, BLAS/LAPACK and sanitizer builds on Debian 13/GCC 14.2. These are historical local results, not GitHub CI results or a general numerical correctness guarantee. Historical performance measurements are in `benchmarks/`; compare only under matching configurations and accuracy requirements.
 
 ## Roadmap: from laptops to HPC
 
-| Version | Codename | Focus |
+| Version | Scientific or technical milestone | Development codename |
 | --- | --- | --- |
-| 0.14 | Moria | Foundations, assembly, algebra, and solvers implemented through 0.14.3. Release validation follows in 0.14.4. |
-| 0.15 | Rúmil | Scientific foundations and mathematical documentation |
-| 0.16 | Mithril | Virtual tensors, file-backed storage and compact representations |
-| 0.17 | Vilya | Memory-efficient tensor autodiff |
-| 0.18 | Shadowfax II | High-performance CPU execution, SIMD, multicore and ACE v1 |
-| 0.19 | Aulë | Advanced numerical solvers and mixed precision |
-| 0.20 | Ulmo | Scientific simulation, adaptive ODE/PDE and FEM |
-| 0.21 | Khazad-dûm | Beyond-RAM algorithms and streaming |
-| 0.22 | Palantír | Adaptive compute engine and language runtime |
-| 0.23 | Eärendil | Interoperability and MPI foundations |
-| 0.24 | Fëanor | Optimizing compiler |
-| 0.25 | Ancalagon | Hybrid and distributed HPC |
-| 0.26 | Ainulindalë | Advanced machine learning |
-| 0.27 | Imladris | Developer ecosystem |
-| 0.28 | Mandos | Scientific and performance validation |
-| 0.29 | Valinor | Release candidate |
-| 1.0 | Eä | Stable scientific runtime |
+| 0.14 | [Resource-Efficient Sparse Computing](ROADMAP.md#arda-014--resource-efficient-sparse-computing) | Moria |
+| 0.15 | [Numerical Methods and Mathematical Documentation](ROADMAP.md#arda-015--numerical-methods-and-mathematical-documentation) | Rúmil |
+| 0.16 | [Virtual Tensors and Memory Management (AME v1)](ROADMAP.md#arda-016--virtual-tensors-and-memory-management-ame-v1) | Mithril |
+| 0.17 | [Memory-Efficient Differentiable Programming](ROADMAP.md#arda-017--memory-efficient-differentiable-programming) | Vilya |
+| 0.18 | [High-Performance CPU Execution and Adaptive Planning (AKE v1, ACE v1)](ROADMAP.md#arda-018--high-performance-cpu-execution-and-adaptive-planning-ake-v1-ace-v1) | Shadowfax II |
+| 0.19 | [Advanced Numerical Solvers](ROADMAP.md#arda-019--advanced-numerical-solvers) | Aulë |
+| 0.20 | [Scientific Simulation](ROADMAP.md#arda-020--scientific-simulation) | Ulmo |
+| 0.21 | [Beyond-RAM Data Processing and Visualization (AME v2)](ROADMAP.md#arda-021--beyond-ram-data-processing-and-visualization-ame-v2) | Khazad-dûm |
+| 0.22 | [Language Runtime and Adaptive Execution (ACE v2)](ROADMAP.md#arda-022--language-runtime-and-adaptive-execution-ace-v2) | Palantír |
+| 0.23 | [Scientific Interoperability and MPI Foundations](ROADMAP.md#arda-023--scientific-interoperability-and-mpi-foundations) | Eärendil |
+| 0.24 | [Optimizing Compiler](ROADMAP.md#arda-024--optimizing-compiler) | Fëanor |
+| 0.25 | [Accelerated, Hybrid, and Distributed HPC](ROADMAP.md#arda-025--accelerated-hybrid-and-distributed-hpc) | Ancalagon |
+| 0.26 | [Machine Learning Inference and Training](ROADMAP.md#arda-026--machine-learning-inference-and-training) | Ainulindalë |
+| 0.27 | [Scientific Developer Tools and Ecosystem](ROADMAP.md#arda-027--scientific-developer-tools-and-ecosystem) | Imladris |
+| 0.28 | [Scientific and Performance Validation](ROADMAP.md#arda-028--scientific-and-performance-validation) | Mandos |
+| 0.29 | [Release Candidate](ROADMAP.md#arda-029--release-candidate) | Valinor |
+| 1.0 | [Stable Scientific Computing Language](ROADMAP.md#arda-10--stable-scientific-computing-language) | Eä |
 
-Read the [full master roadmap](ROADMAP.md) for detailed subversions, architecture, benchmark targets, reference research and Tolkien codenames.
+Read the [full master roadmap](ROADMAP.md) for detailed subversions, architecture, benchmark targets, research references, and development codenames.
 
 The planned mathematical introspection API includes `getTex()`, `getCost()`, `getPlan()`, `getAssumptions()`, `verify()` and bounded `trace()`. Formula export is intended to work without running the numerical calculation. Execution tracing and verification will be optional, with no per-element logging in the normal high-performance path. Planned memory and compute engines will combine sparse and structured representations, SIMD, parallel execution, memory mapping, streaming, quantization and optional MPI/GPU backends. These are goals, not present features. Full 70B-model training on ordinary laptops is not a project promise.
 
@@ -387,4 +401,6 @@ The planned mathematical introspection API includes `getTex()`, `getCost()`, `ge
 
 ## License and attribution
 
-[MIT License](LICENSE). Arda's names, release codenames and keyword inspiration are artistic references to Tolkien's legendarium. This is an independent project, with no official affiliation. No rights to third-party trademarks or illustrations are granted by the code license.
+Arda is distributed under the [MIT License](LICENSE). See [third-party notices](THIRD_PARTY_NOTICES.md) for optional backends and development dependencies. For research citations, use [CITATION.cff](CITATION.cff).
+
+Arda's naming conventions and optional Elvish-inspired syntax are inspired by the works of J. R. R. Tolkien. Arda is an independent project and is not affiliated with or endorsed by the Tolkien Estate or any associated rights holders.
