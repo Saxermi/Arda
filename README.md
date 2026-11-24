@@ -8,13 +8,13 @@ Arda is an independent, open-source, research-driven scientific programming lang
 
 Its long-term goal is to combine scientifically validated numerical algorithms with adaptive execution, from ordinary laptops to distributed research clusters. The language brings native numerical data structures and algorithms to an indentation-based runtime for physics, engineering, and other computational research.
 
-**Current version** — Arda 0.15.1 — SVD, Eigenvalues, and Conditioning
+**Current version** — Arda 0.15.2 — Random Generators and Statistics
 
 *Development codename: Rúmil*
 
-**Next milestone** — Arda 0.15.2 — Random Generators and Statistics
+**Next milestone** — Arda 0.15.3 — Complex Scalars and Structured Operators
 
-The `linalg` module provides reusable pivoted LU, Cholesky and Householder QR, dense matrix utilities, and direct tridiagonal and banded solves. [Linear algebra contracts](research/implemented/linear-algebra.md#reusable-float64-factorizations) · [0.15.0 release validation](docs/RUMIL_0.15.0.md)
+The `linalg` module provides reusable factorizations and direct solvers. The `random` and `stats` modules add seeded sampling, descriptive statistics, and streaming moments. [Linear algebra contracts](research/implemented/linear-algebra.md) · [Random and statistics contracts](research/implemented/random-and-statistics.md) · [0.15.2 release validation](docs/RUMIL_0.15.2.md)
 
 > **Development status:** Arda is an early-stage scientific language. The interpreter, dense Float64 tensors, native COO/CSR sparse storage and conversions, sparse assembly and algebra, sparse solvers, selected optimized CPU kernels, and scalar automatic differentiation already exist. The adaptive compute engine, beyond-RAM storage, general mathematical introspection and distributed HPC are still roadmap goals.
 
@@ -262,6 +262,10 @@ pedo(nc.tolist(parts[1]), la.rank(a), la.cond(a))  # [4, 1] 2 4
 pedo(nc.tolist(la.pinv(a)))  # [[0.25, 0, 0], [0, 1, 0]]
 ```
 
+### `random` and `stats`
+
+`random.generator(seed[,stream])` creates an explicit PCG32 generator. Use it with `uniform`, `normal`, `integer`, `poisson`, `choice`, or `shuffle`. `stats` computes quantiles, covariance, correlation, regression, histograms and other vector statistics. `stats.online()` accumulates a count, mean and population variance without storing the samples. Both modules are available in portable builds. [Runnable example](examples/random_statistics.arda) · [API contracts](research/implemented/random-and-statistics.md)
+
 ### `calc`, `ode`, `opt`: numerical algorithms
 
 | API | Algorithm |
@@ -354,6 +358,7 @@ The REPL accepts one statement per line and blocks terminated by a blank line. `
 | `docs/MORIA_0.14.4.md` | Sparse release validation and benchmark results |
 | `docs/RUMIL_0.15.0.md` | Dense factorization and direct solver release validation |
 | `docs/RUMIL_0.15.1.md` | SVD and eigenvalue release validation |
+| `docs/RUMIL_0.15.2.md` | Random generator and statistics release validation |
 | `CHANGELOG.md` | Release history |
 | `MAINTENANCE.md` | 0.13.1 changes and measured validation |
 | `CONTRIBUTING.md` | Local development and validation policy |

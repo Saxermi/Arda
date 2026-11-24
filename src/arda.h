@@ -122,7 +122,7 @@ typedef struct {
 } Val;
 typedef enum {
     O_STRING, O_LIST, O_MAP, O_ENV, O_FUNC, O_NATIVE, O_CLASS, O_INSTANCE, O_BOUND, O_MODULE, O_ITER,
-    O_ARRAY, O_AD, O_SPARSE, O_SPARSE_BUILDER, O_SPARSE_WORKSPACE, O_FACTOR
+    O_ARRAY, O_AD, O_SPARSE, O_SPARSE_BUILDER, O_SPARSE_WORKSPACE, O_FACTOR, O_RNG, O_MOMENTS
 } OType;
 
 static inline int sparse_owns_payload(OType type) {
@@ -138,6 +138,9 @@ typedef struct {
     int n, cap;
     uint64_t stamp;
 } Table;
+typedef struct {
+    uint64_t state, increment;
+} RandomState;
 struct Obj {
     OType type;
     unsigned char mark;
@@ -209,6 +212,7 @@ struct Obj {
             Obj *packed;
             int kind;
         } factor;
+        RandomState rng;
         Sparse sparse;
         SparseBuilder sparse_builder;
         struct {
@@ -369,9 +373,16 @@ void install_tensor(VM *v, Obj *module);
 #define HIGH_BASE 500
 #define SPARSE_BASE 600
 #define LINALG_BASE 700
+#define RANDOM_BASE 800
+#define STATS_BASE 900
 Val linalg_call(VM *v, int id, int argc, Val *a);
 Val linalg_eigh(VM *v, Val a);
 Obj *linalg_module(VM *v);
+Obj *named_native_module(VM *v, const char *name, const char *const *names, size_t count, int base);
+Obj *random_module(VM *v);
+Val random_call(VM *v, int id, int argc, Val *a);
+Obj *stats_module(VM *v);
+Val stats_call(VM *v, int id, int argc, Val *a);
 Obj *dense_lu_solve(VM *v, Obj *a, Obj *b);
 Val sparse_call(VM *v, int id, int argc, Val *a);
 Obj *sparse_module(VM *v);

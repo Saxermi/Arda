@@ -212,6 +212,8 @@ static void trace(VM *v, Obj *o) {
     switch (o->type) {
     case O_STRING:
     case O_NATIVE:
+    case O_RNG:
+    case O_MOMENTS:
     case O_SPARSE:
     case O_SPARSE_BUILDER:
     case O_SPARSE_WORKSPACE:

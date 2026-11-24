@@ -29,7 +29,8 @@ static const char *typename(Val v) {
         {
             static const char *n[] = {
                 "string", "list", "map", "scope", "function", "native", "class", "instance", "method", "module",
-                "iterator", "array", "ad", "sparse", "sparse_builder", "sparse_workspace", "factor"
+                "iterator", "array", "ad", "sparse", "sparse_builder", "sparse_workspace", "factor",
+                "generator", "moments"
             };
             return n[v.o->type];
         }
@@ -158,6 +159,10 @@ static void arity(VM *v, int id, int argc, int n) {
 }
 
 Val native_call(VM *v, int id, int argc, Val *a) {
+    if (id >= STATS_BASE)
+        return stats_call(v, id, argc, a);
+    if (id >= RANDOM_BASE)
+        return random_call(v, id, argc, a);
     if (id >= LINALG_BASE)
         return linalg_call(v, id, argc, a);
     if (id >= SPARSE_BASE)
@@ -436,7 +441,31 @@ Val native_call(VM *v, int id, int argc, Val *a) {
     return nil();
 }
 
+Obj *named_native_module(VM *v, const char *name, const char *const *names, size_t count, int base) {
+    char key[64];
+    snprintf(key, sizeof key, "<native:%s>", name);
+    Entry *entry = tablefind(&v->modules, key);
+    if (entry)
+        return entry->val.o;
+    Obj *module = newobj(v, O_MODULE);
+    module->as.mod.path = copystr(key);
+    account(v, module, 0, strlen(key) + 1);
+    module->as.mod.state = 1;
+    module->as.mod.env = environment(v, NULL);
+    for (size_t i = 0; i < count; i++) {
+        Obj *function = newobj(v, O_NATIVE);
+        function->as.native.id = base + (int) i;
+        tableset(v, module->as.mod.env, &module->as.mod.env->as.env.tab, names[i], objval(function));
+    }
+    tableset(v, NULL, &v->modules, key, objval(module));
+    return module;
+}
+
 Obj *native_module(VM *v, const char *name) {
+    if (!strcmp(name, "random"))
+        return random_module(v);
+    if (!strcmp(name, "stats"))
+        return stats_module(v);
     if (!strcmp(name, "linalg"))
         return linalg_module(v);
     if (!strcmp(name, "sparse"))

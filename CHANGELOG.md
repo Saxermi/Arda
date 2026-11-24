@@ -2,6 +2,11 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
+## 0.15.2 — Random Generators and Statistics
+
+- Added seeded PCG32 generator objects, uniform, normal, integer and Poisson draws, choice with replacement, and shuffled copies.
+- Added median, quantile, sample covariance, Pearson correlation, linear regression, histograms, compensated sums and cumulative sums, extrema indices, clipping, and streaming population moments. [Release validation](docs/RUMIL_0.15.2.md)
+
 ## 0.15.1 — SVD, Eigenvalues, and Conditioning
 
 - Added optional LAPACK reduced SVD, pseudoinverse, numerical rank, and 2-norm condition numbers for real Float64 matrices. [Contracts and validation](research/implemented/linear-algebra.md#lapack-reduced-svd)

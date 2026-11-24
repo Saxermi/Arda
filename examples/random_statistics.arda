@@ -1,0 +1,14 @@
+tol random as r
+tol stats as st
+tol numc as nc
+
+esta generator = r.generator(42,54)
+pedo(r.uint32(generator))
+esta sample = r.normal(generator,0,1,1000)
+pedo(st.median(sample), st.quantile(sample,0.95))
+pedo(nc.tolist(st.histogram(sample,nc.array([-3,-1,0,1,3]))))
+
+esta online = st.online()
+an i in range(3):
+    st.update(online,i+1)
+pedo(st.summary(online))  # [3, 2, 0.666666666666667]

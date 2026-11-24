@@ -43,3 +43,9 @@ Use `DGESVD` as the first rectangular Float64 SVD backend. It provides reduced v
 **Status** — Accepted for 0.15.1
 
 Share the existing `DSYEV` contract between `calc.eigh` and `linalg.eigh`. Use `DGEEV` and separate real and imaginary tensors for general right eigenpairs. This allows complex results on the current Float64 runtime. Mixed-precision Jacobi methods with relative-gap error bounds merit comparison for symmetric positive definite problems. The general nonsymmetric solver uses the established Hessenberg/QR LAPACK path. [Eigenpair contracts](research/implemented/linear-algebra.md#lapack-eigensolvers) · [Zhou, Tisseur, and Webb 2026](https://arxiv.org/abs/2606.28069)
+
+## 2026-11-24 — Seeded sampling and serial statistics
+
+**Status** — Accepted for 0.15.2
+
+Use explicit PCG32 generators with a versioned seed and stream contract, unbiased integer rejection, Box–Muller normal draws, and Poisson product sampling or transformed rejection by mean. Use sorting for exact linear quantiles, shifted Welford updates for moments and Neumaier compensation for sums. Counter-based streams and pairwise-mergeable moments are candidates for parallel execution. For batch throughput, compare selection-based quantiles and faster normal samplers at matched statistical accuracy. Changing the sampler can change seeded sequences, so tie such a change to an explicit version contract. [Arda methods and measurements](research/implemented/random-and-statistics.md) · [Research on compensated parallel sums](https://doi.org/10.1002/cpe.70886)

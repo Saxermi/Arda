@@ -1,6 +1,6 @@
 #include "arda.h"
 
-#define ARDA_VERSION "0.15.1"
+#define ARDA_VERSION "0.15.2"
 
 static int source(VM *v, const char *s, const char *path, int mode) {
     Proto *p = NULL;
