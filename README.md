@@ -158,7 +158,7 @@ make -j
 ./arda examples/science.arda
 ```
 
-Python is used by development tools, tests and embedded-library generators; it is not required to run compiled Arda programs through the runtime. The default build requires no external numerical libraries. Optional BLAS/LAPACK:
+Python 3.10 or newer is required for the regression suite. Python is used by development tools, tests and embedded-library generators; it is not required to run compiled Arda programs through the runtime. The default build requires no external numerical libraries. Optional BLAS/LAPACK:
 
 ```sh
 sudo apt install libblas-dev liblapack-dev
