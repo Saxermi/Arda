@@ -2,7 +2,7 @@
 
 *Development codename: Rúmil*
 
-**Status: development candidate, not a validated release.** The source changes add bounded user-function MathIR, preserve the native registry and cost models, and provide a compile-time metadata switch. See the [contracts](../research/implemented/mathdoc.md) and [example](../examples/mathdoc_queries.arda).
+**Status: development candidate, not a validated release.** The source changes add bounded user-function MathIR, preserve the native registry and cost models, and provide a compilation metadata switch. Accepted policy: compact metadata by default, opaque dynamic calls, and limited display-only simplification at level 0. Source-level views and executable numerical semantics remain unchanged. See the [contracts](../research/implemented/mathdoc.md) and [example](../examples/mathdoc_queries.arda).
 
 ## Local release gate
 

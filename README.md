@@ -86,7 +86,7 @@ $$
 E(m,v,h)=\frac{1}{2}mv^2+9.81mh
 $$
 
-For supported user functions, levels 0–3 describe a compact expression, intermediate relations, known assumptions and source-level operations respectively. No dynamic call target is inferred. `--mathdoc=none` disables user-function metadata collection while retaining native descriptors. See the query contracts for limits and unsupported constructs.
+For supported user functions, levels 0–3 describe a compact expression, intermediate relations, known assumptions and source-level operations respectively. No dynamic call target is inferred. Level 0 applies limited formal scalar-real display simplification to call-free functions without external dependencies; levels 1 and 3 preserve source operations. Compact metadata is enabled by default; `--mathdoc=none` disables user-function metadata collection while retaining native descriptors. See the query contracts for limits and unsupported constructs.
 
 The intended levels range from a compact equation, through intermediate expressions and assumptions, to the mathematical algorithm used by a supported native function. An optional recorded run could also provide selected numerical intermediate results and convergence data. Static documentation must not execute the numerical function or pretend that an unexecuted calculation has converged.
 

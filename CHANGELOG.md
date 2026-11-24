@@ -6,7 +6,7 @@ All notable changes to Arda are recorded here. Planned features are documented i
 
 - Added static native mathematical documentation through callable queries and the `mathdoc` module. Shape-based cost estimates cover dense solve, matrix multiply, dot product, and CSR matrix–vector multiply. [Contracts](research/implemented/mathdoc.md)
 
-- Added bounded compiler-side MathIR for straight-line user functions, source-level LaTeX views, explicit unresolved call provenance and `--mathdoc=none|compact`. Release validation is pending.
+- Added bounded compiler-side MathIR for straight-line user functions, source-level LaTeX views, explicit unresolved call provenance and `--mathdoc=none|compact`. Compact metadata is the default; dynamic calls remain opaque. Level 0 uses bounded, display-only scalar-real simplification while source-level views remain unchanged. Release validation is pending.
 
 ## 0.15.3 — Complex Scalars and Structured Operators
 
