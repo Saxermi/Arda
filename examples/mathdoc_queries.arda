@@ -9,3 +9,14 @@ pedo(mathdoc.getAlgorithm(cos))
 # Evaluate the cost model using dimensions only.
 esta cost = sp.matvec.getCost({"shape":[1000000,1000000],"nnz":2999998,"format":"csr"})
 pedo(cost["flops"], cost["output_bytes"], cost["estimated"])
+
+# User-defined arithmetic: no execution is needed for these queries.
+caro energy(m, v, h):
+    esta kinetic = 0.5*m*v*v
+    esta potential = m*9.81*h
+    nan kinetic+potential
+
+pedo(energy.getTex(0))
+pedo(energy.getTex(1))
+pedo(energy.getTex(2))
+pedo(energy.getTex(3))

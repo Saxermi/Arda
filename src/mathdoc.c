@@ -1,9 +1,8 @@
 #include "arda.h"
 
 enum { TEX, ALGORITHM, ASSUMPTIONS, COMPLEXITY, COST };
-static const char *const methods[] = {
-    "getTex", "getAlgorithm", "getAssumptions", "getComplexity", "getCost"
-};
+static const char *const methods[] = {"getTex", "getAlgorithm", "getAssumptions", "getComplexity",
+                                      "getCost"};
 
 typedef enum { NO_COST, DENSE_SOLVE, DENSE_MATMUL, DENSE_DOT, CSR_MATVEC } CostModel;
 
@@ -16,20 +15,26 @@ typedef struct {
 } MathDescriptor;
 
 #ifdef ARDA_BLAS
-#define MATMUL_ALGORITHM "Calls the linked CBLAS dgemm provider. Its internal kernel is provider-dependent."
+#define MATMUL_ALGORITHM                                                                           \
+    "Calls the linked CBLAS dgemm provider. Its internal kernel is provider-dependent."
 #define MATMUL_TEX "C=AB\\quad\\text{via CBLAS dgemm}"
 #define MATMUL_BACKEND "cblas"
 #else
-#define MATMUL_ALGORITHM "Blocked row-major matrix multiply. The compiled CPU kernels depend on the build and hardware."
+#define MATMUL_ALGORITHM                                                                           \
+    "Blocked row-major matrix multiply. The compiled CPU kernels depend on the build and "         \
+    "hardware."
 #define MATMUL_TEX "C_{ij}\\gets C_{ij}+A_{it}B_{tj}\\quad\\text{over row-major blocks}"
 #define MATMUL_BACKEND "portable-c"
 #endif
 
 #ifdef ARDA_LAPACK
-#define RSVD_ALGORITHM "Gaussian range finding and reorthogonalized power iteration, followed by LAPACK DGESVD on the projection. A separate Gaussian stream estimates the residual."
-#define RSVD_TEX "Q=\\operatorname{orth}(A\\Omega),\\quad " \
-                 "Q\\gets\\operatorname{orth}(A\\operatorname{orth}(A^TQ)),\\quad " \
-                 "A^TQ=\\widetilde U\\Sigma W^T,\\quad U=QW"
+#define RSVD_ALGORITHM                                                                             \
+    "Gaussian range finding and reorthogonalized power iteration, followed by LAPACK DGESVD on "   \
+    "the projection. A separate Gaussian stream estimates the residual."
+#define RSVD_TEX                                                                                   \
+    "Q=\\operatorname{orth}(A\\Omega),\\quad "                                                     \
+    "Q\\gets\\operatorname{orth}(A\\operatorname{orth}(A^TQ)),\\quad "                             \
+    "A^TQ=\\widetilde U\\Sigma W^T,\\quad U=QW"
 #else
 #define RSVD_ALGORITHM "LAPACK backend unavailable in this build."
 #define RSVD_TEX NULL
@@ -37,84 +42,117 @@ typedef struct {
 
 static const MathDescriptor registry[] = {
     {
-        .family = 0, .name = "cos",
+        .family = 0,
+        .name = "cos",
         .tex = {"\\cos(x)", NULL, "x\\in\\mathbb{R}", NULL},
-        .algorithm = "Calls the platform C libm cos. Its internal approximation is provider-dependent.",
+        .algorithm =
+            "Calls the platform C libm cos. Its internal approximation is provider-dependent.",
         .assumptions = "A real scalar in radians. Special values follow the platform library.",
         .complexity = "One scalar libm call. Provider-internal cost is unavailable.",
     },
     {
-        .family = SCI_BASE, .name = "cos",
+        .family = SCI_BASE,
+        .name = "cos",
         .tex = {"Y_i=\\cos(X_i)", NULL, "\\operatorname{shape}(Y)=\\operatorname{shape}(X)", NULL},
-        .algorithm = "Applies the platform C libm cos elementwise. Its internal approximation is provider-dependent.",
-        .assumptions = "A real Float64 tensor in radians. Special values follow the platform library.",
+        .algorithm = "Applies the platform C libm cos elementwise. Its internal approximation is "
+                     "provider-dependent.",
+        .assumptions =
+            "A real Float64 tensor in radians. Special values follow the platform library.",
         .complexity = "One libm call per element and a same-shape output tensor.",
     },
     {
-        .family = SCI_BASE, .name = "solve",
-        .tex = {
-            "Ax=b",
-            "PA=LU,\\quad Ly=Pb,\\quad Ux=y",
-            "A\\in\\mathbb{R}^{n\\times n},\\quad b,x\\in\\mathbb{R}^{n},\\quad \\det(A)\\ne0",
-            "\\begin{aligned}p_k&=\\underset{i\\ge k}{\\operatorname{arg\\,max}}\\,|a_{ik}|\\\\"
-            "\\ell_{ik}&=a_{ik}/a_{kk}\\quad\\text{after swapping rows }k,p_k\\\\"
-            "a_{ij}&\\gets a_{ij}-\\ell_{ik}a_{kj}\\\\Ly&=Pb,\\quad Ux=y\\end{aligned}",
-        },
-        .algorithm = "LU factorization with partial row pivoting, followed by forward and backward substitution.",
-        .assumptions = "Finite square Float64 matrix and matching vector. A zero pivot raises a singularity error.",
+        .family = SCI_BASE,
+        .name = "solve",
+        .tex =
+            {
+                "Ax=b",
+                "PA=LU,\\quad Ly=Pb,\\quad Ux=y",
+                "A\\in\\mathbb{R}^{n\\times n},\\quad b,x\\in\\mathbb{R}^{n},\\quad \\det(A)\\ne0",
+                "\\begin{aligned}p_k&=\\underset{i\\ge k}{\\operatorname{arg\\,max}}\\,|a_{ik}|\\\\"
+                "\\ell_{ik}&=a_{ik}/a_{kk}\\quad\\text{after swapping rows }k,p_k\\\\"
+                "a_{ij}&\\gets a_{ij}-\\ell_{ik}a_{kj}\\\\Ly&=Pb,\\quad Ux=y\\end{aligned}",
+            },
+        .algorithm = "LU factorization with partial row pivoting, followed by forward and backward "
+                     "substitution.",
+        .assumptions = "Finite square Float64 matrix and matching vector. A zero pivot raises a "
+                       "singularity error.",
         .complexity = "O(n^3) arithmetic and O(n^2) workspace for the copied factors.",
-        .backend = "portable-c", .model = DENSE_SOLVE,
+        .backend = "portable-c",
+        .model = DENSE_SOLVE,
     },
     {
-        .family = SCI_BASE, .name = "matmul",
-        .tex = {
-            "C=AB", "C_{ij}=\\sum_{t=1}^{k}A_{it}B_{tj}",
-            "A\\in\\mathbb{R}^{m\\times k},\\quad B\\in\\mathbb{R}^{k\\times n},\\quad C\\in\\mathbb{R}^{m\\times n}",
-            MATMUL_TEX,
-        },
+        .family = SCI_BASE,
+        .name = "matmul",
+        .tex =
+            {
+                "C=AB",
+                "C_{ij}=\\sum_{t=1}^{k}A_{it}B_{tj}",
+                "A\\in\\mathbb{R}^{m\\times k},\\quad B\\in\\mathbb{R}^{k\\times n},\\quad "
+                "C\\in\\mathbb{R}^{m\\times n}",
+                MATMUL_TEX,
+            },
         .algorithm = MATMUL_ALGORITHM,
         .assumptions = "Two rank-two Float64 arrays with matching inner dimensions.",
         .complexity = "O(mkn) arithmetic and O(mn) output. Strided inputs can require packing.",
-        .backend = MATMUL_BACKEND, .model = DENSE_MATMUL,
+        .backend = MATMUL_BACKEND,
+        .model = DENSE_MATMUL,
     },
     {
-        .family = SCI_BASE, .name = "dot",
+        .family = SCI_BASE,
+        .name = "dot",
         .tex = {"x^Ty", "\\sum_{i=1}^{n}x_i y_i", "x,y\\in\\mathbb{R}^n", NULL},
         .algorithm = "Accumulates products in four independent long double sums and a scalar tail.",
         .assumptions = "Two Float64 vectors with the same length.",
-        .complexity = "O(n) arithmetic and constant scalar workspace. Strided inputs can require packing.",
-        .backend = "portable-c", .model = DENSE_DOT,
+        .complexity =
+            "O(n) arithmetic and constant scalar workspace. Strided inputs can require packing.",
+        .backend = "portable-c",
+        .model = DENSE_DOT,
     },
     {
-        .family = LINALG_BASE, .name = "solve",
+        .family = LINALG_BASE,
+        .name = "solve",
         .tex = {"AX=B\\quad\\text{or}\\quad\\min_X\\|AX-B\\|_F", NULL, NULL, NULL},
-        .algorithm = "Uses triangular solves with the supplied LU or Cholesky factor, or Householder QR least squares with a full-column-rank factor.",
-        .assumptions = "A compatible reusable factor with finite right-hand sides in a vector or in matrix columns. QR requires full column rank.",
-        .complexity = "O(n^2 r) arithmetic for an n-by-n LU or Cholesky factor and r right-hand sides. QR with an m-by-n factor uses O(mnr) arithmetic.",
+        .algorithm = "Uses triangular solves with the supplied LU or Cholesky factor, or "
+                     "Householder QR least squares with a full-column-rank factor.",
+        .assumptions = "A compatible reusable factor with finite right-hand sides in a vector or "
+                       "in matrix columns. QR requires full column rank.",
+        .complexity = "O(n^2 r) arithmetic for an n-by-n LU or Cholesky factor and r right-hand "
+                      "sides. QR with an m-by-n factor uses O(mnr) arithmetic.",
     },
     {
-        .family = LINALG_BASE, .name = "rsvd",
-        .tex = {
-            "A\\approx U_k\\operatorname{diag}(s_k)V_k^T",
-            "Y=A\\Omega,\\quad Q=\\operatorname{orth}(Y),\\quad B=Q^TA",
-            "1\\le k\\le\\min(m,n)\\quad(k<\\min(m,n)\\text{ for operators})", RSVD_TEX,
-        },
+        .family = LINALG_BASE,
+        .name = "rsvd",
+        .tex =
+            {
+                "A\\approx U_k\\operatorname{diag}(s_k)V_k^T",
+                "Y=A\\Omega,\\quad Q=\\operatorname{orth}(Y),\\quad B=Q^TA",
+                "1\\le k\\le\\min(m,n)\\quad(k<\\min(m,n)\\text{ for operators})",
+                RSVD_TEX,
+            },
         .algorithm = RSVD_ALGORITHM,
-        .assumptions = "Optional LAPACK build and a finite dense, sparse, or structured real matrix. Operator rank must be strictly below full width.",
-        .complexity = "Cost depends on operator products, capped sketch width, and the power-iteration count. The projected SVD uses skinny buffers.",
+        .assumptions = "Optional LAPACK build and a finite dense, sparse, or structured real "
+                       "matrix. Operator rank must be strictly below full width.",
+        .complexity = "Cost depends on operator products, capped sketch width, and the "
+                      "power-iteration count. The projected SVD uses skinny buffers.",
     },
     {
-        .family = SPARSE_BASE, .name = "matvec",
-        .tex = {
-            "y=Ax", "y_i=\\sum_{j:(i,j)\\in\\operatorname{supp}(A)}A_{ij}x_j",
-            "A\\in\\mathbb{R}^{m\\times n},\\quad x\\in\\mathbb{R}^n,\\quad y\\in\\mathbb{R}^m",
-            "y_i=\\sum_{p=\\mathrm{offset}_i}^{\\mathrm{offset}_{i+1}-1}"
-            "\\mathrm{values}_p x_{\\mathrm{column}_p}\\quad\\text{in CSR}",
-        },
-        .algorithm = "Reduces each CSR row in long double. COO input is converted to canonical CSR before the product.",
+        .family = SPARSE_BASE,
+        .name = "matvec",
+        .tex =
+            {
+                "y=Ax",
+                "y_i=\\sum_{j:(i,j)\\in\\operatorname{supp}(A)}A_{ij}x_j",
+                "A\\in\\mathbb{R}^{m\\times n},\\quad x\\in\\mathbb{R}^n,\\quad y\\in\\mathbb{R}^m",
+                "y_i=\\sum_{p=\\mathrm{offset}_i}^{\\mathrm{offset}_{i+1}-1}"
+                "\\mathrm{values}_p x_{\\mathrm{column}_p}\\quad\\text{in CSR}",
+            },
+        .algorithm = "Reduces each CSR row in long double. COO input is converted to canonical CSR "
+                     "before the product.",
         .assumptions = "Native real sparse matrix with a matching finite Float64 vector.",
-        .complexity = "O(m+nnz) work for CSR and O(m) output. COO conversion adds time and workspace.",
-        .backend = "portable-c", .model = CSR_MATVEC,
+        .complexity =
+            "O(m+nnz) work for CSR and O(m) output. COO conversion adds time and workspace.",
+        .backend = "portable-c",
+        .model = CSR_MATVEC,
     },
 };
 
@@ -125,11 +163,20 @@ static const MathDescriptor *descriptor_for(Val target) {
     int family = id / 100 * 100;
     const char *name;
     switch (family) {
-    case 0: name = native_builtin_name(id); break;
-    case SCI_BASE: name = scientific_name(id); break;
-    case SPARSE_BASE: name = sparse_name(id); break;
-    case LINALG_BASE: name = linalg_name(id); break;
-    default: return NULL;
+    case 0:
+        name = native_builtin_name(id);
+        break;
+    case SCI_BASE:
+        name = scientific_name(id);
+        break;
+    case SPARSE_BASE:
+        name = sparse_name(id);
+        break;
+    case LINALG_BASE:
+        name = linalg_name(id);
+        break;
+    default:
+        return NULL;
     }
     if (name)
         for (size_t i = 0; i < sizeof registry / sizeof *registry; i++)
@@ -231,7 +278,7 @@ static Val cost(VM *v, const MathDescriptor *descriptor, Val spec) {
 
 Val mathdoc_call(VM *v, int id, int argc, Val *args) {
     int method = id - MATHDOC_BASE;
-    if (method < 0 || (size_t) method >= sizeof methods / sizeof *methods)
+    if (method < 0 || (size_t)method >= sizeof methods / sizeof *methods)
         vmerror(v, "unknown mathdoc query");
     if (argc != (method == COST ? 2 : 1) && !(method == TEX && argc == 2))
         vmerror(v, "invalid mathdoc.%s arity", methods[method]);
@@ -241,18 +288,36 @@ Val mathdoc_call(VM *v, int id, int argc, Val *args) {
     if (method == TEX && argc == 2) {
         if (args[1].t != V_INT || args[1].i < 0 || args[1].i > 3)
             vmerror(v, "static getTex level must be an integer from 0 to 3");
-        level = (int) args[1].i;
+        level = (int)args[1].i;
+    }
+    if (isobj(args[0], O_FUNC)) {
+        const Proto *p = args[0].o->as.func.p;
+        if (method == TEX) {
+            char tex[MATHIR_TEX_LIMIT];
+            return mathir_tex(p, level, tex, sizeof tex) ? text_or_nil(v, tex) : nil();
+        }
+        if (method == ALGORITHM)
+            return text_or_nil(v, mathir_algorithm(p));
+        if (method == ASSUMPTIONS)
+            return text_or_nil(v, mathir_assumptions(p));
+        return nil();
     }
     const MathDescriptor *descriptor = descriptor_for(args[0]);
     if (!descriptor)
         return nil();
     switch (method) {
-    case TEX: return text_or_nil(v, descriptor->tex[level]);
-    case ALGORITHM: return text_or_nil(v, descriptor->algorithm);
-    case ASSUMPTIONS: return text_or_nil(v, descriptor->assumptions);
-    case COMPLEXITY: return text_or_nil(v, descriptor->complexity);
-    case COST: return cost(v, descriptor, args[1]);
-    default: return nil();
+    case TEX:
+        return text_or_nil(v, descriptor->tex[level]);
+    case ALGORITHM:
+        return text_or_nil(v, descriptor->algorithm);
+    case ASSUMPTIONS:
+        return text_or_nil(v, descriptor->assumptions);
+    case COMPLEXITY:
+        return text_or_nil(v, descriptor->complexity);
+    case COST:
+        return cost(v, descriptor, args[1]);
+    default:
+        return nil();
     }
 }
 
@@ -262,7 +327,7 @@ Val mathdoc_attribute(VM *v, Val target, const char *name) {
             if (strcmp(methods[i], name))
                 continue;
             Obj *method = newobj(v, O_NATIVE);
-            method->as.native.id = MATHDOC_BASE + (int) i;
+            method->as.native.id = MATHDOC_BASE + (int)i;
             Obj *bound = newobj(v, O_BOUND);
             bound->as.bound.fn = method;
             bound->as.bound.self = target;
@@ -274,5 +339,6 @@ Val mathdoc_attribute(VM *v, Val target, const char *name) {
 }
 
 Obj *mathdoc_module(VM *v) {
-    return named_native_module(v, "mathdoc", methods, sizeof methods / sizeof *methods, MATHDOC_BASE);
+    return named_native_module(v, "mathdoc", methods, sizeof methods / sizeof *methods,
+                               MATHDOC_BASE);
 }

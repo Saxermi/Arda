@@ -2,9 +2,11 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
-## Unreleased — 0.15.4
+## 0.15.4 — Mathematical Documentation (AMDE v1)
 
 - Added static native mathematical documentation through callable queries and the `mathdoc` module. Shape-based cost estimates cover dense solve, matrix multiply, dot product, and CSR matrix–vector multiply. [Contracts](research/implemented/mathdoc.md)
+
+- Added bounded compiler-side MathIR for straight-line user functions, source-level LaTeX views, explicit unresolved call provenance and `--mathdoc=none|compact`. Compact metadata is the default. Level 0 applies limited scalar-real display identities. [Release validation](docs/RUMIL_0.15.4.md)
 
 ## 0.15.3 — Complex Scalars and Structured Operators
 

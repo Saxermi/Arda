@@ -8,13 +8,13 @@ Arda is an independent, open-source, research-driven scientific programming lang
 
 Its long-term goal is to combine scientifically validated numerical algorithms with adaptive execution, from ordinary laptops to distributed research clusters. The language brings native numerical data structures and algorithms to an indentation-based runtime for physics, engineering, and other computational research.
 
-**Current version** — Arda 0.15.3 — Complex Scalars and Structured Operators
+**Current version** — Arda 0.15.4 — Mathematical Documentation (AMDE v1)
 
 *Development codename: Rúmil*
 
-**Next milestone** — Arda 0.15.4 — Mathematical Documentation (AMDE v1)
+**Next milestone** — Arda 0.15.5 — Mathematical Library
 
-Arda supports complex scalars, compact matrix operators, seeded sampling, and streaming statistics. The optional LAPACK build adds randomized SVD for dense, sparse, and structured operators. [Structured computing contracts](research/implemented/structured-computing.md) · [0.15.3 release validation](docs/RUMIL_0.15.3.md)
+Arda supports static mathematical queries, complex scalars, compact matrix operators, seeded sampling, and streaming statistics. The optional LAPACK build adds randomized SVD for dense, sparse, and structured operators. [Structured computing contracts](research/implemented/structured-computing.md) · [0.15.4 release validation](docs/RUMIL_0.15.4.md)
 
 > **Development status:** Arda is an early-stage scientific language. The interpreter, dense Float64 tensors, native COO/CSR sparse storage and conversions, sparse assembly and algebra, sparse solvers, selected optimized CPU kernels, and scalar automatic differentiation already exist. The adaptive compute engine, beyond-RAM storage, general mathematical introspection and distributed HPC are still roadmap goals.
 
@@ -69,7 +69,7 @@ Beyond-RAM execution is not a promise that an SSD performs like RAM. Disk-backed
 
 ## Mathematical documentation and introspection
 
-The **Arda Mathematical Documentation Engine (AMDE)**, development codename *Rúmil*, makes the mathematics behind a function available independently of its execution. The 0.15.4 development checkout documents selected native functions. `nc.solve.getTex(3)` shows the pivoted LU algorithm, and `nc.solve.getCost({"shape":[10,10]})` estimates arithmetic and buffer sizes from dimensions. [Current query contracts](research/implemented/mathdoc.md) · [Runnable example](examples/mathdoc_queries.arda)
+The **Arda Mathematical Documentation Engine (AMDE)**, development codename *Rúmil*, makes the mathematics behind a function available independently of its execution. It documents selected native functions and supported straight-line user functions. `nc.solve.getTex(3)` shows the pivoted LU algorithm, and `nc.solve.getCost({"shape":[10,10]})` estimates arithmetic and buffer sizes from dimensions. [Current query contracts](research/implemented/mathdoc.md) · [Runnable example](examples/mathdoc_queries.arda)
 
 A simple energy function can be written today using existing language syntax:
 
@@ -80,11 +80,13 @@ caro energy(m, v, h):
     nan kinetic + potential
 ```
 
-A future call such as `energy.getTex(2)` could produce LaTeX representing:
+A query such as `energy.getTex(0)` describes the source expression as LaTeX. Its mathematical meaning (shown here in simplified notation) is:
 
 $$
 E(m,v,h)=\frac{1}{2}mv^2+9.81mh
 $$
+
+For supported user functions, levels 0–3 describe a compact expression, intermediate relations, known assumptions and source-level operations respectively. No dynamic call target is inferred. Level 0 applies limited formal scalar-real display simplification to call-free functions without external dependencies; levels 1 and 3 preserve source operations. Compact metadata is enabled by default; `--mathdoc=none` disables user-function metadata collection while retaining native descriptors. See the query contracts for limits and unsupported constructs.
 
 The intended levels range from a compact equation, through intermediate expressions and assumptions, to the mathematical algorithm used by a supported native function. An optional recorded run could also provide selected numerical intermediate results and convergence data. Static documentation must not execute the numerical function or pretend that an unexecuted calculation has converged.
 
@@ -156,7 +158,7 @@ make -j
 ./arda examples/science.arda
 ```
 
-Python is used by development tools, tests and embedded-library generators; it is not required to run compiled Arda programs through the runtime. The default build requires no external numerical libraries. Optional BLAS/LAPACK:
+Python 3.10 or newer is required for the regression suite. Python is used by development tools, tests and embedded-library generators; it is not required to run compiled Arda programs through the runtime. The default build requires no external numerical libraries. Optional BLAS/LAPACK:
 
 ```sh
 sudo apt install libblas-dev liblapack-dev
@@ -366,6 +368,7 @@ The REPL accepts one statement per line and blocks terminated by a blank line. `
 | `docs/RUMIL_0.15.1.md` | SVD and eigenvalue release validation |
 | `docs/RUMIL_0.15.2.md` | Random generator and statistics release validation |
 | `docs/RUMIL_0.15.3.md` | Complex scalars, matrix operators and derivative-free optimization |
+| `docs/RUMIL_0.15.4.md` | Mathematical documentation and AMDE overhead measurements |
 | `CHANGELOG.md` | Release history |
 | `MAINTENANCE.md` | 0.13.1 changes and measured validation |
 | `CONTRIBUTING.md` | Local development and validation policy |
@@ -419,7 +422,7 @@ make test-reference
 
 Read the [full master roadmap](ROADMAP.md) for detailed subversions, architecture, benchmark targets, research references, and development codenames.
 
-Static mathematical queries in the 0.15.4 development checkout cover selected native functions. The roadmap also includes user-function extraction, `getPlan()`, `verify()` and bounded `trace()`. Execution tracing and verification will be optional, with no per-element logging in the normal high-performance path. Planned memory and compute engines will combine sparse and structured representations, SIMD, parallel execution, memory mapping, streaming, quantization and optional MPI/GPU backends. These are goals, not present features. Full 70B-model training on ordinary laptops is not a project promise.
+The roadmap extends mathematical queries with loop recognition, `getPlan()`, `verify()` and bounded `trace()`. Execution tracing and verification will be optional, with no per-element logging in the normal high-performance path. Planned memory and compute engines will combine sparse and structured representations, SIMD, parallel execution, memory mapping, streaming, quantization and optional MPI/GPU backends. These are goals, not present features. Full 70B-model training on ordinary laptops is not a project promise.
 
 ## Limitations and safety
 

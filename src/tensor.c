@@ -12,7 +12,7 @@ static Obj *arr(VM *v, Val a) {
 static int dim(VM *v, Val a) {
     if (a.t != V_INT || a.i < 0 || a.i > ARDA_MAX_ELEMENTS)
         vmerror(v, "invalid array dimension");
-    return (int) a.i;
+    return (int)a.i;
 }
 
 static int shape_list(VM *v, Val a, int *s) {
@@ -30,7 +30,8 @@ static void layout(VM *v, Obj *x, int r, const int *s) {
     size_t n = 1, span = 1;
     A(x).rank = r;
     for (int i = r - 1; i >= 0; i--) {
-        if (s[i] < 0 || (unsigned) s[i] > ARDA_MAX_ELEMENTS || span > ARDA_MAX_ELEMENTS / (size_t)(s[i] ? s[i] : 1))
+        if (s[i] < 0 || (unsigned)s[i] > ARDA_MAX_ELEMENTS ||
+            span > ARDA_MAX_ELEMENTS / (size_t)(s[i] ? s[i] : 1))
             vmerror(v, "array size limit: 16000000 elements");
         A(x).shape[i] = s[i];
         A(x).stride[i] = n;
@@ -76,9 +77,7 @@ Obj *tensor_copy(VM *v, Obj *x) {
         memcpy(A(y).data, A(x).data, A(x).n * sizeof(double));
     else {
         size_t off = 0;
-        int coord[8] = {
-            0
-        };
+        int coord[8] = {0};
         for (size_t i = 0; i < A(x).n; i++) {
             A(y).data[i] = A(x).data[off];
             if (i + 1 < A(x).n)
@@ -99,7 +98,7 @@ static Obj *view(VM *v, Obj *x, int r, const int *s, const size_t *st, size_t of
     Obj *y = newobj(v, O_ARRAY);
     layout(v, y, r, s);
     if (st)
-        memcpy(A(y).stride, st, (size_t) r * sizeof * st);
+        memcpy(A(y).stride, st, (size_t)r * sizeof *st);
     A(y).owner = A(x).owner ? A(x).owner : x;
     A(y).data = A(x).data + (A(y).n ? off : 0);
     barrier(v, y, objval(A(y).owner));
@@ -137,9 +136,7 @@ static void flatten(VM *v, Val a, Obj *x, int d, size_t *i) {
 }
 
 Obj *tensor_from_list(VM *v, Val a) {
-    int r = 0, s[8] = {
-        0
-    };
+    int r = 0, s[8] = {0};
     infer(v, a, 0, &r, s);
     Obj *x = tensor_new(v, r, s);
     size_t i = 0;
@@ -149,8 +146,8 @@ Obj *tensor_from_list(VM *v, Val a) {
 
 Val tensor_index(VM *v, Obj *x, int i) {
     if (A(x).rank == 1)
-        return number(A(x).data[(size_t) i * A(x).stride[0]]);
-    Obj *y = view(v, x, A(x).rank - 1, A(x).shape + 1, A(x).stride + 1, (size_t) i * A(x).stride[0]);
+        return number(A(x).data[(size_t)i * A(x).stride[0]]);
+    Obj *y = view(v, x, A(x).rank - 1, A(x).shape + 1, A(x).stride + 1, (size_t)i * A(x).stride[0]);
     return objval(tensor_copy(v, y));
 }
 
@@ -163,7 +160,7 @@ static void print_rec(Obj *x, int d, size_t off, size_t *shown) {
             fputs("...", stdout);
             break;
         }
-        size_t j = off + (size_t) i * A(x).stride[d];
+        size_t j = off + (size_t)i * A(x).stride[d];
         if (d + 1 == A(x).rank) {
             printf("%.15g", A(x).data[j]);
             (*shown)++;
@@ -181,7 +178,7 @@ void tensor_print(Obj *x) {
 static Val tolist(VM *v, Obj *x, int d, size_t off) {
     Obj *l = list(v);
     for (int i = 0; i < A(x).shape[d]; i++) {
-        size_t j = off + (size_t) i * A(x).stride[d];
+        size_t j = off + (size_t)i * A(x).stride[d];
         append(v, l, d + 1 == A(x).rank ? number(A(x).data[j]) : tolist(v, x, d + 1, j));
     }
     return objval(l);
@@ -204,10 +201,18 @@ static double opval(Op op, double a, double b) {
     }
 }
 /* Contiguous equal-shape/scalar path: two doubles per SSE2 instruction, scalar tail. */
-static void dense(Op op, double *z, const double *p, const double *q, double a, double b, size_t n) {
+static void dense(Op op, double *z, const double *p, const double *q, double a, double b,
+                  size_t n) {
     size_t i = 0;
 #if defined(__SSE2__)
-#define VEC(OP) do{for(;i+1<n;i+=2){__m128d x=p?_mm_loadu_pd(p+i):_mm_set1_pd(a),y=q?_mm_loadu_pd(q+i):_mm_set1_pd(b);_mm_storeu_pd(z+i,OP(x,y));}}while(0)
+#define VEC(OP)                                                                                    \
+    do {                                                                                           \
+        for (; i + 1 < n; i += 2) {                                                                \
+            __m128d x = p ? _mm_loadu_pd(p + i) : _mm_set1_pd(a),                                  \
+                    y = q ? _mm_loadu_pd(q + i) : _mm_set1_pd(b);                                  \
+            _mm_storeu_pd(z + i, OP(x, y));                                                        \
+        }                                                                                          \
+    } while (0)
     switch (op) {
     case OP_ADD:
         VEC(_mm_add_pd);
@@ -232,17 +237,12 @@ Val tensor_binary(VM *v, Op op, Val a, Val b) {
     Obj *x = isobj(a, O_ARRAY) ? a.o : NULL, *y = isobj(b, O_ARRAY) ? b.o : NULL;
     if (op != OP_ADD && op != OP_SUB && op != OP_MUL && op != OP_DIV)
         vmerror(v, "unsupported array operator");
-    int rx = x ? A(x).rank : 0, ry = y ? A(y).rank : 0, r = rx > ry ? rx : ry, s[8] = {
-        0
-    };
-    size_t sx[8] = {
-        0
-    }, sy[8] = {
-        0
-    };
+    int rx = x ? A(x).rank : 0, ry = y ? A(y).rank : 0, r = rx > ry ? rx : ry, s[8] = {0};
+    size_t sx[8] = {0}, sy[8] = {0};
     int fast = 1;
     for (int i = 0; i < r; i++) {
-        int ix = i - r + rx, iy = i - r + ry, dx = ix < 0 ? 1 : A(x).shape[ix], dy = iy < 0 ? 1 : A(y).shape[iy];
+        int ix = i - r + rx, iy = i - r + ry, dx = ix < 0 ? 1 : A(x).shape[ix],
+            dy = iy < 0 ? 1 : A(y).shape[iy];
         if (dx != dy && dx != 1 && dy != 1)
             vmerror(v, "array shape mismatch (broadcast)");
         s[i] = dx == 1 ? dy : dx;
@@ -259,18 +259,17 @@ Val tensor_binary(VM *v, Op op, Val a, Val b) {
         dense(op, A(z).data, x ? A(x).data : NULL, y ? A(y).data : NULL, ax, by, A(z).n);
     else if (A(z).n) {
         /* Odometer over outer axes; contiguous or broadcast inner axes use the same SIMD kernel. */
-        size_t inner = (size_t) s[r - 1], ox = 0, oy = 0;
-        int coord[8] = {
-            0
-        };
+        size_t inner = (size_t)s[r - 1], ox = 0, oy = 0;
+        int coord[8] = {0};
         for (size_t i = 0; i < A(z).n; i += inner) {
             const double *p = x ? A(x).data + ox : NULL, *q = y ? A(y).data + oy : NULL;
             if (sx[r - 1] <= 1 && sy[r - 1] <= 1)
-                dense(op, A(z).data + i, p && sx[r - 1] ? p : NULL, q && sy[r - 1] ? q : NULL, p ? *p : ax, q ? *q : by,
-                        inner);
+                dense(op, A(z).data + i, p && sx[r - 1] ? p : NULL, q && sy[r - 1] ? q : NULL,
+                      p ? *p : ax, q ? *q : by, inner);
             else
                 for (size_t j = 0; j < inner; j++)
-                    A(z).data[i + j] = opval(op, p ? p[j * sx[r - 1]] : ax, q ? q[j * sy[r - 1]] : by);
+                    A(z).data[i + j] =
+                        opval(op, p ? p[j * sx[r - 1]] : ax, q ? q[j * sy[r - 1]] : by);
             if (i + inner < A(z).n)
                 for (int j = r - 2; j >= 0; j--) {
                     if (++coord[j] < s[j]) {
@@ -287,9 +286,8 @@ Val tensor_binary(VM *v, Op op, Val a, Val b) {
     return objval(z);
 }
 
-static const char *names[] = {
-    "reshape", "view", "permute", "copy", "at", "put", "contiguous", "simd"
-};
+static const char *names[] = {"reshape", "view", "permute",    "copy",
+                              "at",      "put",  "contiguous", "simd"};
 void install_tensor(VM *v, Obj *m) {
     for (int i = 0; i < 8; i++) {
         Obj *f = newobj(v, O_NATIVE);
@@ -300,9 +298,7 @@ void install_tensor(VM *v, Obj *m) {
 
 Val tensor_call(VM *v, int id, int argc, Val *a) {
     int k = id - TENSOR_BASE;
-    int ar[] = {
-        2, 5, 2, 1, 2, 3, 1, 0
-    };
+    int ar[] = {2, 5, 2, 1, 2, 3, 1, 0};
     if (k < 0 || k >= 8 || argc != ar[k])
         vmerror(v, "invalid tensor function arity");
     if (k == 7) {
@@ -329,17 +325,18 @@ Val tensor_call(VM *v, int id, int argc, Val *a) {
         return objval(y);
     }
     if (k == 1) {
-        int axis = indexnum(v, a[1], r), start = dim(v, a[2]), stop = dim(v, a[3]), step = dim(v, a[4]);
+        int axis = indexnum(v, a[1], r), start = dim(v, a[2]), stop = dim(v, a[3]),
+            step = dim(v, a[4]);
         if (!step || start > stop || stop > A(x).shape[axis])
             vmerror(v, "invalid view bounds");
         memcpy(s, A(x).shape, sizeof s);
         memcpy(st, A(x).stride, sizeof st);
         s[axis] = (stop - start + step - 1) / step;
-        if (s[axis] > 1 && st[axis] > SIZE_MAX / (size_t) step)
+        if (s[axis] > 1 && st[axis] > SIZE_MAX / (size_t)step)
             vmerror(v, "view stride overflow");
         if (s[axis] > 1)
             st[axis] *= step;
-        return objval(view(v, x, r, s, st, (size_t) start * A(x).stride[axis]));
+        return objval(view(v, x, r, s, st, (size_t)start * A(x).stride[axis]));
     }
     if (!isobj(a[1], O_LIST) || a[1].o->as.list.n != r)
         vmerror(v, "expected one index per dimension");
@@ -357,7 +354,7 @@ Val tensor_call(VM *v, int id, int argc, Val *a) {
     }
     size_t off = 0;
     for (int i = 0; i < r; i++)
-        off += (size_t) indexnum(v, a[1].o->as.list.a[i], A(x).shape[i]) * A(x).stride[i];
+        off += (size_t)indexnum(v, a[1].o->as.list.a[i], A(x).shape[i]) * A(x).stride[i];
     if (k == 4)
         return number(A(x).data[off]);
     A(x).data[off] = asnum(v, a[2]);

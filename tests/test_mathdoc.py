@@ -124,3 +124,182 @@ class MathDocTests(unittest.TestCase):
         ]:
             with self.subTest(expression=expression):
                 self.run_code(imports + expression, error=error, stress=True)
+
+
+    def test_user_arithmetic_levels(self):
+        output = self.run_code("""
+        tol mathdoc
+        caro f(x):
+            esta y = x*x
+            nan y+2
+        pedo(f.getTex())
+        pedo(mathdoc.getTex(f,1))
+        pedo(f.getTex(2))
+        pedo(f.getTex(3))
+        pedo(f.getAssumptions())
+        pedo(f.getAlgorithm())
+        pedo(f.getComplexity(),f.getCost({}),f(3))
+        """, stress=True).splitlines()
+        self.assertEqual(output[0], r"f\left(x\right)=x^{2}+2")
+        self.assertEqual(output[1], r"\begin{aligned}y&=x\cdot x\\f\left(x\right)&=y+2\end{aligned}")
+        self.assertIn("Numeric operands assumed", output[2])
+        self.assertIn(r"y&\gets ", output[3])
+        self.assertIn("not inferred", output[4])
+        self.assertIn("Straight-line", output[5])
+        self.assertEqual(output[6], "mun mun 11")
+
+    def test_precedence_and_names(self):
+        output = self.run_code("""
+        caro f(a,b,c):
+            nan (a+b)*(a-(b-c))/(a/(b+c))
+        caro my_fn(x_1):
+            nan -(-x_1)
+        caro unicode(α):
+            nan α+1
+        caro minimum():
+            nan -9223372036854775808
+        caro decimal(x):
+            nan 9.81*x+1.0000000000000002+1e-20
+        pedo(f.getTex())
+        pedo(my_fn.getTex())
+        pedo(unicode.getTex())
+        pedo(minimum.getTex())
+        pedo(decimal.getTex())
+        """, stress=True).splitlines()
+        self.assertEqual(output[0], r"f\left(a,b,c\right)=\frac{\left(a+b\right)\cdot \left(a-\left(b-c\right)\right)}{\frac{a}{b+c}}")
+        self.assertIn(r"\mathrm{my\_fn}", output[1])
+        self.assertEqual(output[1], r"\mathrm{my\_fn}\left(\mathrm{x\_1}\right)=\mathrm{x\_1}")
+        self.assertIn("[U+03B1]", output[2])
+        self.assertTrue(output[3].endswith("=-9223372036854775808"))
+        self.assertTrue(output[4].endswith(r"=9.81\cdot x+1.0000000000000002+1\times 10^{-20}"))
+
+    def test_call_provenance_and_no_execution(self):
+        output = self.run_code("""
+        tol math as m
+        esta calls = 0
+        caro effect(x):
+            calls = calls+1
+            nan x
+        caro f(x):
+            esta y = effect(x)
+            nan y+y+m.cos(x)
+        esta q = f.getTex
+        f = mun
+        collect()
+        pedo(q(0))
+        pedo(q(2))
+        pedo(calls)
+        """, stress=True).splitlines()
+        self.assertIn("Dynamic call targets unresolved", output[0])
+        self.assertIn("Dynamic call targets unresolved", output[1])
+        self.assertEqual(output[0].count(r"\mathrm{effect}"), 1)
+        self.assertEqual(output[2], "0")
+
+    def test_unsupported_and_closure(self):
+        output = self.run_code("""
+        caro outer(a):
+            caro inner(x):
+                nan a*x
+            nan inner
+        esta inner = outer(3)
+        esta q = inner.getTex
+        inner = mun
+        outer = mun
+        collect()
+        pedo(q(0))
+        caro loop(n):
+            esta s = 0
+            an i in range(n):
+                s = s+i
+            nan s
+        caro default(x=1):
+            nan x
+        caro reassign(x):
+            x = x+1
+            nan x
+        pedo(loop.getTex(),default.getTex(),reassign.getTex())
+        esta g = lambda x: x+1
+        pedo(g.getTex(),g(2))
+        """, stress=True).splitlines()
+        self.assertIn("External values unresolved", output[0])
+        self.assertEqual(output[1], "mun mun mun")
+        self.assertEqual(output[2], r"\lambda\left(x\right)=x+1 3")
+
+    def test_disabled_user_metadata_in_imports(self):
+        self.run_code("""
+        tol helper
+        caro f(x):
+            nan x+1
+        pedo(f.getTex(),helper.g.getTex(),cos.getTex(),f(2))
+        """, r"mun mun \cos(x) 3", flags=("--mathdoc=none",),
+                      files={"helper.arda": "caro g(x):\n    nan x*x\n"}, stress=True)
+
+    def test_metadata_bounds(self):
+        expression = "+".join(["x"] * 90)
+        self.run_code("caro f(x):\n    nan " + expression + "\npedo(f.getTex(),f(1))",
+                      "mun 90", stress=True)
+        # The expansion of these declarations is exponential, but the IR
+        # stays small and the renderer falls back to named relations.
+        declarations = ["    esta a0 = x+x"]
+        for i in range(1, 20):
+            declarations.append(f"    esta a{i} = a{i-1}+a{i-1}")
+        code = "caro f(x):\n" + "\n".join(declarations) + "\n    nan a19\npedo(f.getTex())"
+        output = self.run_code(code, stress=True)
+        self.assertIn(r"\mathrm{a19}", output)
+        self.assertLess(len(output), 8192)
+
+
+    def test_limited_simplification_is_display_only(self):
+        output = self.run_code("""
+        caro f(x):
+            nan (x*x+0)*1-0
+        caro energy(m,v):
+            nan 0.5*m*v*v
+        caro identity(x):
+            nan (0+x)/1
+        caro neg(x):
+            nan -(-x)
+        pedo(f.getTex(0))
+        pedo(f.getTex(1))
+        pedo(f.getTex(3))
+        pedo(energy.getTex())
+        pedo(identity.getTex())
+        pedo(neg.getTex())
+        pedo(f(3),energy(2,3),identity(5),neg(-7))
+        """, stress=True).splitlines()
+        self.assertEqual(output[0], r"f\left(x\right)=x^{2}")
+        self.assertIn(r"x\cdot x+0", output[1])
+        self.assertIn(r"\cdot 1-0", output[2])
+        self.assertEqual(output[3], r"\mathrm{energy}\left(m,v\right)=0.5\cdot m\cdot v^{2}")
+        self.assertEqual(output[4], r"\mathrm{identity}\left(x\right)=x")
+        self.assertEqual(output[5], r"\mathrm{neg}\left(x\right)=x")
+        self.assertEqual([float(v) for v in output[6].split()], [9, 9, 5, -7])
+
+    def test_simplification_preserves_domain_and_opaque_calls(self):
+        output = self.run_code("""
+        esta calls = 0
+        esta a = 2
+        caro effect(x):
+            calls = calls+1
+            nan x
+        caro singular(x):
+            nan x/x
+        caro zero(x):
+            nan 0*(1/x)
+        caro opaque(x):
+            nan effect(x)*1+0
+        caro external(x):
+            nan a*x+0
+        pedo(singular.getTex())
+        pedo(zero.getTex())
+        pedo(opaque.getTex())
+        pedo(external.getTex())
+        pedo(calls)
+        """, stress=True).splitlines()
+        self.assertEqual(output[0], r"\mathrm{singular}\left(x\right)=\frac{x}{x}")
+        self.assertIn(r"0\cdot \frac{1}{x}", output[1])
+        self.assertIn(r"\mathrm{effect}\left(x\right)\cdot 1+0", output[2])
+        self.assertIn("Dynamic call targets unresolved", output[2])
+        self.assertIn(r"a\cdot x+0", output[3])
+        self.assertIn("External values unresolved", output[3])
+        self.assertEqual(output[4], "0")

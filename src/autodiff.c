@@ -92,10 +92,8 @@ static void backward(VM *v, Obj *root) {
         vmerror(v, "nonfinite autodiff gradient");
 }
 
-static const char *names[] = {
-    "variable", "value", "grad", "backward", "sin", "cos", "exp", "log", "sqrt", "tanh", "pow", "sgd",
-    "adam"
-};
+static const char *names[] = {"variable", "value", "grad", "backward", "sin", "cos", "exp",
+                              "log",      "sqrt",  "tanh", "pow",      "sgd", "adam"};
 static Obj *vec(VM *v, Val x) {
     if (!isobj(x, O_ARRAY) || A(x.o).rank != 1)
         vmerror(v, "optimizer expects vectors");
@@ -130,13 +128,15 @@ static Val optimizer(VM *v, int k, Val *a) {
         vmerror(v, "optimizer state shape mismatch");
     if (a[4].t != V_INT || a[4].i < 1)
         vmerror(v, "Adam step must start at 1");
-    double t = (double) a[4].i, b1 = .9, b2 = .999, c1 = -expm1(t * log(b1)), c2 = -expm1(t * log(b2));
+    double t = (double)a[4].i, b1 = .9, b2 = .999, c1 = -expm1(t * log(b1)),
+           c2 = -expm1(t * log(b2));
     Obj *nm = array_new(v, 1, n, 1), *ns = array_new(v, 1, n, 1);
     for (int i = 0; i < n; i++) {
         double x = A(p).data[i], d = A(g).data[i], mi = A(m).data[i], si = A(s).data[i];
         if (!isfinite(x) || !isfinite(d) || !isfinite(mi) || !isfinite(si) || si < 0)
             vmerror(v, "invalid Adam input");
-        double u = b1 * mi + (1 - b1) * d, w = b2 * si + (1 - b2) * d * d, z = x - lr * (u / c1) / (sqrt(w / c2) + 1e-8);
+        double u = b1 * mi + (1 - b1) * d, w = b2 * si + (1 - b2) * d * d,
+               z = x - lr * (u / c1) / (sqrt(w / c2) + 1e-8);
         if (!isfinite(u) || !isfinite(w) || !isfinite(z))
             vmerror(v, "nonfinite Adam step");
         A(nm).data[i] = u;
@@ -152,9 +152,7 @@ static Val optimizer(VM *v, int k, Val *a) {
 
 Val ad_call(VM *v, int id, int argc, Val *a) {
     int k = id - AD_BASE;
-    int ar[] = {
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 3, 6
-    };
+    int ar[] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 3, 6};
     if (k < 0 || k >= 13 || argc != ar[k])
         vmerror(v, "invalid autodiff function arity");
     if (k >= 11)
@@ -200,15 +198,14 @@ Val ad_call(VM *v, int id, int argc, Val *a) {
         z = tanh(x);
         d = 1 - z * z;
         break;
-    case 10:
-        {
-            double y = asnum(v, a[1]);
-            if (!isfinite(y))
-                vmerror(v, "invalid power exponent");
-            z = pow(x, y);
-            d = y == 0 ? 0 : y == 1 ? 1 : y * pow(x, y - 1);
-            break;
-        }
+    case 10: {
+        double y = asnum(v, a[1]);
+        if (!isfinite(y))
+            vmerror(v, "invalid power exponent");
+        z = pow(x, y);
+        d = y == 0 ? 0 : y == 1 ? 1 : y * pow(x, y - 1);
+        break;
+    }
     }
     if (!p) {
         if (!isfinite(z))

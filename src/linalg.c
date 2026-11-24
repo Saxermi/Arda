@@ -8,32 +8,47 @@ extern void dgesvd_(const char *, const char *, const int *, const int *, double
                     int *);
 extern void dsyev_(const char *, const char *, const int *, double *, const int *, double *,
                    double *, const int *, int *);
-extern void dgeev_(const char *, const char *, const int *, double *, const int *, double *, double *,
-                   double *, const int *, double *, const int *, double *, const int *, int *);
+extern void dgeev_(const char *, const char *, const int *, double *, const int *, double *,
+                   double *, double *, const int *, double *, const int *, double *, const int *,
+                   int *);
 #endif
 
 #define A(o) ((o)->as.array)
 #define F(o) ((o)->as.factor)
 
 typedef enum { LU, CHOLESKY, QR } FactorKind;
-enum { PARTS = QR + 1, SOLVE, DET, TRACE, DIAG, INV, SOLVE_TRIDIAG, SOLVE_BANDED,
-       SVD, PINV, RANK, COND, EIGH, EIG, RSVD };
-
-static const char *names[] = {
-    "lu", "cholesky", "qr", "parts", "solve", "det", "trace", "diag", "inv",
-    "solve_tridiag", "solve_banded", "svd", "pinv", "rank", "cond", "eigh", "eig", "rsvd"
+enum {
+    PARTS = QR + 1,
+    SOLVE,
+    DET,
+    TRACE,
+    DIAG,
+    INV,
+    SOLVE_TRIDIAG,
+    SOLVE_BANDED,
+    SVD,
+    PINV,
+    RANK,
+    COND,
+    EIGH,
+    EIG,
+    RSVD
 };
+
+static const char *names[] = {"lu",    "cholesky", "qr",   "parts",         "solve",        "det",
+                              "trace", "diag",     "inv",  "solve_tridiag", "solve_banded", "svd",
+                              "pinv",  "rank",     "cond", "eigh",          "eig",          "rsvd"};
 static const int arities[] = {1, 1, 1, 1, 2, 1, 1, 1, 1, 4, 4, 1, 1, 1, 1, 1, 1, 2};
 _Static_assert(sizeof names / sizeof *names == sizeof arities / sizeof *arities,
                "linalg arity table");
 
 const char *linalg_name(int id) {
     int op = id - LINALG_BASE;
-    return op >= 0 && (size_t) op < sizeof names / sizeof *names ? names[op] : NULL;
+    return op >= 0 && (size_t)op < sizeof names / sizeof *names ? names[op] : NULL;
 }
 
 static size_t index_at(const Obj *o, int row, int col) {
-    return (size_t) row * A(o).cols + col;
+    return (size_t)row * A(o).cols + col;
 }
 
 /* Both work arrays and published factors are GC-owned. No public operation
@@ -41,8 +56,9 @@ static size_t index_at(const Obj *o, int row, int col) {
 static Obj *new_factor(VM *v, Obj *input, FactorKind kind) {
     int m = A(input).rows, n = A(input).cols;
     int k = m < n ? m : n;
-    size_t extra = kind == LU ? (size_t) n * sizeof(int) :
-                   kind == QR ? (size_t) k * sizeof(double) : 0;
+    size_t extra = kind == LU   ? (size_t)n * sizeof(int)
+                   : kind == QR ? (size_t)k * sizeof(double)
+                                : 0;
     Obj *f = newobj_extra(v, O_FACTOR, extra);
     F(f).kind = kind;
     F(f).packed = tensor_copy(v, input);
@@ -52,7 +68,7 @@ static Obj *new_factor(VM *v, Obj *input, FactorKind kind) {
 static double checked(VM *v, long double value) {
     if (!isfinite(value) || fabsl(value) > DBL_MAX)
         vmerror(v, "nonfinite factorization or solution");
-    return (double) value;
+    return (double)value;
 }
 
 static void finite_packed(VM *v, const Obj *x, const char *message) {
@@ -65,7 +81,7 @@ static int lu_factor(VM *v, Obj *f) {
     Obj *a = F(f).packed;
     double *w = A(a).data;
     int n = A(a).rows;
-    int *perm = (int *) (f + 1);
+    int *perm = (int *)(f + 1);
     int sign = 1;
     for (int i = 0; i < n; i++)
         perm[i] = i;
@@ -116,7 +132,7 @@ static void cholesky_factor(VM *v, Obj *a) {
         for (int j = 0; j <= i; j++) {
             long double value = w[index_at(a, i, j)];
             for (int k = 0; k < j; k++)
-                value -= (long double) w[index_at(a, i, k)] * w[index_at(a, j, k)];
+                value -= (long double)w[index_at(a, i, k)] * w[index_at(a, j, k)];
             if (i == j) {
                 if (!(value > 0.0L))
                     vmerror(v, "Cholesky requires a positive definite matrix");
@@ -130,7 +146,8 @@ static void cholesky_factor(VM *v, Obj *a) {
     }
 }
 
-static void apply_reflector(VM *v, const Obj *packed, int k, double tau, Obj *target, int first_col) {
+static void apply_reflector(VM *v, const Obj *packed, int k, double tau, Obj *target,
+                            int first_col) {
     if (tau == 0.0)
         return;
     const double *w = A(packed).data;
@@ -138,13 +155,13 @@ static void apply_reflector(VM *v, const Obj *packed, int k, double tau, Obj *ta
     for (int j = first_col; j < A(target).cols; j++) {
         long double dot = data[index_at(target, k, j)];
         for (int i = k + 1; i < A(packed).rows; i++)
-            dot += (long double) w[index_at(packed, i, k)] * data[index_at(target, i, j)];
+            dot += (long double)w[index_at(packed, i, k)] * data[index_at(target, i, j)];
         long double scale = tau * dot;
         size_t first = index_at(target, k, j);
-        data[first] = checked(v, (long double) data[first] - scale);
+        data[first] = checked(v, (long double)data[first] - scale);
         for (int i = k + 1; i < A(packed).rows; i++) {
             size_t next = index_at(target, i, j);
-            data[next] = checked(v, (long double) data[next] - scale * w[index_at(packed, i, k)]);
+            data[next] = checked(v, (long double)data[next] - scale * w[index_at(packed, i, k)]);
         }
     }
 }
@@ -153,7 +170,7 @@ static void apply_reflector(VM *v, const Obj *packed, int k, double tau, Obj *ta
  * entries and forming alpha - beta in the original scale. */
 static void qr_factor(VM *v, Obj *f) {
     Obj *a = F(f).packed;
-    double *w = A(a).data, *tau = (double *) (f + 1);
+    double *w = A(a).data, *tau = (double *)(f + 1);
     int m = A(a).rows, n = A(a).cols;
     for (int k = 0; k < m && k < n; k++) {
         double tail_max = 0.0;
@@ -173,13 +190,12 @@ static void qr_factor(VM *v, Obj *f) {
             size_t p = index_at(a, i, k);
             w[p] = (w[p] / scale) / (alpha - beta);
         }
-        w[diag] = checked(v, (long double) scale * beta);
+        w[diag] = checked(v, (long double)scale * beta);
         apply_reflector(v, a, k, tau[k], a, k + 1);
     }
 }
 
-static Obj *factorize(VM *v, Obj *input, FactorKind kind, const char *nonfinite,
-                      int *det_sign) {
+static Obj *factorize(VM *v, Obj *input, FactorKind kind, const char *nonfinite, int *det_sign) {
     if (A(input).rank != 2)
         vmerror(v, "factorization expects a matrix");
     if (kind != QR && A(input).rows != A(input).cols)
@@ -210,9 +226,9 @@ static Obj *rhs_copy(VM *v, const Obj *b, const int *perm) {
     Obj *x = array_new(v, A(b).rank, A(b).rows, A(b).cols);
     size_t cs = A(b).rank == 2 ? A(b).stride[1] : 0;
     for (int i = 0; i < A(b).rows; i++) {
-        size_t row = (size_t) (perm ? perm[i] : i) * A(b).stride[0];
+        size_t row = (size_t)(perm ? perm[i] : i) * A(b).stride[0];
         for (int j = 0; j < A(b).cols; j++)
-            A(x).data[index_at(x, i, j)] = A(b).data[row + (size_t) j * cs];
+            A(x).data[index_at(x, i, j)] = A(b).data[row + (size_t)j * cs];
     }
     return x;
 }
@@ -224,12 +240,12 @@ static void back_substitute(VM *v, const Obj *a, Obj *x, int n, int transposed) 
             long double total = A(x).data[p];
             for (int j = i + 1; j < n; j++) {
                 double w = A(a).data[transposed ? index_at(a, j, i) : index_at(a, i, j)];
-                total -= (long double) w * A(x).data[index_at(x, j, c)];
+                total -= (long double)w * A(x).data[index_at(x, j, c)];
             }
             long double value = total / A(a).data[index_at(a, i, i)];
             if (!isfinite(value) || fabsl(value) > DBL_MAX)
                 vmerror(v, "nonfinite solution");
-            A(x).data[p] = (double) value;
+            A(x).data[p] = (double)value;
         }
     }
 }
@@ -251,7 +267,7 @@ static void cholesky_forward(VM *v, const Obj *a, Obj *x) {
             size_t p = index_at(x, i, c);
             long double total = A(x).data[p];
             for (int k = 0; k < i; k++)
-                total -= (long double) A(a).data[index_at(a, i, k)] * A(x).data[index_at(x, k, c)];
+                total -= (long double)A(a).data[index_at(a, i, k)] * A(x).data[index_at(x, k, c)];
             A(x).data[p] = checked(v, total / A(a).data[index_at(a, i, i)]);
         }
 }
@@ -275,7 +291,7 @@ static Obj *solve_factor(VM *v, const Obj *f, const Obj *b) {
         vmerror(v, "factor solve requires a matching vector or matrix right-hand side");
     if (F(f).kind == QR)
         require_qr_full_rank(v, a);
-    const int *perm = F(f).kind == LU ? (const int *) (f + 1) : NULL;
+    const int *perm = F(f).kind == LU ? (const int *)(f + 1) : NULL;
     Obj *x = rhs_copy(v, b, perm);
     finite_packed(v, x, "solve requires finite inputs");
     if (F(f).kind == LU) {
@@ -285,7 +301,7 @@ static Obj *solve_factor(VM *v, const Obj *f, const Obj *b) {
         cholesky_forward(v, a, x);
         back_substitute(v, a, x, A(a).rows, 1);
     } else {
-        const double *tau = (const double *) (f + 1);
+        const double *tau = (const double *)(f + 1);
         int n = A(a).cols;
         for (int k = 0; k < n; k++)
             apply_reflector(v, a, k, tau[k], x, 0);
@@ -313,7 +329,7 @@ static void qr_basis(VM *v, const Obj *f, Obj *q) {
     memset(A(q).data, 0, A(q).n * sizeof(double));
     for (int i = 0; i < k; i++)
         A(q).data[index_at(q, i, i)] = 1;
-    const double *tau = (const double *) (f + 1);
+    const double *tau = (const double *)(f + 1);
     for (int i = k - 1; i >= 0; i--)
         apply_reflector(v, a, i, tau[i], q, 0);
 }
@@ -341,7 +357,7 @@ static Val factor_parts(VM *v, const Obj *f) {
         }
         if (lu) {
             Obj *p = list(v), *u = array_new(v, 2, n, n);
-            const int *perm = (const int *) (f + 1);
+            const int *perm = (const int *)(f + 1);
             for (int i = 0; i < n; i++) {
                 append(v, p, integer(perm[i]));
                 for (int j = i; j < n; j++)
@@ -363,7 +379,7 @@ static Obj *numeric_array(VM *v, Val value) {
 }
 
 static double at(const Obj *a, int row, int col) {
-    return A(a).data[(size_t) row * A(a).stride[0] + (size_t) col * A(a).stride[1]];
+    return A(a).data[(size_t)row * A(a).stride[0] + (size_t)col * A(a).stride[1]];
 }
 
 static double determinant(VM *v, Obj *input) {
@@ -386,7 +402,7 @@ static double determinant(VM *v, Obj *input) {
     long double result = ldexpl(mantissa, exponent);
     if (!isfinite(result) || fabsl(result) > DBL_MAX)
         vmerror(v, "determinant overflow");
-    return (double) result;
+    return (double)result;
 }
 
 static Val diagonal(VM *v, const Obj *a, int trace) {
@@ -412,7 +428,7 @@ static Obj *inverse(VM *v, Obj *input) {
     const Obj *a = F(f).packed;
     int n = A(a).rows;
     Obj *out = array_new(v, 2, n, n);
-    const int *perm = (const int *) (f + 1);
+    const int *perm = (const int *)(f + 1);
     /* Form P*I directly in the output before solving with L and U. */
     for (int i = 0; i < n; i++)
         A(out).data[index_at(out, i, perm[i])] = 1;
@@ -435,8 +451,8 @@ static Obj *solve_tridiag(VM *v, Val *args) {
     const Obj *diag = numeric_array(v, args[1]);
     const Obj *upper = numeric_array(v, args[2]);
     int n = A(diag).rows, edges = n ? n - 1 : 0;
-    if (A(lower).rank != 1 || A(diag).rank != 1 || A(upper).rank != 1 ||
-        A(lower).rows != edges || A(upper).rows != edges)
+    if (A(lower).rank != 1 || A(diag).rank != 1 || A(upper).rank != 1 || A(lower).rows != edges ||
+        A(upper).rows != edges)
         vmerror(v, "tridiagonal solve expects vectors of lengths n-1, n, n-1");
     Obj *out = structured_rhs(v, args[3], n);
     Obj *workspace = array_new(v, 1, edges, 1);
@@ -454,15 +470,15 @@ static Obj *solve_tridiag(VM *v, Val *args) {
 
         /* Normalize each row by its diagonal before elimination. Its two
          * off-diagonal coefficients then have absolute sum below one. */
-        long double ell = (long double) l / d;
+        long double ell = (long double)l / d;
         long double pivot = i ? 1.0L - ell * super[i - 1] : 1.0L;
         if (!(pivot > 0.0L))
             vmerror(v, "Thomas pivot breakdown");
         if (i < edges)
-            super[i] = checked(v, ((long double) u / d) / pivot);
+            super[i] = checked(v, ((long double)u / d) / pivot);
         for (int c = 0; c < nrhs; c++) {
             size_t p = index_at(out, i, c);
-            long double value = (long double) x[p] / d;
+            long double value = (long double)x[p] / d;
             if (i)
                 value -= ell * x[index_at(out, i - 1, c)];
             x[p] = checked(v, value / pivot);
@@ -471,7 +487,8 @@ static Obj *solve_tridiag(VM *v, Val *args) {
     for (int i = edges - 1; i >= 0; i--)
         for (int c = 0; c < nrhs; c++) {
             size_t p = index_at(out, i, c);
-            x[p] = checked(v, (long double) x[p] - (long double) super[i] * x[index_at(out, i + 1, c)]);
+            x[p] =
+                checked(v, (long double)x[p] - (long double)super[i] * x[index_at(out, i + 1, c)]);
         }
     return out;
 }
@@ -479,7 +496,7 @@ static Obj *solve_tridiag(VM *v, Val *args) {
 static int bandwidth(VM *v, Val value, int limit) {
     if (value.t != V_INT || value.i < 0 || value.i > limit)
         vmerror(v, "bandwidth must be a nonnegative integer within the matrix size");
-    return (int) value.i;
+    return (int)value.i;
 }
 
 static size_t band_at(const Obj *band, int lower, int row, int col) {
@@ -537,11 +554,13 @@ static Obj *solve_banded(VM *v, Val *args) {
                 continue;
             for (int j = k + 1; j <= end; j++) {
                 size_t p = band_at(band, lower, i, j);
-                a[p] = checked(v, (long double) a[p] - (long double) multiplier * a[band_at(band, lower, k, j)]);
+                a[p] = checked(v, (long double)a[p] -
+                                      (long double)multiplier * a[band_at(band, lower, k, j)]);
             }
             for (int c = 0; c < nrhs; c++) {
                 size_t p = index_at(out, i, c);
-                x[p] = checked(v, (long double) x[p] - (long double) multiplier * x[index_at(out, k, c)]);
+                x[p] = checked(v, (long double)x[p] -
+                                      (long double)multiplier * x[index_at(out, k, c)]);
             }
         }
     }
@@ -550,7 +569,7 @@ static Obj *solve_banded(VM *v, Val *args) {
             size_t p = index_at(out, i, c);
             long double value = x[p];
             for (int j = i + 1; j < n && j <= i + fill_upper; j++)
-                value -= (long double) a[band_at(band, lower, i, j)] * x[index_at(out, j, c)];
+                value -= (long double)a[band_at(band, lower, i, j)] * x[index_at(out, j, c)];
             x[p] = checked(v, value / a[band_at(band, lower, i, i)]);
         }
     return out;
@@ -582,22 +601,22 @@ static Svd singular_value_decomposition(VM *v, Obj *input, int vectors) {
     const char *job = vectors ? "S" : "N";
     int lwork = -1, info = 0;
     double optimum = 0;
-    dgesvd_(job, job, &n, &m, A(packed).data, &n, A(result.s).data,
-            left, &ldu, right_t, &ldvt, &optimum, &lwork, &info);
+    dgesvd_(job, job, &n, &m, A(packed).data, &n, A(result.s).data, left, &ldu, right_t, &ldvt,
+            &optimum, &lwork, &info);
     if (info || !isfinite(optimum) || optimum < 1)
         vmerror(v, "LAPACK dgesvd workspace query failed (%d)", info);
     if (optimum > ARDA_MAX_ELEMENTS) {
         /* This bound covers all DGESVD paths when optimum exceeds the cap. */
         int longest = m > n ? m : n;
-        if (3 * k + longest > (int) ARDA_MAX_ELEMENTS || 5 * k > (int) ARDA_MAX_ELEMENTS)
+        if (3 * k + longest > (int)ARDA_MAX_ELEMENTS || 5 * k > (int)ARDA_MAX_ELEMENTS)
             vmerror(v, "LAPACK dgesvd workspace exceeds the array size limit");
         lwork = ARDA_MAX_ELEMENTS;
     } else {
-        lwork = (int) ceil(optimum);
+        lwork = (int)ceil(optimum);
     }
     Obj *work = array_new(v, 1, lwork, 1);
-    dgesvd_(job, job, &n, &m, A(packed).data, &n, A(result.s).data,
-            left, &ldu, right_t, &ldvt, A(work).data, &lwork, &info);
+    dgesvd_(job, job, &n, &m, A(packed).data, &n, A(result.s).data, left, &ldu, right_t, &ldvt,
+            A(work).data, &lwork, &info);
     if (info > 0)
         vmerror(v, "LAPACK dgesvd failed to converge (%d)", info);
     if (info < 0)
@@ -614,8 +633,7 @@ static int singular_value_rank(const Obj *values, double rcond) {
     const double *s = A(values).data;
     int k = A(values).rows, rank = 0;
     /* Comparing ratios avoids an underflowed cutoff for tiny matrices. */
-    while (rank < k && s[rank] > 0 &&
-           (rcond == 0 || (long double) s[rank] / s[0] > rcond))
+    while (rank < k && s[rank] > 0 && (rcond == 0 || (long double)s[rank] / s[0] > rcond))
         rank++;
     return rank;
 }
@@ -629,7 +647,7 @@ static Obj *pseudoinverse(VM *v, Svd svd, int rank) {
         for (int j = 0; j < m; j++) {
             long double value = 0;
             for (int p = 0; p < rank; p++)
-                value += (long double) A(svd.vt).data[index_at(svd.vt, p, i)] *
+                value += (long double)A(svd.vt).data[index_at(svd.vt, p, i)] *
                          A(svd.u).data[index_at(svd.u, j, p)] / A(svd.s).data[p];
             A(out).data[index_at(out, i, j)] = checked(v, value);
         }
@@ -648,7 +666,7 @@ static void transpose_square(Obj *matrix) {
 static int eigen_workspace(VM *v, double optimum, int info) {
     if (info || !isfinite(optimum) || optimum < 1 || optimum > ARDA_MAX_ELEMENTS)
         vmerror(v, "LAPACK workspace query failed");
-    return (int) ceil(optimum);
+    return (int)ceil(optimum);
 }
 
 static Val symmetric_eigen(VM *v, Obj *vectors) {
@@ -723,13 +741,13 @@ static Val general_eigen(VM *v, Obj *matrix) {
 
 static void gaussian(Obj *out, RandomState *rng) {
     for (size_t i = 0; i < A(out).n; i++)
-        A(out).data[i] = (double) random_normal_unit(rng);
+        A(out).data[i] = (double)random_normal_unit(rng);
 }
 
 static void orthonormalize(VM *v, Obj *factor, Obj *input, Obj *basis) {
     F(factor).packed = input;
     barrier(v, factor, objval(input));
-    memset(factor + 1, 0, (size_t) A(input).cols * sizeof(double));
+    memset(factor + 1, 0, (size_t)A(input).cols * sizeof(double));
     qr_factor(v, factor);
     qr_basis(v, factor, basis);
 }
@@ -745,12 +763,12 @@ static double sketch_residual(VM *v, const LinearOperator *op, Svd factors, int6
         gaussian(probe, &rng);
         linop_apply_into(v, op, probe, target, 0);
         for (int j = 0; j < k; j++)
-            A(coordinate).data[j] = (double) linear_dot(n, A(factors.vt).data + (size_t) j * n,
-                                                       A(probe).data);
+            A(coordinate).data[j] =
+                (double)linear_dot(n, A(factors.vt).data + (size_t)j * n, A(probe).data);
         for (int i = 0; i < m; i++) {
             long double value = 0;
             for (int j = 0; j < k; j++)
-                value += (long double) A(factors.u).data[index_at(factors.u, i, j)] *
+                value += (long double)A(factors.u).data[index_at(factors.u, i, j)] *
                          A(factors.s).data[j] * A(coordinate).data[j];
             norm = hypotl(norm, A(target).data[i]);
             error = hypotl(error, A(target).data[i] - value);
@@ -764,14 +782,14 @@ static double sketch_residual(VM *v, const LinearOperator *op, Svd factors, int6
 static int rsvd_integer(VM *v, Val a, int low, int high, const char *name) {
     if (a.t != V_INT || a.i < low || a.i > high)
         vmerror(v, "randomized SVD %s must be an integer in [%d, %d]", name, low, high);
-    return (int) a.i;
+    return (int)a.i;
 }
 #endif
 
 static Val randomized_svd(VM *v, int argc, Val *a) {
 #ifndef ARDA_LAPACK
-    (void) argc;
-    (void) a;
+    (void)argc;
+    (void)a;
     vmerror(v, "LAPACK unavailable: rebuild with LAPACK=1");
 #else
     if (a[0].t != V_OBJ)
@@ -780,7 +798,7 @@ static Val randomized_svd(VM *v, int argc, Val *a) {
     LinearOperator op = linop_open(v, a[0].o, &context);
     if (!op.rows || !op.cols || op.rows > ARDA_MAX_ELEMENTS || op.cols > ARDA_MAX_ELEMENTS)
         vmerror(v, "randomized SVD needs nonempty axes within the array limit");
-    int m = (int) op.rows, n = (int) op.cols, limit = m < n ? m : n;
+    int m = (int)op.rows, n = (int)op.cols, limit = m < n ? m : n;
     if (!isobj(a[0], O_ARRAY))
         limit--; /* Keep operator sketches and factors strictly below full width. */
     if (limit < 1)
@@ -797,7 +815,7 @@ static Val randomized_svd(VM *v, int argc, Val *a) {
     Obj *omega = array_new(v, 2, n, width);
     Obj *range = array_new(v, 2, m, width), *basis = array_new(v, 2, m, width);
     Obj *corange = array_new(v, 2, n, width);
-    Obj *qr = newobj_extra(v, O_FACTOR, (size_t) width * sizeof(double));
+    Obj *qr = newobj_extra(v, O_FACTOR, (size_t)width * sizeof(double));
     F(qr).kind = QR;
     gaussian(omega, &rng);
     linop_apply_into(v, &op, omega, range, 0);
@@ -812,13 +830,14 @@ static Val randomized_svd(VM *v, int argc, Val *a) {
     /* SVD of (Q^T A)^T lets the skinny product stay in its native layout. */
     linop_apply_into(v, &op, basis, corange, 1);
     Svd small = singular_value_decomposition(v, corange, 1);
-    Svd result = {.u = array_new(v, 2, m, k), .s = array_new(v, 1, k, 1),
-                  .vt = array_new(v, 2, k, n)};
+    Svd result = {
+        .u = array_new(v, 2, m, k), .s = array_new(v, 1, k, 1), .vt = array_new(v, 2, k, n)};
     for (int j = 0; j < k; j++) {
         A(result.s).data[j] = A(small.s).data[j];
         for (int i = 0; i < m; i++)
-            A(result.u).data[index_at(result.u, i, j)] = checked(v, linear_dot(
-                width, A(basis).data + (size_t) i * width, A(small.vt).data + (size_t) j * width));
+            A(result.u).data[index_at(result.u, i, j)] =
+                checked(v, linear_dot(width, A(basis).data + (size_t)i * width,
+                                      A(small.vt).data + (size_t)j * width));
         for (int i = 0; i < n; i++)
             A(result.vt).data[index_at(result.vt, j, i)] = A(small.u).data[index_at(small.u, i, j)];
     }
@@ -835,8 +854,8 @@ static Val randomized_svd(VM *v, int argc, Val *a) {
 
 static Val linalg_eigen(VM *v, Val a, int symmetric) {
 #ifndef ARDA_LAPACK
-    (void) a;
-    (void) symmetric;
+    (void)a;
+    (void)symmetric;
     vmerror(v, "LAPACK unavailable: rebuild with LAPACK=1");
 #else
     if (!isobj(a, O_ARRAY) || A(a.o).rank != 2)
@@ -855,9 +874,9 @@ Val linalg_eigh(VM *v, Val a) {
 
 static Val spectral_call(VM *v, int op, int argc, Val *args) {
 #ifndef ARDA_LAPACK
-    (void) op;
-    (void) argc;
-    (void) args;
+    (void)op;
+    (void)argc;
+    (void)args;
     vmerror(v, "LAPACK unavailable: rebuild with LAPACK=1");
 #else
     Obj *input = numeric_array(v, args[0]);
@@ -892,7 +911,7 @@ static Val spectral_call(VM *v, int op, int argc, Val *args) {
 
 Val linalg_call(VM *v, int id, int argc, Val *a) {
     int op = id - LINALG_BASE;
-    if (op < 0 || op >= (int) (sizeof names / sizeof *names))
+    if (op < 0 || op >= (int)(sizeof names / sizeof *names))
         vmerror(v, "unknown linalg operation");
     if (argc != arities[op] && !(argc == 2 && (op == RANK || op == PINV)) &&
         !(op == RSVD && argc >= 3 && argc <= 5))
@@ -900,7 +919,8 @@ Val linalg_call(VM *v, int id, int argc, Val *a) {
     if (op <= QR) {
         if (!isobj(a[0], O_ARRAY))
             vmerror(v, "factorization expects a numeric array");
-        return objval(factorize(v, a[0].o, (FactorKind) op, "factorization requires finite inputs", NULL));
+        return objval(
+            factorize(v, a[0].o, (FactorKind)op, "factorization requires finite inputs", NULL));
     }
     switch (op) {
     case DET:
@@ -949,7 +969,7 @@ Obj *linalg_module(VM *v) {
     o->as.mod.env = environment(v, NULL);
     for (size_t i = 0; i < sizeof names / sizeof *names; i++) {
         Obj *f = newobj(v, O_NATIVE);
-        f->as.native.id = LINALG_BASE + (int) i;
+        f->as.native.id = LINALG_BASE + (int)i;
         tableset(v, o->as.mod.env, &o->as.mod.env->as.env.tab, names[i], objval(f));
     }
     tableset(v, NULL, &v->modules, key, objval(o));

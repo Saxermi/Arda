@@ -55,3 +55,13 @@ Use explicit PCG32 generators with a versioned seed and stream contract, unbiase
 **Status** — Accepted for 0.15.3
 
 Represent complex scalars with two Float64 components and delegate principal elementary functions to C11 libm. Keep matrix operators compact and share the forward and transpose product interface with dense and sparse inputs. Use Gaussian range finding, reorthogonalized subspace iteration, and the existing optional LAPACK SVD for the projected matrix. A separate stream estimates residual error so callers can judge a chosen rank. Block Krylov is a candidate for tighter spectra when a larger basis fits the memory budget. For objective-only optimization, start with central coordinate differences and seeded random directions, and record objective evaluations. Revisit orthogonal or adaptive directions on high-dimensional objectives after measuring convergence and estimator variance. [Contracts and measurements](research/implemented/structured-computing.md)
+
+## 2026-11-24 — AMDE v1 metadata, call provenance and simplification
+
+**Status** — Accepted by the project owner and locally validated for 0.15.4. [Release validation and overhead measurements](docs/RUMIL_0.15.4.md)
+
+Enable bounded compact user-function MathIR by default; retain `--mathdoc=none` to skip collection. Dynamic calls remain opaque source expressions, not inferred native identities. This preserves static-query non-execution and avoids resolving mutable runtime bindings.
+
+Allow bounded, display-only formal scalar-real identities in level 0 for call-free, external-free expressions: integer additive/multiplicative identity literals, double negation and repeated parameter factors. Levels 1 and 3 preserve source operations; assumptions distinguish the mathematical display from runtime type, domain, overflow and rounding semantics. Do not remove arbitrary operands, cancel denominators, fold numerical operations or change the executable IR. Broader symbolic algebra remains in 0.24.3.
+
+**Revisit** — Measure compilation time, RSS and execution overhead with compact metadata enabled and disabled; expand simplification only with documented assumptions and regression evidence. [Contracts](research/implemented/mathdoc.md#limited-mathematical-simplification-accepted-0154-policy)

@@ -1,6 +1,6 @@
 #include "arda.h"
 
-#define ARDA_VERSION "0.15.3"
+#define ARDA_VERSION "0.15.4"
 
 static int source(VM *v, const char *s, const char *path, int mode) {
     Proto *p = NULL;
@@ -21,7 +21,10 @@ static int source(VM *v, const char *s, const char *path, int mode) {
 }
 
 static void help(void) {
-    puts("Arda " ARDA_VERSION " | C11 bytecode VM\nusage: arda [--tokens|--bytecode] [--gc-stress] [--gc-stats] file.arda\n       arda [--gc-stress] [--gc-stats]  # REPL; blank line executes a block; :quit exits\n       arda --version");
+    puts("Arda " ARDA_VERSION " | C11 bytecode VM\nusage: arda [--tokens|--bytecode] [--gc-stress] "
+         "[--gc-stats] [--mathdoc=none|compact] file.arda\n       arda "
+         "[--gc-stress] [--gc-stats] [--mathdoc=none|compact]  # REPL; blank "
+         "line executes a block; :quit exits\n       arda --version");
 }
 
 int main(int argc, char **argv) {
@@ -44,6 +47,10 @@ int main(int argc, char **argv) {
             stress = 1;
         else if (!strcmp(argv[i], "--gc-stats"))
             stats = 1;
+        else if (!strcmp(argv[i], "--mathdoc=none"))
+            mathir_set_enabled(0);
+        else if (!strcmp(argv[i], "--mathdoc=compact"))
+            mathir_set_enabled(1);
         else if (!path && argv[i][0] != '-')
             path = argv[i];
         else {
@@ -51,7 +58,7 @@ int main(int argc, char **argv) {
             return 1;
         }
     }
-    VM *v = mem(sizeof * v);
+    VM *v = mem(sizeof *v);
     vm_init(v, stress);
     int status = 0;
     if (path) {
@@ -93,11 +100,11 @@ int main(int argc, char **argv) {
             }
             if (!n && line[0] == '\n')
                 continue;
-            buf = resize(buf, n + (size_t) got + 1);
-            memcpy(buf + n, line, (size_t) got + 1);
-            n += (size_t) got;
-            size_t k = (size_t) got;
-            while (k && isspace((unsigned char) line[k - 1]))
+            buf = resize(buf, n + (size_t)got + 1);
+            memcpy(buf + n, line, (size_t)got + 1);
+            n += (size_t)got;
+            size_t k = (size_t)got;
+            while (k && isspace((unsigned char)line[k - 1]))
                 k--;
             if (k && line[k - 1] == ':')
                 block = 1;
@@ -111,8 +118,8 @@ int main(int argc, char **argv) {
     }
     if (stats) {
         gcfull(v);
-        fprintf(stderr, "gc: objects=%zu bytes=%zu program_roots=%d cycles=%zu\n", v->live, v->bytes,
-                v->np, v->cycles);
+        fprintf(stderr, "gc: objects=%zu bytes=%zu program_roots=%d cycles=%zu\n", v->live,
+                v->bytes, v->np, v->cycles);
     }
     vm_destroy(v);
     free(v);

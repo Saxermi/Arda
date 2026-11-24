@@ -2,135 +2,57 @@
 static void add(Tokens *v, Token t) {
     if (v->n == v->cap) {
         v->cap = v->cap ? 2 * v->cap : 128;
-        v->a = front_resize(v->a, sizeof(Token) * (size_t) v->cap);
+        v->a = front_resize(v->a, sizeof(Token) * (size_t)v->cap);
     }
     v->a[v->n++] = t;
 }
 
 static void simple(Tokens *v, TokenType t, const char *s, int line) {
-    add(v, (Token) {
-            .t = t, .lex = front_copystr(s), .line = line
-            });
+    add(v, (Token){.t = t, .lex = front_copystr(s), .line = line});
 }
 
 static TokenType keyword(const char *s) {
     struct {
         const char *s;
         TokenType t;
-    }
-    k[] = {
-        {
-            "esta", T_ESTA
-        }, {
-            "let", T_ESTA
-        }, {
-            "caro", T_CARO
-        }, {
-            "fn", T_CARO
-        }, {
-            "def", T_CARO
-        }, {
-            "nan", T_NAN
-        }, {
-            "return", T_NAN
-        }, {
-            "qui", T_QUI
-        }, {
-            "if", T_QUI
-        }, {
-            "ai", T_AI
-        }, {
-            "else", T_AI
-        }, {
-            "elif", T_ELIF
-        }, {
-            "tenna", T_TENNA
-        }, {
-            "while", T_TENNA
-        }, {
-            "pedo", T_PEDO
-        }, {
-            "print", T_PEDO
-        }, {
-            "nae", T_TRUE
-        }, {
-            "true", T_TRUE
-        }, {
-            "law", T_FALSE
-        }, {
-            "false", T_FALSE
-        }, {
-            "mun", T_NIL
-        }, {
-            "nil", T_NIL
-        }, {
-            "break", T_BREAK
-        }, {
-            "continue", T_CONTINUE
-        }, {
-            "and", T_AND
-        }, {
-            "or", T_OR
-        }, {
-            "not", T_BANG
-        }, {
-            "an", T_FOR
-        }, {
-            "for", T_FOR
-        }, {
-            "in", T_IN
-        }, {
-            "nost", T_CLASS
-        }, {
-            "class", T_CLASS
-        }, {
-            "tol", T_IMPORT
-        }, {
-            "import", T_IMPORT
-        }, {
-            "as", T_AS
-        }, {
-            "try", T_TRY
-        }, {
-            "catch", T_CATCH
-        }, {
-            "throw", T_THROW
-        }, {
-            "raise", T_THROW
-        }, {
-            "pass", T_PASS
-        }, {
-            "lambda", T_LAMBDA
-        }
-    };
-    for (size_t i = 0; i < sizeof k / sizeof * k; i++)
+    } k[] = {
+        {"esta", T_ESTA},    {"let", T_ESTA},      {"caro", T_CARO},   {"fn", T_CARO},
+        {"def", T_CARO},     {"nan", T_NAN},       {"return", T_NAN},  {"qui", T_QUI},
+        {"if", T_QUI},       {"ai", T_AI},         {"else", T_AI},     {"elif", T_ELIF},
+        {"tenna", T_TENNA},  {"while", T_TENNA},   {"pedo", T_PEDO},   {"print", T_PEDO},
+        {"nae", T_TRUE},     {"true", T_TRUE},     {"law", T_FALSE},   {"false", T_FALSE},
+        {"mun", T_NIL},      {"nil", T_NIL},       {"break", T_BREAK}, {"continue", T_CONTINUE},
+        {"and", T_AND},      {"or", T_OR},         {"not", T_BANG},    {"an", T_FOR},
+        {"for", T_FOR},      {"in", T_IN},         {"nost", T_CLASS},  {"class", T_CLASS},
+        {"tol", T_IMPORT},   {"import", T_IMPORT}, {"as", T_AS},       {"try", T_TRY},
+        {"catch", T_CATCH},  {"throw", T_THROW},   {"raise", T_THROW}, {"pass", T_PASS},
+        {"lambda", T_LAMBDA}};
+    for (size_t i = 0; i < sizeof k / sizeof *k; i++)
         if (!strcmp(s, k[i].s))
             return k[i].t;
     return T_ID;
 }
 
 const char *tokname(TokenType t) {
-    static const char *n[] = {
-        "EOF", "ID", "NUM", "STR", "(", ")", "{", "}", "[", "]", ",", "NEWLINE", "INDENT", "DEDENT", ":",
-        ".", "+", "-", "*", "/", "%", "!", "=", "==", "!=", "<", "<=", ">", ">=", "and", "or", "esta",
-        "caro", "nan", "qui", "ai", "tenna", "pedo", "true", "false", "nil", "break", "continue", "for",
-        "in", "class", "import", "as", "try", "catch", "throw", "pass", "elif", "lambda"
-    };
+    static const char *n[] = {"EOF",      "ID",    "NUM",  "STR",   "(",       ")",      "{",
+                              "}",        "[",     "]",    ",",     "NEWLINE", "INDENT", "DEDENT",
+                              ":",        ".",     "+",    "-",     "*",       "/",      "%",
+                              "!",        "=",     "==",   "!=",    "<",       "<=",     ">",
+                              ">=",       "and",   "or",   "esta",  "caro",    "nan",    "qui",
+                              "ai",       "tenna", "pedo", "true",  "false",   "nil",    "break",
+                              "continue", "for",   "in",   "class", "import",  "as",     "try",
+                              "catch",    "throw", "pass", "elif",  "lambda"};
     return n[t];
 }
 
 Tokens tokenize(const char *src, const char *path) {
     if (!utf8valid(src))
         front_error("%s: invalid UTF-8", path);
-    Tokens out = {
-        0
-    };
-    int line = 1, bol = 1, depth = 0, ind[256] = {
-        0
-    }, ni = 0;
+    Tokens out = {0};
+    int line = 1, bol = 1, depth = 0, ind[256] = {0}, ni = 0;
     char delimiters[512];
     const char *p = src;
-#define ERR(...) front_lex_error(path,line,__VA_ARGS__)
+#define ERR(...) front_lex_error(path, line, __VA_ARGS__)
     while (*p) {
         if (bol) {
             int spaces = 0;
@@ -170,7 +92,7 @@ Tokens tokenize(const char *src, const char *path) {
             bol = 1;
             continue;
         }
-        if (isspace((unsigned char) * p)) {
+        if (isspace((unsigned char)*p)) {
             p++;
             continue;
         }
@@ -180,16 +102,14 @@ Tokens tokenize(const char *src, const char *path) {
             continue;
         }
         const char *st = p;
-        Token t = {
-            .line = line
-        };
-        if (isalpha((unsigned char) * p) || *p == '_' || (unsigned char) * p >= 128) {
+        Token t = {.line = line};
+        if (isalpha((unsigned char)*p) || *p == '_' || (unsigned char)*p >= 128) {
             p++;
-            while (isalnum((unsigned char) * p) || *p == '_' || (unsigned char) * p >= 128)
+            while (isalnum((unsigned char)*p) || *p == '_' || (unsigned char)*p >= 128)
                 p++;
             t.lex = front_slice(st, (size_t)(p - st));
             t.t = keyword(t.lex);
-        } else if (isdigit((unsigned char) * p)) {
+        } else if (isdigit((unsigned char)*p)) {
             char *end;
             t.num = strtod(p, &end);
             p = end;
@@ -201,7 +121,7 @@ Tokens tokenize(const char *src, const char *path) {
                 intmax_t q = strtoimax(t.lex, &ie, 10);
                 if (!errno && !*ie) {
                     t.isint = 1;
-                    t.integer = (int64_t) q;
+                    t.integer = (int64_t)q;
                 } else if (errno == ERANGE && !strcmp(t.lex, "9223372036854775808")) {
                     t.isint = 2;
                     t.integer = INT64_MIN;
@@ -291,25 +211,29 @@ Tokens tokenize(const char *src, const char *path) {
                 if (*p == '=') {
                     p++;
                     t.t = T_NE;
-                } break;
+                }
+                break;
             case '=':
                 t.t = T_EQ;
                 if (*p == '=') {
                     p++;
                     t.t = T_EQEQ;
-                } break;
+                }
+                break;
             case '<':
                 t.t = T_LT;
                 if (*p == '=') {
                     p++;
                     t.t = T_LE;
-                } break;
+                }
+                break;
             case '>':
                 t.t = T_GT;
                 if (*p == '=') {
                     p++;
                     t.t = T_GE;
-                } break;
+                }
+                break;
             case ';':
                 ERR("semicolons are not used; start a new line");
             default:

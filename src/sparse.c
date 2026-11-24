@@ -9,31 +9,60 @@ typedef struct {
 } Coordinate;
 
 typedef enum {
-    SP_COO, SP_CSR, SP_CRS, SP_TO_CSR, SP_TO_CRS, SP_TO_COO, SP_SHAPE, SP_NNZ,
-    SP_BYTES, SP_FORMAT, SP_GET, SP_COMPONENTS, SP_FROM_DENSE, SP_TO_DENSE, SP_DESCRIBE,
-    SP_BUILDER, SP_APPEND, SP_EXTEND, SP_FINISH, SP_EYE, SP_DIAGS, SP_TRIDIAG,
-    SP_MATVEC, SP_SPMM, SP_TRANSPOSE, SP_ADD, SP_SCALE, SP_DIAGONAL, SP_ESTIMATE, SP_READ_MM, SP_WRITE_MM,
-    SP_CG, SP_PCG, SP_VERIFY, SP_WORKSPACE, SP_SET_BUDGET, SP_MEMORY
+    SP_COO,
+    SP_CSR,
+    SP_CRS,
+    SP_TO_CSR,
+    SP_TO_CRS,
+    SP_TO_COO,
+    SP_SHAPE,
+    SP_NNZ,
+    SP_BYTES,
+    SP_FORMAT,
+    SP_GET,
+    SP_COMPONENTS,
+    SP_FROM_DENSE,
+    SP_TO_DENSE,
+    SP_DESCRIBE,
+    SP_BUILDER,
+    SP_APPEND,
+    SP_EXTEND,
+    SP_FINISH,
+    SP_EYE,
+    SP_DIAGS,
+    SP_TRIDIAG,
+    SP_MATVEC,
+    SP_SPMM,
+    SP_TRANSPOSE,
+    SP_ADD,
+    SP_SCALE,
+    SP_DIAGONAL,
+    SP_ESTIMATE,
+    SP_READ_MM,
+    SP_WRITE_MM,
+    SP_CG,
+    SP_PCG,
+    SP_VERIFY,
+    SP_WORKSPACE,
+    SP_SET_BUDGET,
+    SP_MEMORY
 } SparseOp;
 
 static const char *names[] = {
-    "coo", "csr", "crs", "to_csr", "to_crs", "to_coo", "shape", "nnz",
-    "bytes", "format", "get", "components", "from_dense", "todense", "describe",
-    "builder", "append", "extend", "finish", "eye", "diags", "tridiag",
-    "matvec", "spmm", "transpose", "add", "scale", "diagonal", "estimate", "read_mm", "write_mm",
-    "cg", "pcg", "verify", "workspace", "set_budget", "memory"
-};
-static const int nargs[] = {
-    5, 5, 5, 1, 1, 1, 1, 1, 1, 1, 3, 1, 1, 1, 1,
-    2, 4, 4, 1, 1, 4, 4,
-    2, 2, 1, 2, 2, 1, 1, 1, 2,
-    4, 4, 3, 1, 1, 0
-};
-_Static_assert(sizeof names / sizeof *names == sizeof nargs / sizeof *nargs, "sparse dispatch arity table");
+    "coo",        "csr",     "crs",      "to_csr",    "to_crs",     "to_coo",     "shape",
+    "nnz",        "bytes",   "format",   "get",       "components", "from_dense", "todense",
+    "describe",   "builder", "append",   "extend",    "finish",     "eye",        "diags",
+    "tridiag",    "matvec",  "spmm",     "transpose", "add",        "scale",      "diagonal",
+    "estimate",   "read_mm", "write_mm", "cg",        "pcg",        "verify",     "workspace",
+    "set_budget", "memory"};
+static const int nargs[] = {5, 5, 5, 1, 1, 1, 1, 1, 1, 1, 3, 1, 1, 1, 1, 2, 4, 4, 1,
+                            1, 4, 4, 2, 2, 1, 2, 2, 1, 1, 1, 2, 4, 4, 3, 1, 1, 0};
+_Static_assert(sizeof names / sizeof *names == sizeof nargs / sizeof *nargs,
+               "sparse dispatch arity table");
 
 const char *sparse_name(int id) {
     int op = id - SPARSE_BASE;
-    return op >= 0 && (size_t) op < sizeof names / sizeof *names ? names[op] : NULL;
+    return op >= 0 && (size_t)op < sizeof names / sizeof *names ? names[op] : NULL;
 }
 
 /* New sparse buffers are owned by their objects immediately. Native calls
@@ -83,20 +112,20 @@ size_t sparse_mul_size(VM *v, size_t n, size_t width) {
 }
 
 static size_t rows_plus_one(VM *v, uint32_t rows) {
-    if ((uintmax_t) rows + 1 > SIZE_MAX)
+    if ((uintmax_t)rows + 1 > SIZE_MAX)
         vmerror(v, "sparse row offset count overflow");
-    return (size_t) rows + 1;
+    return (size_t)rows + 1;
 }
 
 void sparse_budget_check(VM *v, size_t bytes) {
-    if (bytes > v->sparse_limit - v->sparse_bytes || bytes > (uintmax_t) INT64_MAX - v->sparse_bytes)
+    if (bytes > v->sparse_limit - v->sparse_bytes || bytes > (uintmax_t)INT64_MAX - v->sparse_bytes)
         vmerror(v, "sparse memory budget exceeded");
 }
 
 static void allocation_check(VM *v, Obj *o, size_t bytes) {
     sparse_budget_check(v, bytes);
     if (bytes > SIZE_MAX - v->bytes || bytes > SIZE_MAX - o->bytes ||
-        bytes > (uintmax_t) INT64_MAX - (o->bytes - sizeof *o))
+        bytes > (uintmax_t)INT64_MAX - (o->bytes - sizeof *o))
         vmerror(v, "sparse allocation accounting overflow");
 }
 
@@ -133,15 +162,15 @@ void sparse_entries(VM *v, Obj *o, size_t n) {
 }
 
 uint32_t sparse_dimension(VM *v, Val x) {
-    if (x.t != V_INT || x.i < 0 || (uint64_t) x.i > UINT32_MAX)
+    if (x.t != V_INT || x.i < 0 || (uint64_t)x.i > UINT32_MAX)
         vmerror(v, "sparse dimensions must be integers in 0..UINT32_MAX");
-    return (uint32_t) x.i;
+    return (uint32_t)x.i;
 }
 
 static uint32_t coord(VM *v, Val x, uint32_t limit) {
-    if (x.t != V_INT || x.i < 0 || (uint64_t) x.i >= limit)
+    if (x.t != V_INT || x.i < 0 || (uint64_t)x.i >= limit)
         vmerror(v, "sparse index out of bounds or not an integer");
-    return (uint32_t) x.i;
+    return (uint32_t)x.i;
 }
 
 double sparse_finite(VM *v, Val x) {
@@ -164,17 +193,16 @@ static Obj *as_sparse(VM *v, Val x) {
 }
 
 static size_t row_offset(VM *v, Val x, size_t n) {
-    if (x.t != V_INT || x.i < 0 || (uintmax_t) x.i > n)
+    if (x.t != V_INT || x.i < 0 || (uintmax_t)x.i > n)
         vmerror(v, "invalid CSR row offset");
-    return (size_t) x.i;
+    return (size_t)x.i;
 }
 
 static Obj *construct(VM *v, Val *a, int csr) {
     uint32_t rows = sparse_dimension(v, a[0]), cols = sparse_dimension(v, a[1]);
     Obj *r = aslist(v, a[2]), *c = aslist(v, a[3]), *x = aslist(v, a[4]);
-    size_t n = (size_t) x->as.list.n;
-    if ((size_t) c->as.list.n != n || (size_t) r->as.list.n !=
-        (csr ? rows_plus_one(v, rows) : n))
+    size_t n = (size_t)x->as.list.n;
+    if ((size_t)c->as.list.n != n || (size_t)r->as.list.n != (csr ? rows_plus_one(v, rows) : n))
         vmerror(v, "sparse component length mismatch");
     Val *ri = r->as.list.a, *ci = c->as.list.a, *vi = x->as.list.a;
     /* Validate before allocating substantial native buffers. */
@@ -206,11 +234,11 @@ static Obj *construct(VM *v, Val *a, int csr) {
     sparse_entries(v, o, n);
     if (csr)
         for (size_t i = 0; i < rows_plus_one(v, rows); i++)
-            S(o).offset[i] = (size_t) ri[i].i;
+            S(o).offset[i] = (size_t)ri[i].i;
     for (size_t i = 0; i < n; i++) {
         if (!csr)
-            S(o).row[i] = (uint32_t) ri[i].i;
-        S(o).col[i] = (uint32_t) ci[i].i;
+            S(o).row[i] = (uint32_t)ri[i].i;
+        S(o).col[i] = (uint32_t)ci[i].i;
         S(o).values[i] = asnum(v, vi[i]);
     }
     return o;
@@ -263,7 +291,8 @@ static double add_finite(VM *v, double a, double b) {
 
 size_t sparse_csr_estimate(VM *v, const Sparse *s) {
     size_t offsets = sparse_mul_size(v, rows_plus_one(v, s->rows), sizeof(size_t));
-    size_t entries = sparse_mul_size(v, s->nnz, sizeof(Coordinate) + sizeof(uint32_t) + sizeof(double));
+    size_t entries =
+        sparse_mul_size(v, s->nnz, sizeof(Coordinate) + sizeof(uint32_t) + sizeof(double));
     if (entries > SIZE_MAX - offsets)
         vmerror(v, "sparse workspace estimate out of range");
     return offsets + entries;
@@ -276,7 +305,7 @@ static Obj *canonical(VM *v, const Sparse *input) {
     Coordinate *work = sparse_buffer(v, o, n, sizeof *work, 0);
     S(o).work = work;
     for (size_t i = 0; i < n; i++)
-        ptr[(size_t) input->row[i] + 1]++;
+        ptr[(size_t)input->row[i] + 1]++;
     for (size_t i = 0; i < rows; i++)
         ptr[i + 1] += ptr[i];
     /* Scatter in input order, temporarily using row starts as cursors. */
@@ -332,7 +361,7 @@ static Obj *to_coo(VM *v, Obj *x) {
     sparse_entries(v, o, n);
     for (size_t i = 0; i < S(x).rows; i++)
         for (size_t j = S(x).offset[i]; j < S(x).offset[i + 1]; j++)
-            S(o).row[j] = (uint32_t) i;
+            S(o).row[j] = (uint32_t)i;
     if (n) {
         memcpy(S(o).col, S(x).col, n * sizeof(uint32_t));
         memcpy(S(o).values, S(x).values, n * sizeof(double));
@@ -357,16 +386,17 @@ typedef struct {
 } Diagonal;
 
 static size_t nonnegative_size(VM *v, Val x) {
-    if (x.t != V_INT || x.i < 0 || (uintmax_t) x.i > SIZE_MAX)
+    if (x.t != V_INT || x.i < 0 || (uintmax_t)x.i > SIZE_MAX)
         vmerror(v, "expected a nonnegative sparse size");
-    return (size_t) x.i;
+    return (size_t)x.i;
 }
 
 static SparseInput sequence(VM *v, Val value) {
     if (isobj(value, O_LIST))
-        return (SparseInput){.list = value.o->as.list.a, .length = (size_t) value.o->as.list.n};
+        return (SparseInput){.list = value.o->as.list.a, .length = (size_t)value.o->as.list.n};
     if (isobj(value, O_ARRAY) && A(value.o).rank == 1)
-        return (SparseInput){.data = A(value.o).data, .length = A(value.o).n, .stride = A(value.o).stride[0]};
+        return (SparseInput){
+            .data = A(value.o).data, .length = A(value.o).n, .stride = A(value.o).stride[0]};
     vmerror(v, "expected list or rank-one numeric array");
 }
 
@@ -376,7 +406,7 @@ static uint32_t seq_index(VM *v, SparseInput x, size_t i, uint32_t limit) {
     double d = x.data[i * x.stride];
     if (!(d >= 0.0 && d < limit) || floor(d) != d)
         vmerror(v, "sparse index out of bounds or not an integer");
-    return (uint32_t) d;
+    return (uint32_t)d;
 }
 
 static double seq_value(VM *v, SparseInput x, size_t i) {
@@ -392,7 +422,7 @@ static Sparse builder_view(const SparseBuilder *b) {
     Sparse view = {.rows = b->rows, .cols = b->cols, .nnz = b->count};
     if (b->capacity) {
         view.values = b->data;
-        view.row = (uint32_t *) (view.values + b->capacity);
+        view.row = (uint32_t *)(view.values + b->capacity);
         view.col = view.row + b->capacity;
     }
     return view;
@@ -475,7 +505,7 @@ static void builder_extend(VM *v, Obj *o, Val *a) {
     sparse_builder_reserve(v, o, values.length);
     for (size_t i = 0; i < values.length; i++)
         sparse_builder_write(o, seq_index(v, row, i, B(o).rows), seq_index(v, col, i, B(o).cols),
-                      seq_value(v, values, i));
+                             seq_value(v, values, i));
 }
 
 Obj *sparse_builder_finish(VM *v, Obj *o) {
@@ -488,10 +518,10 @@ Obj *sparse_builder_finish(VM *v, Obj *o) {
 }
 
 static size_t diagonal_length(uint32_t rows, uint32_t cols, int64_t offset) {
-    if (offset < -(int64_t) rows || offset > (int64_t) cols)
+    if (offset < -(int64_t)rows || offset > (int64_t)cols)
         return 0;
-    size_t r = offset < 0 ? rows - (size_t) -offset : rows;
-    size_t c = offset > 0 ? cols - (size_t) offset : cols;
+    size_t r = offset < 0 ? rows - (size_t)-offset : rows;
+    size_t c = offset > 0 ? cols - (size_t)offset : cols;
     return r < c ? r : c;
 }
 
@@ -515,7 +545,7 @@ static void fill_diagonals(VM *v, Obj *out, const Diagonal *diagonals, size_t co
             vmerror(v, "sparse diagonal length mismatch");
         if (diag->constant && diag->scalar == 0.0)
             continue;
-        size_t row = diag->offset < 0 && length ? (size_t) -diag->offset : 0;
+        size_t row = diag->offset < 0 && length ? (size_t)-diag->offset : 0;
         for (size_t i = 0; i < length; i++) {
             if (diagonal_value(v, diag, i) != 0.0) {
                 if (nnz == SIZE_MAX)
@@ -535,13 +565,13 @@ static void fill_diagonals(VM *v, Obj *out, const Diagonal *diagonals, size_t co
         size_t length = diagonal_length(s->rows, s->cols, diag->offset);
         if (!length)
             continue;
-        size_t row = diag->offset < 0 ? (size_t) -diag->offset : 0;
-        size_t col = diag->offset > 0 ? (size_t) diag->offset : 0;
+        size_t row = diag->offset < 0 ? (size_t)-diag->offset : 0;
+        size_t col = diag->offset > 0 ? (size_t)diag->offset : 0;
         for (size_t i = 0; i < length; i++) {
             double value = diagonal_value(v, diag, i);
             if (value != 0.0) {
                 size_t target = s->offset[row + i]++;
-                s->col[target] = (uint32_t) (col + i);
+                s->col[target] = (uint32_t)(col + i);
                 s->values[target] = value;
             }
         }
@@ -569,25 +599,25 @@ static Obj *construct_diags(VM *v, Val *a) {
     if (count != values->as.list.n)
         vmerror(v, "sparse diagonal count mismatch");
     Obj *out = sparse_matrix(v, rows, cols, 1);
-    Diagonal *diags = sparse_buffer(v, out, (size_t) count, sizeof *diags, 0);
+    Diagonal *diags = sparse_buffer(v, out, (size_t)count, sizeof *diags, 0);
     S(out).work = diags;
     for (int i = 0; i < count; i++) {
         Val offset = offsets->as.list.a[i];
-        if (offset.t != V_INT || offset.i < -(int64_t) rows || offset.i > (int64_t) cols)
+        if (offset.t != V_INT || offset.i < -(int64_t)rows || offset.i > (int64_t)cols)
             vmerror(v, "invalid sparse diagonal offset");
         diags[i] = diagonal_input(v, values->as.list.a[i], offset.i);
     }
     if (count > 1) {
         Diagonal temp;
-        sort_records(diags, (size_t) count, sizeof *diags, by_offset, &temp);
+        sort_records(diags, (size_t)count, sizeof *diags, by_offset, &temp);
     }
     for (int i = 1; i < count; i++)
         if (diags[i - 1].offset == diags[i].offset)
             vmerror(v, "duplicate sparse diagonal offset");
-    fill_diagonals(v, out, diags, (size_t) count);
+    fill_diagonals(v, out, diags, (size_t)count);
     free(diags);
     S(out).work = NULL;
-    account(v, out, (size_t) count * sizeof *diags, 0);
+    account(v, out, (size_t)count * sizeof *diags, 0);
     return out;
 }
 
@@ -610,7 +640,7 @@ static Val components(VM *v, Obj *o) {
         vmerror(v, "sparse components exceed VM list capacity");
     Obj *r = list(v), *c = list(v), *x = list(v), *out = list(v);
     for (size_t i = 0; i < nr; i++)
-        append(v, r, integer((int64_t) (s->csr ? s->offset[i] : s->row[i])));
+        append(v, r, integer((int64_t)(s->csr ? s->offset[i] : s->row[i])));
     for (size_t i = 0; i < s->nnz; i++) {
         append(v, c, integer(s->col[i]));
         append(v, x, number(s->values[i]));
@@ -634,7 +664,7 @@ static Obj *from_dense(VM *v, Val x) {
                 vmerror(v, "sparse values must be finite");
             n += d != 0.0;
         }
-    Obj *o = sparse_matrix(v, (uint32_t) rows, (uint32_t) cols, 1);
+    Obj *o = sparse_matrix(v, (uint32_t)rows, (uint32_t)cols, 1);
     sparse_entries(v, o, n);
     size_t j = 0;
     for (size_t r = 0; r < rows; r++) {
@@ -642,7 +672,7 @@ static Obj *from_dense(VM *v, Val x) {
         for (size_t c = 0; c < cols; c++) {
             double d = a->as.array.data[r * rs + c * cs];
             if (d != 0.0) {
-                S(o).col[j] = (uint32_t) c;
+                S(o).col[j] = (uint32_t)c;
                 S(o).values[j++] = d;
             }
         }
@@ -657,7 +687,7 @@ static Obj *todense(VM *v, Obj *x) {
         (r ? r : 1) > ARDA_MAX_ELEMENTS / (c ? c : 1))
         vmerror(v, "array size limit: 16000000 elements");
     Obj *s = sparse_as_csr(v, x);
-    int shape[2] = {(int) r, (int) c};
+    int shape[2] = {(int)r, (int)c};
     Obj *out = tensor_new(v, 2, shape);
     for (size_t i = 0; i < r; i++)
         for (size_t j = S(s).offset[i]; j < S(s).offset[i + 1]; j++)
@@ -670,34 +700,42 @@ static Obj *todense(VM *v, Obj *x) {
 static Val describe(VM *v, Val name) {
     const char *s = asstr(v, name);
     if (!strcmp(s, "to_csr") || !strcmp(s, "to_crs"))
-        return objval(string(v, "v1: A[r,c] = sum of COO values at (r,c) in input order; count rows, prefix sum, stable column sort, merge duplicates, omit exact zeros. O(rows + nnz + sum(k_r log k_r)) time; O(rows + nnz) storage."));
+        return objval(
+            string(v, "v1: A[r,c] = sum of COO values at (r,c) in input order; count rows, prefix "
+                      "sum, stable column sort, merge duplicates, omit exact zeros. O(rows + nnz + "
+                      "sum(k_r log k_r)) time; O(rows + nnz) storage."));
     if (!strcmp(s, "matvec") || !strcmp(s, "spmm"))
         return objval(string(v, "v1: Y[r,j] = sum over the stored entries A[r,c] * X[c,j]. "
-                             "Canonicalize COO first, then apply CSR row reductions. "
-                             "O(rows + nnz) per output column."));
+                                "Canonicalize COO first, then apply CSR row reductions. "
+                                "O(rows + nnz) per output column."));
     if (!strcmp(s, "transpose"))
-        return objval(string(v, "v1: T[c,r] = A[r,c]. Count columns, prefix sum, scatter in row order. "
-                             "CSR time O(rows + cols + nnz)."));
+        return objval(
+            string(v, "v1: T[c,r] = A[r,c]. Count columns, prefix sum, scatter in row order. "
+                      "CSR time O(rows + cols + nnz)."));
     if (!strcmp(s, "add"))
-        return objval(string(v, "v1: C[r,c] = A[r,c] + B[r,c]. Merge the sorted CSR rows and omit exact zeros. "
-                             "O(rows + input nnz) in CSR."));
+        return objval(string(
+            v, "v1: C[r,c] = A[r,c] + B[r,c]. Merge the sorted CSR rows and omit exact zeros. "
+               "O(rows + input nnz) in CSR."));
     if (!strcmp(s, "scale"))
-        return objval(string(v, "v1: C[r,c] = k * A[r,c]. Multiply the stored CSR entries and omit exact zeros. "
-                             "O(rows + nnz) in CSR."));
+        return objval(string(
+            v, "v1: C[r,c] = k * A[r,c]. Multiply the stored CSR entries and omit exact zeros. "
+               "O(rows + nnz) in CSR."));
     if (!strcmp(s, "diagonal"))
         return objval(string(v, "v1: d[i] = A[i,i]. Binary search each applicable CSR row."));
     if (!strcmp(s, "cg") || !strcmp(s, "pcg") || !strcmp(s, "verify"))
-        return objval(string(v, "v1: CG for symmetric positive definite A, with optional Jacobi "
-                             "preconditioner M = diag(A). Start at x = 0. Verify with norm(b - A*x)/norm(b), "
-                             "or the absolute norm if b is zero."));
+        return objval(string(
+            v, "v1: CG for symmetric positive definite A, with optional Jacobi "
+               "preconditioner M = diag(A). Start at x = 0. Verify with norm(b - A*x)/norm(b), "
+               "or the absolute norm if b is zero."));
     if (!strcmp(s, "to_coo"))
-        return objval(string(v, "v1: for each row r, emit (r,col[j],value[j]) for offset[r] <= j < offset[r+1]. O(rows + nnz) time; O(nnz) output."));
+        return objval(string(v, "v1: for each row r, emit (r,col[j],value[j]) for offset[r] <= j < "
+                                "offset[r+1]. O(rows + nnz) time; O(nnz) output."));
     vmerror(v, "unknown sparse mathematical descriptor");
 }
 
 static Val sparse_dispatch(VM *v, int id, int argc, Val *a) {
     int op = id - SPARSE_BASE;
-    if (op < 0 || (size_t) op >= sizeof names / sizeof *names)
+    if (op < 0 || (size_t)op >= sizeof names / sizeof *names)
         vmerror(v, "unknown sparse operation");
     if (op == SP_BUILDER) {
         if (argc < 2 || argc > 4)
@@ -718,7 +756,8 @@ static Val sparse_dispatch(VM *v, int id, int argc, Val *a) {
     if (op == SP_CG || op == SP_PCG) {
         if (argc != 4 && argc != 5)
             vmerror(v, "sparse.%s expects 4 or 5 arguments", names[op]);
-        return sparse_solve(v, as_sparse(v, a[0]), a[1], a[2], a[3], argc == 5 ? a[4] : nil(), op == SP_PCG);
+        return sparse_solve(v, as_sparse(v, a[0]), a[1], a[2], a[3], argc == 5 ? a[4] : nil(),
+                            op == SP_PCG);
     }
     if (argc != nargs[op])
         vmerror(v, "sparse.%s expects %d arguments, got %d", names[op], nargs[op], argc);
@@ -733,8 +772,10 @@ static Val sparse_dispatch(VM *v, int id, int argc, Val *a) {
     }
     if (op == SP_MEMORY) {
         Obj *result = newobj(v, O_MAP);
-        sparse_result_field(v, result, "used", integer((int64_t) v->sparse_bytes));
-        sparse_result_field(v, result, "limit", v->sparse_limit == SIZE_MAX ? nil() : integer((int64_t) v->sparse_limit));
+        sparse_result_field(v, result, "used", integer((int64_t)v->sparse_bytes));
+        sparse_result_field(v, result, "limit",
+                            v->sparse_limit == SIZE_MAX ? nil()
+                                                        : integer((int64_t)v->sparse_limit));
         return objval(result);
     }
     if (op == SP_WORKSPACE)
@@ -770,28 +811,46 @@ static Val sparse_dispatch(VM *v, int id, int argc, Val *a) {
     Obj *o = as_sparse(v, a[0]);
     Sparse *s = &S(o);
     switch (op) {
-    case SP_TO_CSR: case SP_TO_CRS: return objval(sparse_as_csr(v, o));
-    case SP_TO_COO: return objval(to_coo(v, o));
+    case SP_TO_CSR:
+    case SP_TO_CRS:
+        return objval(sparse_as_csr(v, o));
+    case SP_TO_COO:
+        return objval(to_coo(v, o));
     case SP_SHAPE: {
         Obj *l = list(v);
         append(v, l, integer(s->rows));
         append(v, l, integer(s->cols));
         return objval(l);
     }
-    case SP_NNZ: return integer((int64_t) s->nnz);
-    case SP_BYTES: return integer((int64_t) (o->bytes - sizeof *o));
-    case SP_FORMAT: return objval(string(v, s->csr ? "csr" : "coo"));
-    case SP_GET: return number(get(v, o, coord(v, a[1], s->rows), coord(v, a[2], s->cols)));
-    case SP_COMPONENTS: return components(v, o);
-    case SP_MATVEC: case SP_SPMM: return objval(sparse_product(v, o, a[1], op == SP_MATVEC ? 1 : 2));
-    case SP_TRANSPOSE: return objval(sparse_transpose(v, o));
-    case SP_ADD: return objval(sparse_add(v, o, as_sparse(v, a[1])));
-    case SP_SCALE: return objval(sparse_scale(v, o, sparse_finite(v, a[1])));
-    case SP_DIAGONAL: return objval(sparse_diagonal(v, o));
-    case SP_ESTIMATE: return sparse_estimate(v, o);
-    case SP_VERIFY: return sparse_verify(v, o, a[1], a[2]);
-    case SP_TO_DENSE: return objval(todense(v, o));
-    default: vmerror(v, "unknown sparse operation");
+    case SP_NNZ:
+        return integer((int64_t)s->nnz);
+    case SP_BYTES:
+        return integer((int64_t)(o->bytes - sizeof *o));
+    case SP_FORMAT:
+        return objval(string(v, s->csr ? "csr" : "coo"));
+    case SP_GET:
+        return number(get(v, o, coord(v, a[1], s->rows), coord(v, a[2], s->cols)));
+    case SP_COMPONENTS:
+        return components(v, o);
+    case SP_MATVEC:
+    case SP_SPMM:
+        return objval(sparse_product(v, o, a[1], op == SP_MATVEC ? 1 : 2));
+    case SP_TRANSPOSE:
+        return objval(sparse_transpose(v, o));
+    case SP_ADD:
+        return objval(sparse_add(v, o, as_sparse(v, a[1])));
+    case SP_SCALE:
+        return objval(sparse_scale(v, o, sparse_finite(v, a[1])));
+    case SP_DIAGONAL:
+        return objval(sparse_diagonal(v, o));
+    case SP_ESTIMATE:
+        return sparse_estimate(v, o);
+    case SP_VERIFY:
+        return sparse_verify(v, o, a[1], a[2]);
+    case SP_TO_DENSE:
+        return objval(todense(v, o));
+    default:
+        vmerror(v, "unknown sparse operation");
     }
 }
 
@@ -814,7 +873,7 @@ Obj *sparse_module(VM *v) {
     o->as.mod.env = environment(v, NULL);
     for (size_t i = 0; i < sizeof names / sizeof *names; i++) {
         Obj *f = newobj(v, O_NATIVE);
-        f->as.native.id = SPARSE_BASE + (int) i;
+        f->as.native.id = SPARSE_BASE + (int)i;
         tableset(v, o->as.mod.env, &o->as.mod.env->as.env.tab, names[i], objval(f));
     }
     tableset(v, NULL, &v->modules, key, objval(o));

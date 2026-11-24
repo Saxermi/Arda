@@ -21,11 +21,60 @@ char *copystr(const char *s);
 char *slice(const char *s, size_t n);
 char *readfile(const char *path);
 typedef enum {
-    T_EOF, T_ID, T_NUM, T_STR, T_LP, T_RP, T_LB, T_RB, T_LS, T_RS, T_COMMA, T_NL, T_INDENT, T_DEDENT,
-    T_COLON, T_DOT, T_PLUS, T_MINUS, T_STAR, T_SLASH, T_PERCENT, T_BANG, T_EQ, T_EQEQ, T_NE, T_LT,
-    T_LE, T_GT, T_GE, T_AND, T_OR, T_ESTA, T_CARO, T_NAN, T_QUI, T_AI, T_TENNA, T_PEDO, T_TRUE, T_FALSE,
-    T_NIL, T_BREAK, T_CONTINUE, T_FOR, T_IN, T_CLASS, T_IMPORT, T_AS, T_TRY, T_CATCH, T_THROW, T_PASS,
-    T_ELIF, T_LAMBDA
+    T_EOF,
+    T_ID,
+    T_NUM,
+    T_STR,
+    T_LP,
+    T_RP,
+    T_LB,
+    T_RB,
+    T_LS,
+    T_RS,
+    T_COMMA,
+    T_NL,
+    T_INDENT,
+    T_DEDENT,
+    T_COLON,
+    T_DOT,
+    T_PLUS,
+    T_MINUS,
+    T_STAR,
+    T_SLASH,
+    T_PERCENT,
+    T_BANG,
+    T_EQ,
+    T_EQEQ,
+    T_NE,
+    T_LT,
+    T_LE,
+    T_GT,
+    T_GE,
+    T_AND,
+    T_OR,
+    T_ESTA,
+    T_CARO,
+    T_NAN,
+    T_QUI,
+    T_AI,
+    T_TENNA,
+    T_PEDO,
+    T_TRUE,
+    T_FALSE,
+    T_NIL,
+    T_BREAK,
+    T_CONTINUE,
+    T_FOR,
+    T_IN,
+    T_CLASS,
+    T_IMPORT,
+    T_AS,
+    T_TRY,
+    T_CATCH,
+    T_THROW,
+    T_PASS,
+    T_ELIF,
+    T_LAMBDA
 } TokenType;
 typedef struct {
     TokenType t;
@@ -43,9 +92,38 @@ Tokens tokenize(const char *src, const char *path);
 const char *tokname(TokenType t);
 void freetokens(Tokens *t);
 typedef enum {
-    N_NUM, N_STR, N_BOOL, N_NIL, N_VAR, N_LIST, N_MAP, N_INDEX, N_ATTR, N_ASSIGN, N_BINARY, N_UNARY,
-    N_CALL, N_BLOCK, N_DECLARE, N_FUNCTION, N_IF, N_WHILE, N_RETURN, N_PRINT, N_EXPR, N_BREAK, N_CONTINUE,
-    N_FOR, N_CLASS, N_IMPORT, N_TRY, N_THROW, N_PASS, N_SLICE, N_LAMBDA, N_LISTCOMP
+    N_NUM,
+    N_STR,
+    N_BOOL,
+    N_NIL,
+    N_VAR,
+    N_LIST,
+    N_MAP,
+    N_INDEX,
+    N_ATTR,
+    N_ASSIGN,
+    N_BINARY,
+    N_UNARY,
+    N_CALL,
+    N_BLOCK,
+    N_DECLARE,
+    N_FUNCTION,
+    N_IF,
+    N_WHILE,
+    N_RETURN,
+    N_PRINT,
+    N_EXPR,
+    N_BREAK,
+    N_CONTINUE,
+    N_FOR,
+    N_CLASS,
+    N_IMPORT,
+    N_TRY,
+    N_THROW,
+    N_PASS,
+    N_SLICE,
+    N_LAMBDA,
+    N_LISTCOMP
 } NodeType;
 typedef struct Node Node;
 struct Node {
@@ -66,21 +144,70 @@ Node *parse(Tokens *ts, const char *path);
 void free_ast(Node *n);
 // Bytecode uses fixed-width instructions and per-function constant pools.
 typedef enum {
-    OP_CONST, OP_NIL, OP_TRUE, OP_FALSE, OP_GET, OP_DEFINE, OP_SET, OP_POP, OP_DUP, OP_SCOPE, OP_UNSCOPE,
-    OP_LIST, OP_MAP, OP_INDEX, OP_SET_INDEX, OP_ATTR, OP_SET_ATTR, OP_NEG, OP_NOT, OP_ADD, OP_SUB,
-    OP_MUL, OP_DIV, OP_MOD, OP_EQ, OP_NE, OP_LT, OP_LE, OP_GT, OP_GE, OP_JUMP, OP_JFALSE, OP_JTRUE,
-    OP_CLOSURE, OP_CALL, OP_RETURN, OP_PRINT, OP_ITER, OP_NEXT, OP_CLASS, OP_METHOD, OP_IMPORT, OP_TRY,
-    OP_END_TRY, OP_THROW, OP_GET_LOCAL, OP_SET_LOCAL, OP_JPRESENT, OP_SLICE, OP_COMP_APPEND, OP_SET_DROP,
-    OP_SET_LOCAL_DROP, OP_ADD_INT_CONST, OP_SUB_INT_CONST, OP_MUL_INT_CONST, OP_JFALSE_LT_CONST
+    OP_CONST,
+    OP_NIL,
+    OP_TRUE,
+    OP_FALSE,
+    OP_GET,
+    OP_DEFINE,
+    OP_SET,
+    OP_POP,
+    OP_DUP,
+    OP_SCOPE,
+    OP_UNSCOPE,
+    OP_LIST,
+    OP_MAP,
+    OP_INDEX,
+    OP_SET_INDEX,
+    OP_ATTR,
+    OP_SET_ATTR,
+    OP_NEG,
+    OP_NOT,
+    OP_ADD,
+    OP_SUB,
+    OP_MUL,
+    OP_DIV,
+    OP_MOD,
+    OP_EQ,
+    OP_NE,
+    OP_LT,
+    OP_LE,
+    OP_GT,
+    OP_GE,
+    OP_JUMP,
+    OP_JFALSE,
+    OP_JTRUE,
+    OP_CLOSURE,
+    OP_CALL,
+    OP_RETURN,
+    OP_PRINT,
+    OP_ITER,
+    OP_NEXT,
+    OP_CLASS,
+    OP_METHOD,
+    OP_IMPORT,
+    OP_TRY,
+    OP_END_TRY,
+    OP_THROW,
+    OP_GET_LOCAL,
+    OP_SET_LOCAL,
+    OP_JPRESENT,
+    OP_SLICE,
+    OP_COMP_APPEND,
+    OP_SET_DROP,
+    OP_SET_LOCAL_DROP,
+    OP_ADD_INT_CONST,
+    OP_SUB_INT_CONST,
+    OP_MUL_INT_CONST,
+    OP_JFALSE_LT_CONST
 } Op;
 typedef struct {
     Op op;
     int arg, line, aux;
 } Instr;
 typedef struct Proto Proto;
-typedef enum {
-    K_NUM, K_STR, K_PROTO, K_INT
-} KType;
+typedef struct MathIR MathIR;
+typedef enum { K_NUM, K_STR, K_PROTO, K_INT } KType;
 typedef struct {
     KType type;
     double n;
@@ -96,6 +223,7 @@ struct Proto {
     unsigned char marked;
     char *name, *path;
     char **params;
+    MathIR *mathir;
     int arity, required;
     Instr *code;
     int count, cap;
@@ -104,14 +232,18 @@ struct Proto {
 };
 Proto *compile(Node *root, const char *path);
 void freeproto(Proto *p);
+void mathir_set_enabled(int enabled);
+MathIR *mathir_extract(const Node *function);
+int mathir_tex(const Proto *p, int level, char *out, size_t size);
+const char *mathir_assumptions(const Proto *p);
+const char *mathir_algorithm(const Proto *p);
+#define MATHIR_TEX_LIMIT 8192
 int prepare_source(const char *src, const char *path, int tokens_only, Proto **out, char *error,
-        size_t error_size);
+                   size_t error_size);
 void disassemble(Proto *p, int depth);
 // Runtime objects and VM.
 typedef struct Obj Obj;
-typedef enum {
-    V_NIL, V_NUM, V_BOOL, V_OBJ, V_INT, V_MISSING
-} VType;
+typedef enum { V_NIL, V_NUM, V_BOOL, V_OBJ, V_INT, V_MISSING } VType;
 typedef struct {
     VType t;
     union {
@@ -121,9 +253,27 @@ typedef struct {
     };
 } Val;
 typedef enum {
-    O_STRING, O_LIST, O_MAP, O_ENV, O_FUNC, O_NATIVE, O_CLASS, O_INSTANCE, O_BOUND, O_MODULE, O_ITER,
-    O_ARRAY, O_AD, O_SPARSE, O_SPARSE_BUILDER, O_SPARSE_WORKSPACE, O_FACTOR, O_RNG, O_MOMENTS,
-    O_COMPLEX, O_LINOP
+    O_STRING,
+    O_LIST,
+    O_MAP,
+    O_ENV,
+    O_FUNC,
+    O_NATIVE,
+    O_CLASS,
+    O_INSTANCE,
+    O_BOUND,
+    O_MODULE,
+    O_ITER,
+    O_ARRAY,
+    O_AD,
+    O_SPARSE,
+    O_SPARSE_BUILDER,
+    O_SPARSE_WORKSPACE,
+    O_FACTOR,
+    O_RNG,
+    O_MOMENTS,
+    O_COMPLEX,
+    O_LINOP
 } OType;
 
 static inline int sparse_owns_payload(OType type) {
@@ -267,33 +417,23 @@ typedef struct VM {
     int failed;
 } VM;
 static inline Val nil(void) {
-    return (Val) {
-        .t = V_NIL
-    };
+    return (Val){.t = V_NIL};
 }
 
 static inline Val number(double n) {
-    return (Val) {
-        .t = V_NUM, .n = n
-    };
+    return (Val){.t = V_NUM, .n = n};
 }
 
 static inline Val integer(int64_t n) {
-    return (Val) {
-        .t = V_INT, .i = n
-    };
+    return (Val){.t = V_INT, .i = n};
 }
 
 static inline Val boolean(int n) {
-    return (Val) {
-        .t = V_BOOL, .n = !!n
-    };
+    return (Val){.t = V_BOOL, .n = !!n};
 }
 
 static inline Val objval(Obj *o) {
-    return (Val) {
-        .t = V_OBJ, .o = o
-    };
+    return (Val){.t = V_OBJ, .o = o};
 }
 
 static inline int isobj(Val v, OType t) {

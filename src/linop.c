@@ -5,9 +5,8 @@
 #define L(o) ((o)->as.linop)
 
 enum { LOWRANK, DIAGONAL, BANDED, TOEPLITZ, KRON, SHAPE, APPLY, ADJOINT };
-static const char *const names[] = {
-    "lowrank", "diagonal", "banded", "toeplitz", "kron", "shape", "apply", "apply_transpose"
-};
+static const char *const names[] = {"lowrank", "diagonal", "banded", "toeplitz",
+                                    "kron",    "shape",    "apply",  "apply_transpose"};
 static const int arities[] = {2, 1, 3, 2, 2, 1, 2, 2};
 _Static_assert(sizeof names / sizeof *names == sizeof arities / sizeof *arities,
                "linop arity table");
@@ -26,16 +25,16 @@ static Obj *array_of_rank(VM *v, Val value, int rank) {
 }
 
 static int axis_product(VM *v, int a, int b) {
-    uint64_t size = (uint64_t) a * b;
+    uint64_t size = (uint64_t)a * b;
     if (size > ARDA_MAX_ELEMENTS)
         vmerror(v, "Kronecker axis exceeds the array limit");
-    return (int) size;
+    return (int)size;
 }
 
 static int bandwidth(VM *v, Val value, int n) {
     if (value.t != V_INT || value.i < 0 || value.i >= n)
         vmerror(v, "bandwidth must be an integer in [0,n)");
-    return (int) value.i;
+    return (int)value.i;
 }
 
 static Obj *construct(VM *v, int kind, Val *args) {
@@ -102,41 +101,41 @@ static double entry(const Obj *a, size_t i, size_t j, int transposed) {
 static double rounded(long double value) {
     if (fabsl(value) > DBL_MAX)
         return signbit(value) ? -INFINITY : INFINITY;
-    return (double) value;
+    return (double)value;
 }
 
-static void lowrank(const Obj *a, const Obj *b, const double *x, size_t xs,
-                    double *y, size_t ys, double *scratch) {
+static void lowrank(const Obj *a, const Obj *b, const double *x, size_t xs, double *y, size_t ys,
+                    double *scratch) {
     size_t rank = A(a).cols;
     for (size_t k = 0; k < rank; k++) {
         long double sum = 0;
         for (int j = 0; j < A(b).rows; j++)
-            sum += (long double) packed_at(b, j, k) * x[j * xs];
+            sum += (long double)packed_at(b, j, k) * x[j * xs];
         scratch[k] = rounded(sum);
     }
     for (int i = 0; i < A(a).rows; i++)
         y[i * ys] = rank ? rounded(linear_dot(rank, A(a).data + i * rank, scratch)) : 0;
 }
 
-static void kron(const Obj *a, const Obj *b, const double *x, size_t xs,
-                 double *y, size_t ys, double *scratch, int transposed) {
+static void kron(const Obj *a, const Obj *b, const double *x, size_t xs, double *y, size_t ys,
+                 double *scratch, int transposed) {
     size_t ra = transposed ? A(a).cols : A(a).rows;
     size_t ca = transposed ? A(a).rows : A(a).cols;
     size_t rb = transposed ? A(b).cols : A(b).rows;
     size_t cb = transposed ? A(b).rows : A(b).cols;
-    if ((uint64_t) ca * rb <= (uint64_t) ra * cb) {
+    if ((uint64_t)ca * rb <= (uint64_t)ra * cb) {
         for (size_t j = 0; j < ca; j++)
             for (size_t i = 0; i < rb; i++) {
                 long double sum = 0;
                 for (size_t k = 0; k < cb; k++)
-                    sum += (long double) entry(b, i, k, transposed) * x[(j * cb + k) * xs];
+                    sum += (long double)entry(b, i, k, transposed) * x[(j * cb + k) * xs];
                 scratch[j * rb + i] = rounded(sum);
             }
         for (size_t i = 0; i < ra; i++)
             for (size_t j = 0; j < rb; j++) {
                 long double sum = 0;
                 for (size_t k = 0; k < ca; k++)
-                    sum += (long double) entry(a, i, k, transposed) * scratch[k * rb + j];
+                    sum += (long double)entry(a, i, k, transposed) * scratch[k * rb + j];
                 y[(i * rb + j) * ys] = rounded(sum);
             }
     } else {
@@ -144,14 +143,14 @@ static void kron(const Obj *a, const Obj *b, const double *x, size_t xs,
             for (size_t j = 0; j < cb; j++) {
                 long double sum = 0;
                 for (size_t k = 0; k < ca; k++)
-                    sum += (long double) entry(a, i, k, transposed) * x[(k * cb + j) * xs];
+                    sum += (long double)entry(a, i, k, transposed) * x[(k * cb + j) * xs];
                 scratch[i * cb + j] = rounded(sum);
             }
         for (size_t i = 0; i < ra; i++)
             for (size_t j = 0; j < rb; j++) {
                 long double sum = 0;
                 for (size_t k = 0; k < cb; k++)
-                    sum += (long double) entry(b, j, k, transposed) * scratch[i * cb + k];
+                    sum += (long double)entry(b, j, k, transposed) * scratch[i * cb + k];
                 y[(i * rb + j) * ys] = rounded(sum);
             }
     }
@@ -167,14 +166,14 @@ static void banded(const Obj *o, const double *x, size_t xs, double *y, size_t y
         for (int j = first > 0 ? first : 0; j <= last && j < n; j++) {
             double value = transposed ? packed_at(bands, upper + j - i, i)
                                       : packed_at(bands, upper + i - j, j);
-            sum += (long double) value * x[j * xs];
+            sum += (long double)value * x[j * xs];
         }
         y[i * ys] = rounded(sum);
     }
 }
 
-static void structured_apply(const LinopContext *ctx, const double *x, size_t xs,
-                             double *y, size_t ys, int transposed) {
+static void structured_apply(const LinopContext *ctx, const double *x, size_t xs, double *y,
+                             size_t ys, int transposed) {
     const Obj *o = ctx->op, *a = L(o).first, *b = L(o).second;
     switch (L(o).kind) {
     case LOWRANK:
@@ -193,7 +192,7 @@ static void structured_apply(const LinopContext *ctx, const double *x, size_t xs
             long double sum = 0;
             for (int j = 0; j < A(row).rows; j++) {
                 double value = i >= j ? A(col).data[i - j] : A(row).data[j - i];
-                sum += (long double) value * x[j * xs];
+                sum += (long double)value * x[j * xs];
             }
             y[i * ys] = rounded(sum);
         }
@@ -231,7 +230,7 @@ static void shape(VM *v, Obj *input, size_t *rows, size_t *cols) {
 LinearOperator linop_open(VM *v, Obj *input, LinopContext *ctx) {
     size_t rows, cols;
     shape(v, input, &rows, &cols);
-    *ctx = (LinopContext) {.op = input};
+    *ctx = (LinopContext){.op = input};
     if (input->type == O_ARRAY) {
         finite_array(v, input);
         return dense_operator(tensor_contiguous(input) ? input : tensor_copy(v, input));
@@ -247,22 +246,25 @@ LinearOperator linop_open(VM *v, Obj *input, LinopContext *ctx) {
         scratch = A(L(input).first).cols;
     } else if (L(input).kind == KRON && rows && cols) {
         const Obj *a = L(input).first, *b = L(input).second;
-        uint64_t right_first = (uint64_t) A(a).cols * A(b).rows;
-        uint64_t left_first = (uint64_t) A(a).rows * A(b).cols;
+        uint64_t right_first = (uint64_t)A(a).cols * A(b).rows;
+        uint64_t left_first = (uint64_t)A(a).rows * A(b).cols;
         scratch = right_first < left_first ? right_first : left_first;
     }
     if (scratch > ARDA_MAX_ELEMENTS)
         vmerror(v, "linear operator workspace exceeds the array limit");
     if (scratch)
-        ctx->scratch = A(array_new(v, 1, (int) scratch, 1)).data;
-    return (LinearOperator) {.rows = rows, .cols = cols, .context = ctx,
-                           .workspace_bytes = (size_t) scratch * sizeof(double),
-                           .apply = forward, .apply_transpose = transpose};
+        ctx->scratch = A(array_new(v, 1, (int)scratch, 1)).data;
+    return (LinearOperator){.rows = rows,
+                            .cols = cols,
+                            .context = ctx,
+                            .workspace_bytes = (size_t)scratch * sizeof(double),
+                            .apply = forward,
+                            .apply_transpose = transpose};
 }
 
 void linop_close(VM *v, LinopContext *ctx) {
     if (ctx->csr && ctx->csr != ctx->op) {
-        sparse_drop_temporary(v, ctx->csr, (Obj *) ctx->op);
+        sparse_drop_temporary(v, ctx->csr, (Obj *)ctx->op);
         sparse_finish(v);
     }
 }
@@ -271,7 +273,7 @@ void linop_apply_into(VM *v, const LinearOperator *op, Obj *x, Obj *y, int trans
     size_t source = transposed ? op->rows : op->cols;
     size_t target = transposed ? op->cols : op->rows;
     size_t width = A(x).cols;
-    if ((size_t) A(x).rows != source || (size_t) A(y).rows != target || (size_t) A(y).cols != width)
+    if ((size_t)A(x).rows != source || (size_t)A(y).rows != target || (size_t)A(y).cols != width)
         vmerror(v, "linear operator product shape mismatch");
     finite_array(v, x);
     if (source && target) {
@@ -287,7 +289,7 @@ void linop_apply_into(VM *v, const LinearOperator *op, Obj *x, Obj *y, int trans
 
 Val linop_call(VM *v, int id, int argc, Val *args) {
     int op = id - LINOP_BASE;
-    if (op < 0 || (size_t) op >= sizeof names / sizeof *names)
+    if (op < 0 || (size_t)op >= sizeof names / sizeof *names)
         vmerror(v, "unknown linear operator operation");
     if (argc != arities[op])
         vmerror(v, "invalid linop.%s arity", names[op]);
@@ -299,8 +301,8 @@ Val linop_call(VM *v, int id, int argc, Val *args) {
     shape(v, args[0].o, &rows, &cols);
     if (op == SHAPE) {
         Obj *out = list(v);
-        append(v, out, integer((int64_t) rows));
-        append(v, out, integer((int64_t) cols));
+        append(v, out, integer((int64_t)rows));
+        append(v, out, integer((int64_t)cols));
         return objval(out);
     }
     if (!isobj(args[1], O_ARRAY) || (A(args[1].o).rank != 1 && A(args[1].o).rank != 2))
@@ -310,9 +312,9 @@ Val linop_call(VM *v, int id, int argc, Val *args) {
     if (target > ARDA_MAX_ELEMENTS)
         vmerror(v, "linear operator product exceeds the array limit");
     Obj *x = args[1].o;
-    if ((size_t) A(x).rows != source)
+    if ((size_t)A(x).rows != source)
         vmerror(v, "linear operator product shape mismatch");
-    Obj *y = array_new(v, A(x).rank, (int) target, A(x).cols);
+    Obj *y = array_new(v, A(x).rank, (int)target, A(x).cols);
     LinopContext context;
     LinearOperator applied = linop_open(v, args[0].o, &context);
     linop_apply_into(v, &applied, x, y, transposed);

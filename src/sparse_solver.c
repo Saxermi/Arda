@@ -50,7 +50,7 @@ static long double vector_norm(size_t n, const double *x, size_t stride) {
 }
 
 static double relative_norm(long double value, long double rhs_norm) {
-    return (double) (rhs_norm == 0 ? value : value / rhs_norm);
+    return (double)(rhs_norm == 0 ? value : value / rhs_norm);
 }
 
 /* The result buffer can alias the Ax workspace. */
@@ -62,7 +62,8 @@ static long double true_residual(const LinearOperator *op, Obj *rhs, const doubl
     return vector_norm(op->rows, residual, 1);
 }
 
-static Val solve_result(VM *v, Obj *solution, int iterations, double residual, const char *reason, int converged) {
+static Val solve_result(VM *v, Obj *solution, int iterations, double residual, const char *reason,
+                        int converged) {
     Obj *report = newobj(v, O_MAP);
     sparse_result_field(v, report, "solution", objval(solution));
     sparse_result_field(v, report, "iterations", integer(iterations));
@@ -72,8 +73,8 @@ static Val solve_result(VM *v, Obj *solution, int iterations, double residual, c
     return objval(report);
 }
 
-static int update_step(size_t n, double alpha, double *x, double *r,
-                       const double *p, const double *ap, double *next_x) {
+static int update_step(size_t n, double alpha, double *x, double *r, const double *p,
+                       const double *ap, double *next_x) {
     for (size_t i = 0; i < n; i++) {
         next_x[i] = x[i] + alpha * p[i];
         r[i] -= alpha * ap[i];
@@ -104,7 +105,7 @@ Val sparse_solve(VM *v, Obj *matrix, Val rhs, Val tol, Val maxiter, Val workspac
         vmerror(v, "sparse CG requires a symmetric matrix");
     LinearOperator op = sparse_operator(s);
     for (size_t i = 0; i < n; i++)
-        if (sparse_csr_at(s, i, (uint32_t) i) <= 0)
+        if (sparse_csr_at(s, i, (uint32_t)i) <= 0)
             vmerror(v, "sparse CG requires a positive diagonal");
 
     long double bn = vector_norm(n, A(b).data, A(b).stride[0]);
@@ -112,7 +113,7 @@ Val sparse_solve(VM *v, Obj *matrix, Val rhs, Val tol, Val maxiter, Val workspac
         vmerror(v, "sparse CG rhs norm overflow");
     size_t vectors = 1 + (internal && bn != 0 ? CG_WORK_VECTORS : 0);
     sparse_budget_check(v, sparse_mul_size(v, n, vectors * sizeof(double)));
-    Obj *solution = array_new(v, 1, (int) n, 1);
+    Obj *solution = array_new(v, 1, (int)n, 1);
     if (bn == 0) {
         sparse_drop_temporary(v, csr, matrix);
         return solve_result(v, solution, 0, 0, "converged", 1);
@@ -123,7 +124,7 @@ Val sparse_solve(VM *v, Obj *matrix, Val rhs, Val tol, Val maxiter, Val workspac
     for (size_t i = 0; i < n; i++) {
         r[i] = A(b).data[i * A(b).stride[0]];
         if (jacobi)
-            diag[i] = sparse_csr_at(s, i, (uint32_t) i);
+            diag[i] = sparse_csr_at(s, i, (uint32_t)i);
     }
 
     int iterations = 0, restart = 1;
@@ -140,7 +141,7 @@ Val sparse_solve(VM *v, Obj *matrix, Val rhs, Val tol, Val maxiter, Val workspac
         if (restart)
             memcpy(p, z, n * sizeof *p);
         else {
-            double beta = (double) (rho / previous);
+            double beta = (double)(rho / previous);
             for (size_t i = 0; i < n; i++)
                 p[i] = z[i] + beta * p[i];
         }
@@ -151,7 +152,7 @@ Val sparse_solve(VM *v, Obj *matrix, Val rhs, Val tol, Val maxiter, Val workspac
             reason = isfinite(curvature) ? "nonpositive_curvature" : "numerical_breakdown";
             break;
         }
-        double alpha = (double) (rho / curvature);
+        double alpha = (double)(rho / curvature);
         if (!isfinite(alpha) || alpha == 0.0 || !update_step(n, alpha, x, r, p, ap, z)) {
             reason = "numerical_breakdown";
             break;

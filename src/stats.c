@@ -3,12 +3,25 @@
 
 #define A(o) ((o)->as.array)
 
-enum { SUM, CUMSUM, MEDIAN, QUANTILE, COVARIANCE, CORRELATION, REGRESSION,
-       HISTOGRAM, ARGMIN, ARGMAX, CLIP, ONLINE, UPDATE, SUMMARY };
-static const char *const names[] = {
-    "sum", "cumsum", "median", "quantile", "covariance", "correlation", "regression",
-    "histogram", "argmin", "argmax", "clip", "online", "update", "summary"
+enum {
+    SUM,
+    CUMSUM,
+    MEDIAN,
+    QUANTILE,
+    COVARIANCE,
+    CORRELATION,
+    REGRESSION,
+    HISTOGRAM,
+    ARGMIN,
+    ARGMAX,
+    CLIP,
+    ONLINE,
+    UPDATE,
+    SUMMARY
 };
+static const char *const names[] = {
+    "sum",       "cumsum", "median", "quantile", "covariance", "correlation", "regression",
+    "histogram", "argmin", "argmax", "clip",     "online",     "update",      "summary"};
 static const int arities[] = {1, 1, 1, 2, 2, 2, 2, 2, 1, 1, 3, 0, 2, 1};
 _Static_assert(sizeof names / sizeof *names == sizeof arities / sizeof *arities,
                "stats arity table");
@@ -23,11 +36,11 @@ static double finite_number(VM *v, Val input) {
 static double representable(VM *v, long double value) {
     if (!isfinite(value) || fabsl(value) > DBL_MAX)
         vmerror(v, "statistic is outside the Float64 range");
-    return (double) value;
+    return (double)value;
 }
 
 static double element(const Obj *x, int i) {
-    return A(x).data[(size_t) i * A(x).stride[0]];
+    return A(x).data[(size_t)i * A(x).stride[0]];
 }
 
 static Obj *vector(VM *v, Val value) {
@@ -55,7 +68,7 @@ static Val compensated_sum(VM *v, Obj *x, int cumulative) {
 }
 
 static int compare_double(const void *lhs, const void *rhs) {
-    double a = *(const double *) lhs, b = *(const double *) rhs;
+    double a = *(const double *)lhs, b = *(const double *)rhs;
     return (a > b) - (a < b);
 }
 
@@ -67,9 +80,9 @@ static Val quantile(VM *v, Obj *x, double q) {
         vmerror(v, "quantile requires a nonempty vector");
     Obj *copy = tensor_copy(v, x);
     double *values = A(copy).data;
-    qsort(values, (size_t) n, sizeof *values, compare_double);
-    long double rank = (n - 1) * (long double) q;
-    int lower = (int) rank, upper = (int) ceill(rank);
+    qsort(values, (size_t)n, sizeof *values, compare_double);
+    long double rank = (n - 1) * (long double)q;
+    int lower = (int)rank, upper = (int)ceill(rank);
     long double fraction = rank - lower;
     return number(representable(v, (1 - fraction) * values[lower] + fraction * values[upper]));
 }
@@ -135,10 +148,10 @@ static double vector_scale(const Obj *x) {
 }
 
 static long double centered(double value, double origin, double scale) {
-    long double delta = (long double) value - origin;
+    long double delta = (long double)value - origin;
     if (isfinite(delta))
         return delta / scale;
-    return (long double) value / scale - (long double) origin / scale;
+    return (long double)value / scale - (long double)origin / scale;
 }
 
 static Val paired_statistics(VM *v, Obj *x, Obj *y, int op) {
@@ -167,7 +180,7 @@ static Val paired_statistics(VM *v, Obj *x, Obj *y, int op) {
         if (!(xx > 0) || !(yy > 0))
             vmerror(v, "correlation requires nonconstant vectors");
         long double result = xy / (sqrtl(xx) * sqrtl(yy));
-        return number((double) fminl(1, fmaxl(-1, result)));
+        return number((double)fminl(1, fmaxl(-1, result)));
     }
     if (!(xx > 0))
         vmerror(v, "regression requires a nonconstant predictor");
@@ -224,7 +237,7 @@ static Val online_moments(VM *v, int op, Val *args) {
 
 Val stats_call(VM *v, int id, int argc, Val *args) {
     int op = id - STATS_BASE;
-    if (op < 0 || (size_t) op >= sizeof names / sizeof *names)
+    if (op < 0 || (size_t)op >= sizeof names / sizeof *names)
         vmerror(v, "unknown stats operation");
     if (argc != arities[op])
         vmerror(v, "invalid stats.%s arity", names[op]);

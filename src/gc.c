@@ -14,7 +14,7 @@ void markobj(VM *v, Obj *o) {
     o->mark = 1;
     if (v->ng == v->gcap) {
         v->gcap = v->gcap ? 2 * v->gcap : 128;
-        v->gray = resize(v->gray, sizeof(Obj * ) * v->gcap);
+        v->gray = resize(v->gray, sizeof(Obj *) * v->gcap);
     }
     v->gray[v->ng++] = o;
 }
@@ -30,11 +30,11 @@ void barrier(VM *v, Obj *owner, Val x) {
 }
 
 Obj *newobj_extra(VM *v, OType t, size_t extra) {
-    Obj *o = mem(sizeof * o + extra);
+    Obj *o = mem(sizeof *o + extra);
     o->type = t;
     o->next = v->objects;
     v->objects = o;
-    o->bytes = sizeof * o + extra;
+    o->bytes = sizeof *o + extra;
     v->bytes += o->bytes;
     v->live++;
     if (v->marking)
@@ -49,7 +49,7 @@ Obj *newobj(VM *v, OType t) {
 uint64_t hashstr(const char *s) {
     uint64_t h = 14695981039346656037ULL;
     for (; *s; s++) {
-        h ^= (unsigned char) * s;
+        h ^= (unsigned char)*s;
         h *= 1099511628211ULL;
     }
     return h;
@@ -88,11 +88,11 @@ void tableset(VM *v, Obj *owner, Table *t, const char *key, Val x) {
     if (!e) {
         if (t->n + 1 > t->cap * 3 / 4) {
             int nc = t->cap ? 2 * t->cap : 8;
-            Entry *a = mem(sizeof(Entry) * (size_t) nc);
+            Entry *a = mem(sizeof(Entry) * (size_t)nc);
             for (int i = 0; i < t->cap; i++)
                 if (t->a[i].key)
-                    * slot(a, nc, t->a[i].key, t->a[i].hash) = t->a[i];
-            account(v, owner, sizeof(Entry) * (size_t) t->cap, sizeof(Entry) * (size_t) nc);
+                    *slot(a, nc, t->a[i].key, t->a[i].hash) = t->a[i];
+            account(v, owner, sizeof(Entry) * (size_t)t->cap, sizeof(Entry) * (size_t)nc);
             free(t->a);
             t->a = a;
             t->cap = nc;
@@ -124,7 +124,7 @@ Obj *environment(VM *v, Obj *parent) {
 }
 
 static void intern_resize(VM *v, size_t cap) {
-    Obj **b = mem(cap * sizeof * b);
+    Obj **b = mem(cap * sizeof *b);
     for (size_t i = 0; i < v->intern_cap; i++) {
         Obj *o = v->intern[i];
         while (o) {
@@ -189,8 +189,8 @@ Obj *list(VM *v) {
 void append(VM *v, Obj *o, Val x) {
     if (o->as.list.n == o->as.list.cap) {
         int nc = o->as.list.cap ? 2 * o->as.list.cap : 8;
-        o->as.list.a = resize(o->as.list.a, sizeof(Val) * (size_t) nc);
-        account(v, o, sizeof(Val) * (size_t) o->as.list.cap, sizeof(Val) * (size_t) nc);
+        o->as.list.a = resize(o->as.list.a, sizeof(Val) * (size_t)nc);
+        account(v, o, sizeof(Val) * (size_t)o->as.list.cap, sizeof(Val) * (size_t)nc);
         o->as.list.cap = nc;
     }
     o->as.list.a[o->as.list.n++] = x;
