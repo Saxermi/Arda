@@ -25,6 +25,7 @@ typedef struct {
     const Node *fn;
 } Extract;
 
+/* Accepted 0.15.4 policy: compact metadata is on by default. */
 static int enabled = 1;
 
 void mathir_set_enabled(int value) {
@@ -286,6 +287,14 @@ static int precedence(const MathNode *n) {
     }
 }
 
+static int integer_literal(const MathNode *n, int64_t value) {
+    return n->kind == MI_INT && n->integer == value;
+}
+
+static int same_parameter(const MathNode *a, const MathNode *b) {
+    return a->kind == MI_PARAM && b->kind == MI_PARAM && !strcmp(a->name, b->name);
+}
+
 static void render(Writer *w, const MathIR *ir, int i, int expand, int minimum, int depth) {
     if (w->failed)
         return;
@@ -297,6 +306,51 @@ static void render(Writer *w, const MathIR *ir, int i, int expand, int minimum, 
     if (n->kind == MI_LOCAL && expand) {
         render(w, ir, ir->nodes[n->a].a, expand, minimum, depth + 1);
         return;
+    }
+    /* Only the compact, call-free, external-free mathematical view may
+     * simplify. These are formal scalar identities, not VM rewrites. Never
+     * erase a nonliteral operand, cancel a denominator or fold arithmetic.
+     * Levels 1 and 3 preserve the source operations. */
+    if (expand) {
+        int keep = -1;
+        if (n->kind == MI_NEG && ir->nodes[n->a].kind == MI_NEG)
+            keep = ir->nodes[n->a].a;
+        if (n->kind == MI_ADD || n->kind == MI_SUB ||
+                n->kind == MI_MUL || n->kind == MI_DIV) {
+            const MathNode *a = &ir->nodes[n->a], *b = &ir->nodes[n->b];
+            if ((n->kind == MI_ADD || n->kind == MI_SUB) && integer_literal(b, 0))
+                keep = n->a;
+            else if (n->kind == MI_ADD && integer_literal(a, 0))
+                keep = n->b;
+            else if ((n->kind == MI_MUL || n->kind == MI_DIV) && integer_literal(b, 1))
+                keep = n->a;
+            else if (n->kind == MI_MUL && integer_literal(a, 1))
+                keep = n->b;
+            if (n->kind == MI_MUL && same_parameter(a, b)) {
+                identifier(w, a->name);
+                put(w, "^{2}");
+                return;
+            }
+            if (n->kind == MI_MUL && a->kind == MI_MUL &&
+                    same_parameter(&ir->nodes[a->b], b)) {
+                int parens = minimum > 2;
+                if (parens)
+                    put(w, "\\left(");
+                if (!integer_literal(&ir->nodes[a->a], 1)) {
+                    render(w, ir, a->a, expand, 2, depth + 1);
+                    put(w, "\\cdot ");
+                }
+                identifier(w, b->name);
+                put(w, "^{2}");
+                if (parens)
+                    put(w, "\\right)");
+                return;
+            }
+        }
+        if (keep >= 0) {
+            render(w, ir, keep, expand, minimum, depth + 1);
+            return;
+        }
     }
     int prec = precedence(n);
     int parens = prec < minimum;
@@ -366,8 +420,10 @@ const char *mathir_assumptions(const Proto *p) {
     if (!p->mathir)
         return NULL;
     return "Source-level mathematical notation conditional on numeric operands and compatible operations. "
+           "Level 0 may use formal identities for ordinary finite scalar real arithmetic; "
+           "levels 1 and 3 retain source operations. "
            "Types, shapes, domains, overflow, external values and dynamic call targets are not inferred. "
-           "Not a claim of algebraic or floating-point equivalence for arbitrary runtime values.";
+           "Not a claim of floating-point or runtime equivalence for arbitrary values.";
 }
 
 const char *mathir_algorithm(const Proto *p) {
@@ -384,6 +440,8 @@ int mathir_tex(const Proto *p, int level, char *out, size_t size) {
     out[0] = 0;
     if (level == 2) {
         put(&w, "\\text{Numeric operands assumed; types, shapes and domains unknown.}");
+        if (!ir->has_calls && !ir->has_external)
+            put(&w, "\\quad\\text{Level 0 may use formal finite scalar real identities.}");
         if (ir->has_external)
             put(&w, "\\quad\\text{External values unresolved.}");
         if (ir->has_calls)

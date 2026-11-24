@@ -140,7 +140,7 @@ class MathDocTests(unittest.TestCase):
         pedo(f.getAlgorithm())
         pedo(f.getComplexity(),f.getCost({}),f(3))
         """, stress=True).splitlines()
-        self.assertEqual(output[0], r"f\left(x\right)=x\cdot x+2")
+        self.assertEqual(output[0], r"f\left(x\right)=x^{2}+2")
         self.assertEqual(output[1], r"\begin{aligned}y&=x\cdot x\\f\left(x\right)&=y+2\end{aligned}")
         self.assertIn("Numeric operands assumed", output[2])
         self.assertIn(r"y&\gets ", output[3])
@@ -165,7 +165,7 @@ class MathDocTests(unittest.TestCase):
         """, stress=True).splitlines()
         self.assertEqual(output[0], r"f\left(a,b,c\right)=\frac{\left(a+b\right)\cdot \left(a-\left(b-c\right)\right)}{\frac{a}{b+c}}")
         self.assertIn(r"\mathrm{my\_fn}", output[1])
-        self.assertIn(r"-\left(-\mathrm{x\_1}\right)", output[1])
+        self.assertEqual(output[1], r"\mathrm{my\_fn}\left(\mathrm{x\_1}\right)=\mathrm{x\_1}")
         self.assertIn("[U+03B1]", output[2])
         self.assertTrue(output[3].endswith("=-9223372036854775808"))
 
@@ -243,3 +243,59 @@ class MathDocTests(unittest.TestCase):
         output = self.run_code(code, stress=True)
         self.assertIn(r"\mathrm{a19}", output)
         self.assertLess(len(output), 8192)
+
+
+    def test_limited_simplification_is_display_only(self):
+        output = self.run_code("""
+        caro f(x):
+            nan (x*x+0)*1-0
+        caro energy(m,v):
+            nan 0.5*m*v*v
+        caro identity(x):
+            nan (0+x)/1
+        caro neg(x):
+            nan -(-x)
+        pedo(f.getTex(0))
+        pedo(f.getTex(1))
+        pedo(f.getTex(3))
+        pedo(energy.getTex())
+        pedo(identity.getTex())
+        pedo(neg.getTex())
+        pedo(f(3),energy(2,3),identity(5),neg(-7))
+        """, stress=True).splitlines()
+        self.assertEqual(output[0], r"f\left(x\right)=x^{2}")
+        self.assertIn(r"x\cdot x+0", output[1])
+        self.assertIn(r"\cdot 1-0", output[2])
+        self.assertEqual(output[3], r"\mathrm{energy}\left(m,v\right)=0.5\cdot m\cdot v^{2}")
+        self.assertEqual(output[4], r"\mathrm{identity}\left(x\right)=x")
+        self.assertEqual(output[5], r"\mathrm{neg}\left(x\right)=x")
+        self.assertEqual([float(v) for v in output[6].split()], [9, 9, 5, -7])
+
+    def test_simplification_preserves_domain_and_opaque_calls(self):
+        output = self.run_code("""
+        esta calls = 0
+        esta a = 2
+        caro effect(x):
+            calls = calls+1
+            nan x
+        caro singular(x):
+            nan x/x
+        caro zero(x):
+            nan 0*(1/x)
+        caro opaque(x):
+            nan effect(x)*1+0
+        caro external(x):
+            nan a*x+0
+        pedo(singular.getTex())
+        pedo(zero.getTex())
+        pedo(opaque.getTex())
+        pedo(external.getTex())
+        pedo(calls)
+        """, stress=True).splitlines()
+        self.assertEqual(output[0], r"\mathrm{singular}\left(x\right)=\frac{x}{x}")
+        self.assertIn(r"0\cdot \frac{1}{x}", output[1])
+        self.assertIn(r"\mathrm{effect}\left(x\right)\cdot 1+0", output[2])
+        self.assertIn("Dynamic call targets unresolved", output[2])
+        self.assertIn(r"a\cdot x+0", output[3])
+        self.assertIn("External values unresolved", output[3])
+        self.assertEqual(output[4], "0")
