@@ -18,7 +18,7 @@ static void reserve(VM *v, int n) {
         int cap = v->scap ? v->scap : 128;
         while (cap < n)
             cap *= 2;
-        v->stack = resize(v->stack, sizeof(Val) * (size_t) cap);
+        v->stack = resize(v->stack, sizeof(Val) * (size_t)cap);
         v->scap = cap;
     }
 }
@@ -116,10 +116,10 @@ static int compare_numeric(Val a, Val b) {
         return -1;
     if (d < -0x1p63)
         return 1;
-    int64_t i = (int64_t) d;
+    int64_t i = (int64_t)d;
     if (a.i != i)
         return a.i > i ? 1 : -1;
-    double z = (double) i;
+    double z = (double)i;
     return (z > d) - (z < d);
 }
 
@@ -129,7 +129,8 @@ static int eq(Val a, Val b) {
     if (isobj(a, O_COMPLEX)) {
         if (isobj(b, O_COMPLEX))
             return a.o->as.cplx.re == b.o->as.cplx.re && a.o->as.cplx.im == b.o->as.cplx.im;
-        return numeric(b) && a.o->as.cplx.im == 0 && compare_numeric(number(a.o->as.cplx.re), b) == 0;
+        return numeric(b) && a.o->as.cplx.im == 0 &&
+               compare_numeric(number(a.o->as.cplx.re), b) == 0;
     }
     if (isobj(b, O_COMPLEX))
         return eq(b, a);
@@ -147,8 +148,9 @@ static int eq(Val a, Val b) {
 static inline int64_t checked_arith(VM *v, Op op, int64_t x, int64_t y) {
 #if defined(__GNUC__) || defined(__clang__)
     int64_t r;
-    int overflow = op == OP_ADD ? __builtin_add_overflow(x, y, &r) : op == OP_SUB ? __builtin_sub_overflow(x,
-            y, &r) : __builtin_mul_overflow(x, y, &r);
+    int overflow = op == OP_ADD   ? __builtin_add_overflow(x, y, &r)
+                   : op == OP_SUB ? __builtin_sub_overflow(x, y, &r)
+                                  : __builtin_mul_overflow(x, y, &r);
     if (overflow)
         vmerror(v, "integer overflow");
     return r;
@@ -163,7 +165,9 @@ static inline int64_t checked_arith(VM *v, Op op, int64_t x, int64_t y) {
             vmerror(v, "integer overflow");
         return x - y;
     }
-    if (x && y && ((x > 0 && y > 0 && x > INT64_MAX / y) || (x > 0 && y < 0 && y < INT64_MIN / x) || (x < 0 && y > 0 && x < INT64_MIN / y) || (x < 0 && y < 0 && x < INT64_MAX / y)))
+    if (x && y &&
+        ((x > 0 && y > 0 && x > INT64_MAX / y) || (x > 0 && y < 0 && y < INT64_MIN / x) ||
+         (x < 0 && y > 0 && x < INT64_MIN / y) || (x < 0 && y < 0 && x < INT64_MAX / y)))
         vmerror(v, "integer overflow");
     return x * y;
 #endif
@@ -259,10 +263,8 @@ static Val indexget(VM *v, Val a, Val b) {
             vmerror(v, "string too large");
         int i = indexnum(v, b, utf8len(a.o->as.str.s));
         const char *p = utf8at(a.o->as.str.s, i);
-        char s[5] = {
-            0
-        };
-        memcpy(s, p, (size_t) utf8width(p));
+        char s[5] = {0};
+        memcpy(s, p, (size_t)utf8width(p));
         return objval(string(v, s));
     }
     vmerror(v, "value is not indexable");
@@ -289,12 +291,12 @@ static void indexset(VM *v, Val a, Val b, Val x) {
 static int slice_bound(VM *v, Val x, int n, int fallback) {
     if (x.t == V_NIL)
         return fallback;
-    long double d = x.t == V_INT ? (long double) x.i : asnum(v, x);
+    long double d = x.t == V_INT ? (long double)x.i : asnum(v, x);
     if (!isfinite(d) || truncl(d) != d)
         vmerror(v, "slice index must be integer");
     if (d < 0)
         d += n;
-    return d < 0 ? 0 : d > n ? n : (int) d;
+    return d < 0 ? 0 : d > n ? n : (int)d;
 }
 
 static Val slicing(VM *v, Val a, Val start, Val end) {
@@ -378,7 +380,7 @@ static void set_attr(VM *v, Val x, const char *k, Val y) {
 void remember_proto(VM *v, Proto *p) {
     if (v->np == v->pcap) {
         v->pcap = v->pcap ? 2 * v->pcap : 8;
-        v->programs = resize(v->programs, sizeof(Proto * ) * (size_t) v->pcap);
+        v->programs = resize(v->programs, sizeof(Proto *) * (size_t)v->pcap);
     }
     v->programs[v->np++] = p;
 }
@@ -404,30 +406,32 @@ void vm_destroy(VM *v) {
 static void enter(VM *v, Proto *p, Obj *env, int base, Obj *module, Val constructed) {
     if (v->nf == 512)
         vmerror(v, "call depth limit (512)");
-    v->frames[v->nf++] = (Frame) {
-        .p = p, .env = env, .locals = env, .base = base, .module = module, .constructed = constructed
-    };
+    v->frames[v->nf++] = (Frame){.p = p,
+                                 .env = env,
+                                 .locals = env,
+                                 .base = base,
+                                 .module = module,
+                                 .constructed = constructed};
 }
 
 static void enter_fn(VM *v, Obj *f, int base, int argc, Val constructed) {
     Proto *p = f->as.func.p;
     if (argc < p->required || argc > p->arity)
-        vmerror(v, "%s expects %d arguments (minimum %d), got %d", p->name, p->arity, p->required, argc);
-    Obj *env = newobj_extra(v, O_ENV, sizeof(Val) * (size_t) p->arity);
+        vmerror(v, "%s expects %d arguments (minimum %d), got %d", p->name, p->arity, p->required,
+                argc);
+    Obj *env = newobj_extra(v, O_ENV, sizeof(Val) * (size_t)p->arity);
     env->as.env.parent = f->as.func.env;
     env->as.env.params = p;
-    env->as.env.slots = (Val * )(env + 1);
+    env->as.env.slots = (Val *)(env + 1);
     for (int i = 0; i < p->arity; i++)
-        env->as.env.slots[i] = i < argc ? v->stack[base + 1 + i] : (Val) {
-            .t = V_MISSING
-        };
+        env->as.env.slots[i] = i < argc ? v->stack[base + 1 + i] : (Val){.t = V_MISSING};
     v->sp = base;
     enter(v, p, env, base, NULL, constructed);
 }
 
 static void insert_self(VM *v, int base, int argc, Obj *fn, Val self) {
     reserve(v, v->sp + 1);
-    memmove(&v->stack[base + 2], &v->stack[base + 1], sizeof(Val) * (size_t) argc);
+    memmove(&v->stack[base + 2], &v->stack[base + 1], sizeof(Val) * (size_t)argc);
     v->stack[base] = objval(fn);
     v->stack[base + 1] = self;
     v->sp++;
@@ -458,7 +462,7 @@ static void call(VM *v, int argc) {
         Obj *o = newobj(v, O_INSTANCE);
         o->as.inst.cls = callee.o;
         Val self = objval(o);
-        Entry * init = method(callee.o, "init");
+        Entry *init = method(callee.o, "init");
         if (!init)
             init = method(callee.o, "__init__");
         if (init) {
@@ -478,18 +482,16 @@ static void call(VM *v, int argc) {
 static void addhandler(VM *v, Frame *f, int ip) {
     if (v->nh == v->hcap) {
         v->hcap = v->hcap ? 2 * v->hcap : 16;
-        v->handlers = resize(v->handlers, sizeof(Handler) * (size_t) v->hcap);
+        v->handlers = resize(v->handlers, sizeof(Handler) * (size_t)v->hcap);
     }
-    v->handlers[v->nh++] = (Handler) {
-        v->nf - 1, ip, v->sp, f->env
-    };
+    v->handlers[v->nh++] = (Handler){v->nf - 1, ip, v->sp, f->env};
 }
 
 static void module_import(VM *v, Frame *f, const char *name) {
     char *candidate;
     size_t n = strlen(name);
     int ext = n >= 5 && !strcmp(name + n - 5, ".arda");
-    const char * slash = strrchr(f->p->path, '/');
+    const char *slash = strrchr(f->p->path, '/');
     size_t dir = slash ? (size_t)(slash - f->p->path + 1) : 0;
     if (name[0] == '/')
         dir = 0;
@@ -585,12 +587,13 @@ static void dispatch(VM *v) {
         v->path = f->p->path;
         int a = in.arg;
         switch (in.op) {
-        case OP_CONST:
-            {
-                Constant k = f->p->k[a];
-                push(v, k.type == K_INT ? integer(k.i) : k.type == K_NUM ? number(k.n) : objval(string(v, k.s)));
-                break;
-            }
+        case OP_CONST: {
+            Constant k = f->p->k[a];
+            push(v, k.type == K_INT   ? integer(k.i)
+                    : k.type == K_NUM ? number(k.n)
+                                      : objval(string(v, k.s)));
+            break;
+        }
         case OP_NIL:
             push(v, nil());
             break;
@@ -600,26 +603,24 @@ static void dispatch(VM *v) {
         case OP_FALSE:
             push(v, boolean(0));
             break;
-        case OP_GET_LOCAL:
-            {
-                Val x = f->locals->as.env.slots[a];
-                if (x.t == V_MISSING && f->p->code[f->ip].op != OP_JPRESENT)
-                    vmerror(v, "parameter not initialized");
-                push(v, x);
-                break;
-            }
+        case OP_GET_LOCAL: {
+            Val x = f->locals->as.env.slots[a];
+            if (x.t == V_MISSING && f->p->code[f->ip].op != OP_JPRESENT)
+                vmerror(v, "parameter not initialized");
+            push(v, x);
+            break;
+        }
         case OP_SET_LOCAL:
             f->locals->as.env.slots[a] = top(v);
             barrier(v, f->locals, top(v));
             break;
-        case OP_SET_LOCAL_DROP:
-            {
-                Val x = pop(v);
-                f->locals->as.env.slots[a] = x;
-                if (v->marking)
-                    barrier(v, f->locals, x);
-                break;
-            }
+        case OP_SET_LOCAL_DROP: {
+            Val x = pop(v);
+            f->locals->as.env.slots[a] = x;
+            if (v->marking)
+                barrier(v, f->locals, x);
+            break;
+        }
         case OP_JPRESENT:
             if (pop(v).t != V_MISSING)
                 f->ip = a;
@@ -648,91 +649,83 @@ static void dispatch(VM *v) {
         case OP_UNSCOPE:
             f->env = f->env->as.env.parent;
             break;
-        case OP_LIST:
-            {
-                Obj *o = list(v);
-                for (int i = v->sp - a; i < v->sp; i++)
-                    append(v, o, v->stack[i]);
-                v->sp -= a;
-                push(v, objval(o));
-                break;
-            }
-        case OP_MAP:
-            {
-                Obj *o = newobj(v, O_MAP);
-                for (int i = v->sp - a; i < v->sp; i += 2)
-                    tableset(v, o, &o->as.map.tab, asstr(v, v->stack[i]), v->stack[i + 1]);
-                v->sp -= a;
-                push(v, objval(o));
-                break;
-            }
-        case OP_COMP_APPEND:
-            {
-                Val x = pop(v);
-                append(v, v->stack[v->sp - 2].o, x);
-                break;
-            }
-        case OP_SLICE:
-            {
-                Val end = pop(v), start = pop(v), x = pop(v);
-                push(v, slicing(v, x, start, end));
-                break;
-            }
-        case OP_INDEX:
-            {
-                Val b = pop(v), x = pop(v);
-                push(v, indexget(v, x, b));
-                break;
-            }
-        case OP_SET_INDEX:
-            {
-                Val y = pop(v), b = pop(v), x = pop(v);
-                indexset(v, x, b, y);
-                push(v, y);
-                break;
-            }
-        case OP_ATTR:
-            {
-                Val x = pop(v);
-                push(v, attr(v, x, f->p->k[a].s));
-                break;
-            }
-        case OP_SET_ATTR:
-            {
-                Val y = pop(v), x = pop(v);
-                set_attr(v, x, f->p->k[a].s, y);
-                push(v, y);
-                break;
-            }
-        case OP_NEG:
-            {
-                Val x = pop(v);
-                if (x.t == V_INT) {
-                    if (x.i == INT64_MIN)
-                        vmerror(v, "integer overflow");
-                    push(v, integer(-x.i));
-                } else if (isobj(x, O_COMPLEX))
-                    push(v, complex_value(v, -x.o->as.cplx.re, -x.o->as.cplx.im));
-                else if (isobj(x, O_ARRAY) || isobj(x, O_AD))
-                    push(v, binary(v, OP_MUL, x, integer(-1)));
-                else
-                    push(v, number(-asnum(v, x)));
-                break;
-            }
+        case OP_LIST: {
+            Obj *o = list(v);
+            for (int i = v->sp - a; i < v->sp; i++)
+                append(v, o, v->stack[i]);
+            v->sp -= a;
+            push(v, objval(o));
+            break;
+        }
+        case OP_MAP: {
+            Obj *o = newobj(v, O_MAP);
+            for (int i = v->sp - a; i < v->sp; i += 2)
+                tableset(v, o, &o->as.map.tab, asstr(v, v->stack[i]), v->stack[i + 1]);
+            v->sp -= a;
+            push(v, objval(o));
+            break;
+        }
+        case OP_COMP_APPEND: {
+            Val x = pop(v);
+            append(v, v->stack[v->sp - 2].o, x);
+            break;
+        }
+        case OP_SLICE: {
+            Val end = pop(v), start = pop(v), x = pop(v);
+            push(v, slicing(v, x, start, end));
+            break;
+        }
+        case OP_INDEX: {
+            Val b = pop(v), x = pop(v);
+            push(v, indexget(v, x, b));
+            break;
+        }
+        case OP_SET_INDEX: {
+            Val y = pop(v), b = pop(v), x = pop(v);
+            indexset(v, x, b, y);
+            push(v, y);
+            break;
+        }
+        case OP_ATTR: {
+            Val x = pop(v);
+            push(v, attr(v, x, f->p->k[a].s));
+            break;
+        }
+        case OP_SET_ATTR: {
+            Val y = pop(v), x = pop(v);
+            set_attr(v, x, f->p->k[a].s, y);
+            push(v, y);
+            break;
+        }
+        case OP_NEG: {
+            Val x = pop(v);
+            if (x.t == V_INT) {
+                if (x.i == INT64_MIN)
+                    vmerror(v, "integer overflow");
+                push(v, integer(-x.i));
+            } else if (isobj(x, O_COMPLEX))
+                push(v, complex_value(v, -x.o->as.cplx.re, -x.o->as.cplx.im));
+            else if (isobj(x, O_ARRAY) || isobj(x, O_AD))
+                push(v, binary(v, OP_MUL, x, integer(-1)));
+            else
+                push(v, number(-asnum(v, x)));
+            break;
+        }
         case OP_NOT:
             push(v, boolean(!truth(pop(v))));
             break;
         case OP_ADD_INT_CONST:
         case OP_SUB_INT_CONST:
-        case OP_MUL_INT_CONST:
-            {
-                Op op = in.op == OP_ADD_INT_CONST ? OP_ADD : in.op == OP_SUB_INT_CONST ? OP_SUB : OP_MUL;
-                Val x = top(v);
-                int64_t y = f->p->k[a].i;
-                v->stack[v->sp - 1] = x.t == V_INT ? integer(checked_arith(v, op, x.i, y)) : binary(v, op, x,
-                        integer(y));
-                break;
-            }
+        case OP_MUL_INT_CONST: {
+            Op op = in.op == OP_ADD_INT_CONST   ? OP_ADD
+                    : in.op == OP_SUB_INT_CONST ? OP_SUB
+                                                : OP_MUL;
+            Val x = top(v);
+            int64_t y = f->p->k[a].i;
+            v->stack[v->sp - 1] =
+                x.t == V_INT ? integer(checked_arith(v, op, x.i, y)) : binary(v, op, x, integer(y));
+            break;
+        }
         case OP_ADD:
         case OP_SUB:
         case OP_MUL:
@@ -743,20 +736,18 @@ static void dispatch(VM *v) {
         case OP_LT:
         case OP_LE:
         case OP_GT:
-        case OP_GE:
-            {
-                Val y = pop(v);
-                v->stack[v->sp - 1] = binary(v, in.op, top(v), y);
-                break;
-            }
-        case OP_JFALSE_LT_CONST:
-            {
-                Val x = pop(v);
-                int64_t y = f->p->k[in.aux].i;
-                if (x.t == V_INT ? x.i >= y : !truth(binary(v, OP_LT, x, integer(y))))
-                    f->ip = a;
-                break;
-            }
+        case OP_GE: {
+            Val y = pop(v);
+            v->stack[v->sp - 1] = binary(v, in.op, top(v), y);
+            break;
+        }
+        case OP_JFALSE_LT_CONST: {
+            Val x = pop(v);
+            int64_t y = f->p->k[in.aux].i;
+            if (x.t == V_INT ? x.i >= y : !truth(binary(v, OP_LT, x, integer(y))))
+                f->ip = a;
+            break;
+        }
         case OP_JUMP:
             f->ip = a;
             break;
@@ -768,23 +759,21 @@ static void dispatch(VM *v) {
             if (truth(pop(v)))
                 f->ip = a;
             break;
-        case OP_CLOSURE:
-            {
-                Obj *o = newobj(v, O_FUNC);
-                o->as.func.p = f->p->k[a].p;
-                o->as.func.env = f->env;
-                push(v, objval(o));
-                break;
-            }
+        case OP_CLOSURE: {
+            Obj *o = newobj(v, O_FUNC);
+            o->as.func.p = f->p->k[a].p;
+            o->as.func.env = f->env;
+            push(v, objval(o));
+            break;
+        }
         case OP_CALL:
             call(v, a);
             break;
-        case OP_RETURN:
-            {
-                Val x = pop(v);
-                return_frame(v, x);
-                break;
-            }
+        case OP_RETURN: {
+            Val x = pop(v);
+            return_frame(v, x);
+            break;
+        }
         case OP_PRINT:
             for (int i = v->sp - a; i < v->sp; i++) {
                 if (i != v->sp - a)
@@ -794,77 +783,72 @@ static void dispatch(VM *v) {
             putchar('\n');
             v->sp -= a;
             break;
-        case OP_ITER:
-            {
-                Val x = pop(v);
-                if (isobj(x, O_MAP)) {
-                    Obj *l = list(v);
-                    Table *t = &x.o->as.map.tab;
-                    for (int i = 0; i < t->cap; i++)
-                        if (t->a[i].key)
-                            append(v, l, objval(string(v, t->a[i].key)));
-                    x = objval(l);
+        case OP_ITER: {
+            Val x = pop(v);
+            if (isobj(x, O_MAP)) {
+                Obj *l = list(v);
+                Table *t = &x.o->as.map.tab;
+                for (int i = 0; i < t->cap; i++)
+                    if (t->a[i].key)
+                        append(v, l, objval(string(v, t->a[i].key)));
+                x = objval(l);
+            }
+            if (!isobj(x, O_LIST) && !isobj(x, O_STRING) && !isobj(x, O_ARRAY))
+                vmerror(v, "for expects list, string, map or array");
+            Obj *it = newobj(v, O_ITER);
+            it->as.iter.source = x;
+            push(v, objval(it));
+            break;
+        }
+        case OP_NEXT: {
+            Obj *it = top(v).o;
+            Val x = it->as.iter.source;
+            int i = it->as.iter.index;
+            if (isobj(x, O_LIST)) {
+                if (i >= x.o->as.list.n)
+                    f->ip = a;
+                else {
+                    it->as.iter.index++;
+                    push(v, x.o->as.list.a[i]);
                 }
-                if (!isobj(x, O_LIST) && !isobj(x, O_STRING) && !isobj(x, O_ARRAY))
-                    vmerror(v, "for expects list, string, map or array");
-                Obj *it = newobj(v, O_ITER);
-                it->as.iter.source = x;
-                push(v, objval(it));
-                break;
+            } else if (isobj(x, O_ARRAY)) {
+                if (i >= x.o->as.array.rows)
+                    f->ip = a;
+                else {
+                    it->as.iter.index++;
+                    push(v, array_index(v, x, integer(i)));
+                }
+            } else {
+                if ((size_t)i >= x.o->as.str.len)
+                    f->ip = a;
+                else {
+                    const char *p = x.o->as.str.s + i;
+                    int w = utf8width(p);
+                    char s[5] = {0};
+                    memcpy(s, p, (size_t)w);
+                    it->as.iter.index += w;
+                    push(v, objval(string(v, s)));
+                }
             }
-        case OP_NEXT:
-            {
-                Obj *it = top(v).o;
-                Val x = it->as.iter.source;
-                int i = it->as.iter.index;
-                if (isobj(x, O_LIST)) {
-                    if (i >= x.o->as.list.n)
-                        f->ip = a;
-                    else {
-                        it->as.iter.index++;
-                        push(v, x.o->as.list.a[i]);
-                    }
-                } else if (isobj(x, O_ARRAY)) {
-                    if (i >= x.o->as.array.rows)
-                        f->ip = a;
-                    else {
-                        it->as.iter.index++;
-                        push(v, array_index(v, x, integer(i)));
-                    }
-                } else {
-                    if ((size_t) i >= x.o->as.str.len)
-                        f->ip = a;
-                    else {
-                        const char *p = x.o->as.str.s + i;
-                        int w = utf8width(p);
-                        char s[5] = {
-                            0
-                        };
-                        memcpy(s, p, (size_t) w);
-                        it->as.iter.index += w;
-                        push(v, objval(string(v, s)));
-                    }
-                } break;
-            }
-        case OP_CLASS:
-            {
-                Val parent = pop(v);
-                if (parent.t != V_NIL && !isobj(parent, O_CLASS))
-                    vmerror(v, "base must be a class");
-                Obj *o = newobj(v, O_CLASS);
-                o->as.cls.parent = parent.t == V_NIL ? NULL : parent.o;
-                o->as.cls.name = copystr(f->p->k[a].s);
-                account(v, o, 0, strlen(o->as.cls.name) + 1);
-                push(v, objval(o));
-                break;
-            }
-        case OP_METHOD:
-            {
-                Val fn = pop(v);
-                Obj *cls = top(v).o;
-                tableset(v, cls, &cls->as.cls.methods, f->p->k[a].s, fn);
-                break;
-            }
+            break;
+        }
+        case OP_CLASS: {
+            Val parent = pop(v);
+            if (parent.t != V_NIL && !isobj(parent, O_CLASS))
+                vmerror(v, "base must be a class");
+            Obj *o = newobj(v, O_CLASS);
+            o->as.cls.parent = parent.t == V_NIL ? NULL : parent.o;
+            o->as.cls.name = copystr(f->p->k[a].s);
+            account(v, o, 0, strlen(o->as.cls.name) + 1);
+            push(v, objval(o));
+            break;
+        }
+        case OP_METHOD: {
+            Val fn = pop(v);
+            Obj *cls = top(v).o;
+            tableset(v, cls, &cls->as.cls.methods, f->p->k[a].s, fn);
+            break;
+        }
         case OP_IMPORT:
             module_import(v, f, f->p->k[a].s);
             break;
@@ -874,15 +858,14 @@ static void dispatch(VM *v) {
         case OP_END_TRY:
             v->nh--;
             break;
-        case OP_THROW:
-            {
-                Val x = pop(v);
-                char *s = value_string(x);
-                snprintf(v->error, sizeof v->error, "%s", s);
-                free(s);
-                longjmp(v->trap, 1);
-                break;
-            }
+        case OP_THROW: {
+            Val x = pop(v);
+            char *s = value_string(x);
+            snprintf(v->error, sizeof v->error, "%s", s);
+            free(s);
+            longjmp(v->trap, 1);
+            break;
+        }
         }
         if (v->marking || v->stress || v->bytes >= v->next_gc)
             gcstep(v, 0);

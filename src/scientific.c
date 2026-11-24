@@ -19,13 +19,11 @@ static Obj *asarray(VM *v, Val x) {
 static int dim(VM *v, Val x) {
     if (x.t != V_INT || x.i < 0 || x.i > MAX_ELEMENTS)
         vmerror(v, "invalid array dimension");
-    return (int) x.i;
+    return (int)x.i;
 }
 
 Obj *array_new(VM *v, int rank, int rows, int cols) {
-    int s[] = {
-        rows, cols
-    };
+    int s[] = {rows, cols};
     return tensor_new(v, rank, s);
 }
 
@@ -34,7 +32,8 @@ static Obj *like(VM *v, Obj *a) {
 }
 
 static int same(Obj *a, Obj *b) {
-    return A(a).rank == A(b).rank && !memcmp(A(a).shape, A(b).shape, (size_t) A(a).rank * sizeof(int));
+    return A(a).rank == A(b).rank &&
+           !memcmp(A(a).shape, A(b).shape, (size_t)A(a).rank * sizeof(int));
 }
 
 static void vector(VM *v, Obj *a) {
@@ -55,7 +54,7 @@ Val array_index(VM *v, Val a, Val b) {
 void array_set_index(VM *v, Val a, Val b, Val x) {
     Obj *o = asarray(v, a);
     vector(v, o);
-    A(o).data[(size_t) indexnum(v, b, A(o).rows) * A(o).stride[0]] = asnum(v, x);
+    A(o).data[(size_t)indexnum(v, b, A(o).rows) * A(o).stride[0]] = asnum(v, x);
 }
 
 void array_print(Obj *o) {
@@ -78,35 +77,41 @@ static double dot(Obj *a, Obj *b) {
     size_t i = 0, n = A(a).n;
     const double *p = A(a).data, *q = A(b).data;
     for (; i + 3 < n; i += 4) {
-        s0 += (long double) p[i] * q[i];
-        s1 += (long double) p[i + 1] * q[i + 1];
-        s2 += (long double) p[i + 2] * q[i + 2];
-        s3 += (long double) p[i + 3] * q[i + 3];
+        s0 += (long double)p[i] * q[i];
+        s1 += (long double)p[i + 1] * q[i + 1];
+        s2 += (long double)p[i + 2] * q[i + 2];
+        s3 += (long double)p[i + 3] * q[i + 3];
     }
     for (; i < n; i++)
-        s0 += (long double) p[i] * q[i];
+        s0 += (long double)p[i] * q[i];
     return (double)((s0 + s1) + (s2 + s3));
 }
 #if !defined(ARDA_BLAS) && defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
 #include <immintrin.h>
-__attribute__((target("avx2"))) static void matmul_avx2(int m, int n, int k, const double * x,
-        const double *y, double *z) {
+__attribute__((target("avx2"))) static void matmul_avx2(int m, int n, int k, const double *x,
+                                                        const double *y, double *z) {
     const int block = 64;
     for (int ii = 0; ii < m; ii += block)
         for (int kk = 0; kk < k; kk += block)
             for (int jj = 0; jj < n; jj += block)
                 for (int i = ii; i < m && i < ii + block; i++)
                     for (int t = kk; t < k && t < kk + block; t++) {
-                        double at = x[(size_t) i * k + t];
+                        double at = x[(size_t)i * k + t];
                         __m256d aa = _mm256_set1_pd(at);
-                        double *dst = z + (size_t) i * n;
-                        const double *src = y + (size_t) t * n;
+                        double *dst = z + (size_t)i * n;
+                        const double *src = y + (size_t)t * n;
                         int j = jj, end = n < jj + block ? n : jj + block;
                         for (; j + 15 < end; j += 16)
                             for (int u = 0; u < 16; u += 4)
-                                _mm256_storeu_pd(dst + j + u, _mm256_add_pd(_mm256_loadu_pd(dst + j + u), _mm256_mul_pd(aa, _mm256_loadu_pd(src + j + u))));
+                                _mm256_storeu_pd(
+                                    dst + j + u,
+                                    _mm256_add_pd(_mm256_loadu_pd(dst + j + u),
+                                                  _mm256_mul_pd(aa, _mm256_loadu_pd(src + j + u))));
                         for (; j + 3 < end; j += 4)
-                            _mm256_storeu_pd(dst + j, _mm256_add_pd(_mm256_loadu_pd(dst + j), _mm256_mul_pd(aa, _mm256_loadu_pd(src + j))));
+                            _mm256_storeu_pd(
+                                dst + j,
+                                _mm256_add_pd(_mm256_loadu_pd(dst + j),
+                                              _mm256_mul_pd(aa, _mm256_loadu_pd(src + j))));
                         for (; j < end; j++)
                             dst[j] += at * src[j];
                     }
@@ -138,18 +143,23 @@ static Obj *multiply(VM *v, Obj *a, Obj *b) {
             for (int jj = 0; jj < n; jj += block)
                 for (int i = ii; i < m && i < ii + block; i++)
                     for (int t = kk; t < k && t < kk + block; t++) {
-                        double at = x[(size_t) i * k + t];
-                        double *dst = z + (size_t) i * n;
-                        const double *src = y + (size_t) t * n;
+                        double at = x[(size_t)i * k + t];
+                        double *dst = z + (size_t)i * n;
+                        const double *src = y + (size_t)t * n;
                         int j = jj, end = n < jj + block ? n : jj + block;
 #if defined(__SSE2__)
                         __m128d aa = _mm_set1_pd(at);
                         for (; j + 7 < end; j += 8) {
                             for (int u = 0; u < 8; u += 2)
-                                _mm_storeu_pd(dst + j + u, _mm_add_pd(_mm_loadu_pd(dst + j + u), _mm_mul_pd(aa, _mm_loadu_pd(src + j + u))));
+                                _mm_storeu_pd(
+                                    dst + j + u,
+                                    _mm_add_pd(_mm_loadu_pd(dst + j + u),
+                                               _mm_mul_pd(aa, _mm_loadu_pd(src + j + u))));
                         }
                         for (; j + 1 < end; j += 2)
-                            _mm_storeu_pd(dst + j, _mm_add_pd(_mm_loadu_pd(dst + j), _mm_mul_pd(aa, _mm_loadu_pd(src + j))));
+                            _mm_storeu_pd(dst + j,
+                                          _mm_add_pd(_mm_loadu_pd(dst + j),
+                                                     _mm_mul_pd(aa, _mm_loadu_pd(src + j))));
 #endif
                         for (; j < end; j++)
                             dst[j] += at * src[j];
@@ -163,26 +173,52 @@ static Obj *solve(VM *v, Obj *a, Obj *b) {
     return dense_lu_solve(v, a, b);
 }
 
-static const char *names[] = {
-    "array", "zeros", "ones", "linspace", "shape", "tolist", "sum", "mean", "var", "std", "dot", "matmul",
-    "transpose", "solve", "sin", "cos", "exp", "log", "sqrt", "norm", "min", "max", "get", "set",
-    "backend", "bytes"
-};
+static const char *names[] = {"array", "zeros", "ones", "linspace", "shape",  "tolist",    "sum",
+                              "mean",  "var",   "std",  "dot",      "matmul", "transpose", "solve",
+                              "sin",   "cos",   "exp",  "log",      "sqrt",   "norm",      "min",
+                              "max",   "get",   "set",  "backend",  "bytes"};
 enum {
-    S_ARRAY, S_ZEROS, S_ONES, S_LINSPACE, S_SHAPE, S_TOLIST, S_SUM, S_MEAN, S_VAR, S_STD, S_DOT, S_MATMUL,
-    S_TRANSPOSE, S_SOLVE, S_SIN, S_COS, S_EXP, S_LOG, S_SQRT, S_NORM, S_MIN, S_MAX, S_GET, S_SET,
-    S_BACKEND, S_BYTES
+    S_ARRAY,
+    S_ZEROS,
+    S_ONES,
+    S_LINSPACE,
+    S_SHAPE,
+    S_TOLIST,
+    S_SUM,
+    S_MEAN,
+    S_VAR,
+    S_STD,
+    S_DOT,
+    S_MATMUL,
+    S_TRANSPOSE,
+    S_SOLVE,
+    S_SIN,
+    S_COS,
+    S_EXP,
+    S_LOG,
+    S_SQRT,
+    S_NORM,
+    S_MIN,
+    S_MAX,
+    S_GET,
+    S_SET,
+    S_BACKEND,
+    S_BYTES
 };
 const char *scientific_name(int id) {
     int op = id - SCI_BASE;
-    return op >= 0 && (size_t) op < sizeof names / sizeof *names ? names[op] : NULL;
+    return op >= 0 && (size_t)op < sizeof names / sizeof *names ? names[op] : NULL;
 }
 
 Val scientific_call(VM *v, int id, int argc, Val *a) {
     int k = id - SCI_BASE;
     if (k < 0 || k > S_BYTES)
         vmerror(v, "invalid numeric function");
-    int expected = (k == S_BACKEND) ? 0 : (k == S_LINSPACE || k == S_GET) ? 3 : k == S_SET ? 4 : (k == S_DOT || k == S_MATMUL || k == S_SOLVE) ? 2 : 1;
+    int expected = (k == S_BACKEND)                                ? 0
+                   : (k == S_LINSPACE || k == S_GET)               ? 3
+                   : k == S_SET                                    ? 4
+                   : (k == S_DOT || k == S_MATMUL || k == S_SOLVE) ? 2
+                                                                   : 1;
     if (k == S_ZEROS || k == S_ONES) {
         if (argc < 1 || argc > 8)
             vmerror(v, "%s expects one to eight dimensions", names[k]);
@@ -214,7 +250,7 @@ Val scientific_call(VM *v, int id, int argc, Val *a) {
             vmerror(v, "linspace requires finite endpoints");
         Obj *o = array_new(v, 1, n, 1);
         for (int i = 0; i < n; i++) {
-            double t = n > 1 ? (double) i / (n - 1) : 0;
+            double t = n > 1 ? (double)i / (n - 1) : 0;
             A(o).data[i] = (1 - t) * start + t * end;
         }
         if (n > 1)
@@ -237,7 +273,7 @@ Val scientific_call(VM *v, int id, int argc, Val *a) {
     if (k == S_GET || k == S_SET) {
         matrix(v, x);
         int i = indexnum(v, a[1], A(x).rows), j = indexnum(v, a[2], A(x).cols);
-        size_t q = (size_t) i * A(x).stride[0] + (size_t) j * A(x).stride[1];
+        size_t q = (size_t)i * A(x).stride[0] + (size_t)j * A(x).stride[1];
         if (k == S_GET)
             return number(p[q]);
         p[q] = asnum(v, a[3]);
@@ -270,11 +306,11 @@ Val scientific_call(VM *v, int id, int argc, Val *a) {
         Obj *o = array_new(v, 2, A(x).cols, A(x).rows);
         for (int i = 0; i < A(x).rows; i++)
             for (int j = 0; j < A(x).cols; j++)
-                A(o).data[(size_t) j * A(x).rows + i] = p[(size_t) i * A(x).cols + j];
+                A(o).data[(size_t)j * A(x).rows + i] = p[(size_t)i * A(x).cols + j];
         return objval(o);
     }
     if (k == S_SUM)
-        return number((double) total(x));
+        return number((double)total(x));
     if (k == S_NORM) {
         double scale = 0, ssq = 1;
         int inf = 0;
@@ -351,7 +387,7 @@ Val scientific_call(VM *v, int id, int argc, Val *a) {
 }
 
 Obj *scientific_module(VM *v) {
-    const char * key = "<native:numc>";
+    const char *key = "<native:numc>";
     Entry *cached = tablefind(&v->modules, key);
     if (cached)
         return cached->val.o;
@@ -360,7 +396,7 @@ Obj *scientific_module(VM *v) {
     account(v, o, 0, strlen(key) + 1);
     o->as.mod.state = 1;
     o->as.mod.env = environment(v, NULL);
-    for (int i = 0; i < (int)(sizeof names / sizeof * names); i++) {
+    for (int i = 0; i < (int)(sizeof names / sizeof *names); i++) {
         Obj *f = newobj(v, O_NATIVE);
         f->as.native.id = SCI_BASE + i;
         tableset(v, o->as.mod.env, &o->as.mod.env->as.env.tab, names[i], objval(f));

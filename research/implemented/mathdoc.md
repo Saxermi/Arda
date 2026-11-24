@@ -1,6 +1,6 @@
 # Static mathematical documentation
 
-**Status** — Native descriptor and cost models plus user-function MathIR in the 0.15.4 development branch; release validation pending.
+**Status** — Implemented in Arda 0.15.4. [Release validation](../../docs/RUMIL_0.15.4.md)
 
 ## Queries
 
@@ -34,7 +34,7 @@ Results contain `estimated`, `flops`, `output_bytes`, `workspace_bytes`, `backen
 
 The compiler extracts immutable MathIR before releasing the AST. It supports integer/finite floating literals, parameters, external name references, unary negation, addition, subtraction, multiplication, division, straight-line local declarations, a final return expression and expression lambdas. Calls through a source name or single qualified name are represented as opaque calls: even a spelling such as `cos` may be rebound at runtime. Native callable queries still resolve actual native identity; user-function queries do not infer that identity from source spelling or invoke a callee. External values are not captured or evaluated by the query. Numeric semantics are conditional on suitable operands; types, domains, overflow, shape, aliasing and exact floating-point equivalence are not inferred.
 
-Level 0 expands local names when safe and within limits, falling back to named relations otherwise; level 1 preserves local declarations; level 2 labels unknown assumptions and dependencies; level 3 shows source-level assignments and return, not a backend algorithm. User-function `getAlgorithm` and `getAssumptions` explain this limited coverage; `getComplexity` and `getCost` return `mun`. Bound instance methods, default arguments, reassignments, branching, loops, recursive analysis, and unsupported expressions return `mun` or, for syntactically supported opaque calls, explicitly unresolved documentation. No executable algebraic rewrites or execution tracing occur.
+Level 0 expands local names when safe and within limits, falling back to named relations otherwise. Level 1 preserves local declarations, level 2 labels unknown assumptions and dependencies, and level 3 shows source-level assignments and return. Floating-point literals use enough significant digits to recover the stored value. User-function `getAlgorithm` and `getAssumptions` explain this limited coverage. `getComplexity` and `getCost` return `mun`. Bound instance methods, default arguments, reassignments, branching, loops, recursive analysis, and unsupported expressions return `mun` or, for syntactically supported opaque calls, explicitly unresolved documentation.
 
 The IR is one frontend allocation per supported prototype, including copied identifier strings. It has at most 128 nodes, 32 parameters, 128 bytes per identifier and 32 extraction levels. Rendering has a depth limit of 64 and an 8192-byte buffer including the terminator. Overflow returns `mun` or falls back to named steps at level 0. Underscores are escaped; non-ASCII identifier code points are rendered as explicit U+ tokens. The prototype owns the allocation and frees it with its compilation root, including frontend error cleanup. No VM object or AST pointer is retained. Ordinary numerical execution has no new instructions or per-element instrumentation.
 

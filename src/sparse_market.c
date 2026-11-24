@@ -13,7 +13,7 @@ static int market_line(VM *v, FILE *f, char *line) {
         if (ch == '\0')
             vmerror(v, "NUL byte in Matrix Market file");
         if (n + 1 < MARKET_LINE)
-            line[n++] = (char) ch;
+            line[n++] = (char)ch;
         else
             truncated = 1;
     }
@@ -22,7 +22,7 @@ static int market_line(VM *v, FILE *f, char *line) {
     line[n] = '\0';
     if (truncated) {
         const char *p = line;
-        while (isspace((unsigned char) *p))
+        while (isspace((unsigned char)*p))
             p++;
         if (*p != '%' || p[1] == '%')
             vmerror(v, "Matrix Market line exceeds 1023 bytes");
@@ -33,14 +33,14 @@ static int market_line(VM *v, FILE *f, char *line) {
 static int market_tokens(char *line, char **tokens, int max) {
     int count = 0;
     while (*line) {
-        while (isspace((unsigned char) *line))
+        while (isspace((unsigned char)*line))
             line++;
         if (!*line)
             break;
         if (count == max)
             return -1;
         tokens[count++] = line;
-        while (*line && !isspace((unsigned char) *line))
+        while (*line && !isspace((unsigned char)*line))
             line++;
         if (*line)
             *line++ = '\0';
@@ -51,7 +51,7 @@ static int market_tokens(char *line, char **tokens, int max) {
 static int market_record(VM *v, FILE *f, char *line) {
     while (market_line(v, f, line)) {
         const char *p = line;
-        while (isspace((unsigned char) *p))
+        while (isspace((unsigned char)*p))
             p++;
         if (*p && *p != '%')
             return 1;
@@ -96,9 +96,9 @@ Obj *sparse_read_mm(VM *v, const char *path) {
         vmerror(v, "Matrix Market symmetry must be general or symmetric");
     if (!market_record(v, f, line) || market_tokens(line, tokens, 3) != 3)
         vmerror(v, "expected Matrix Market rows, columns and entry count");
-    uint32_t rows = (uint32_t) market_uint(v, tokens[0], UINT32_MAX);
-    uint32_t cols = (uint32_t) market_uint(v, tokens[1], UINT32_MAX);
-    size_t count = (size_t) market_uint(v, tokens[2], SIZE_MAX);
+    uint32_t rows = (uint32_t)market_uint(v, tokens[0], UINT32_MAX);
+    uint32_t cols = (uint32_t)market_uint(v, tokens[1], UINT32_MAX);
+    size_t count = (size_t)market_uint(v, tokens[2], SIZE_MAX);
     if (symmetric && rows != cols)
         vmerror(v, "Matrix Market symmetric input must be square");
     if (count && (!rows || !cols))
@@ -109,13 +109,15 @@ Obj *sparse_read_mm(VM *v, const char *path) {
     for (size_t i = 0; i < count; i++) {
         if (!market_record(v, f, line) || market_tokens(line, tokens, 3) != 3)
             vmerror(v, "invalid or missing Matrix Market entry");
-        uint32_t row = (uint32_t) market_uint(v, tokens[0], rows);
-        uint32_t col = (uint32_t) market_uint(v, tokens[1], cols);
+        uint32_t row = (uint32_t)market_uint(v, tokens[0], rows);
+        uint32_t col = (uint32_t)market_uint(v, tokens[1], cols);
         if (!row || !col || (symmetric && row < col))
-            vmerror(v, "Matrix Market requires one-based indices and lower triangular symmetric entries");
+            vmerror(
+                v,
+                "Matrix Market requires one-based indices and lower triangular symmetric entries");
         double real = market_real(v, tokens[2]);
         int mirror = symmetric && row != col;
-        sparse_builder_reserve(v, builder, 1u + (unsigned) mirror);
+        sparse_builder_reserve(v, builder, 1u + (unsigned)mirror);
         sparse_builder_write(builder, row - 1, col - 1, real);
         if (mirror)
             sparse_builder_write(builder, col - 1, row - 1, real);
@@ -143,7 +145,8 @@ static int market_write(FILE *f, const Sparse *s, int symmetric) {
         for (size_t j = s->offset[row]; j < s->offset[row + 1]; j++) {
             if (symmetric && s->col[j] > row)
                 break;
-            if (fprintf(f, "%zu %" PRIu32 " %.17g\n", row + 1, s->col[j] + (uint32_t) 1, s->values[j]) < 0)
+            if (fprintf(f, "%zu %" PRIu32 " %.17g\n", row + 1, s->col[j] + (uint32_t)1,
+                        s->values[j]) < 0)
                 return 0;
         }
     }

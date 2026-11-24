@@ -6,7 +6,10 @@
 typedef union Allocation Allocation;
 union Allocation {
     max_align_t alignment;
-    struct { Allocation *prev, *next; int tracked; } link;
+    struct {
+        Allocation *prev, *next;
+        int tracked;
+    } link;
 };
 typedef struct {
     Allocation *head;
@@ -21,19 +24,25 @@ static void attach(Allocation *a) {
     a->link.prev = NULL;
     a->link.next = active ? active->head : NULL;
     if (active) {
-        if (active->head) active->head->link.prev = a;
+        if (active->head)
+            active->head->link.prev = a;
         active->head = a;
     }
 }
 static void detach(Allocation *a) {
-    if (!a->link.tracked) return;
-    if (a->link.prev) a->link.prev->link.next = a->link.next;
-    else active->head = a->link.next;
-    if (a->link.next) a->link.next->link.prev = a->link.prev;
+    if (!a->link.tracked)
+        return;
+    if (a->link.prev)
+        a->link.prev->link.next = a->link.next;
+    else
+        active->head = a->link.next;
+    if (a->link.next)
+        a->link.next->link.prev = a->link.prev;
     a->link.tracked = 0;
 }
 static size_t allocation_size(size_t n) {
-    if (n > SIZE_MAX - sizeof(Allocation)) die("frontend allocation overflow");
+    if (n > SIZE_MAX - sizeof(Allocation))
+        die("frontend allocation overflow");
     return sizeof(Allocation) + (n ? n : 1);
 }
 void *front_mem(size_t n) {
@@ -42,7 +51,8 @@ void *front_mem(size_t n) {
     return a + 1;
 }
 void *front_resize(void *p, size_t n) {
-    if (!p) return front_mem(n);
+    if (!p)
+        return front_mem(n);
     Allocation *a = (Allocation *)p - 1;
     detach(a);
     a = resize(a, allocation_size(n));
@@ -50,7 +60,8 @@ void *front_resize(void *p, size_t n) {
     return a + 1;
 }
 void front_free(void *p) {
-    if (!p) return;
+    if (!p)
+        return;
     Allocation *a = (Allocation *)p - 1;
     detach(a);
     free(a);
@@ -60,7 +71,9 @@ char *front_slice(const char *s, size_t n) {
     memcpy(p, s, n);
     return p;
 }
-char *front_copystr(const char *s) { return front_slice(s, strlen(s)); }
+char *front_copystr(const char *s) {
+    return front_slice(s, strlen(s));
+}
 
 static void report(const char *prefix, const char *fmt, va_list args) {
     if (!active) {
@@ -77,7 +90,8 @@ static void report(const char *prefix, const char *fmt, va_list args) {
     }
 }
 static _Noreturn void abort_frontend(void) {
-    if (active) longjmp(active->trap, 1);
+    if (active)
+        longjmp(active->trap, 1);
     exit(1);
 }
 _Noreturn void front_error(const char *fmt, ...) {
@@ -100,15 +114,16 @@ _Noreturn void front_lex_error(const char *path, int line, const char *fmt, ...)
 /* Return 0 on success, 1 on a recoverable frontend error. On error, every
  * partial token, AST node and bytecode allocation is released. The scope
  * lives on the heap so its state remains valid across longjmp. */
-int prepare_source(const char *src, const char *path, int tokens_only,
-                   Proto **out, char *error, size_t error_size) {
+int prepare_source(const char *src, const char *path, int tokens_only, Proto **out, char *error,
+                   size_t error_size) {
     FrontScope *scope = mem(sizeof *scope);
     scope->error = error;
     scope->error_size = error_size;
     *out = NULL;
     active = scope;
     if (setjmp(scope->trap)) {
-        while (scope->head) front_free(scope->head + 1);
+        while (scope->head)
+            front_free(scope->head + 1);
         active = NULL;
         free(scope);
         return 1;
@@ -124,7 +139,8 @@ int prepare_source(const char *src, const char *path, int tokens_only,
     }
     freetokens(&t);
     /* Only bytecode allocations should remain; detach without freeing. */
-    while (scope->head) detach(scope->head);
+    while (scope->head)
+        detach(scope->head);
     active = NULL;
     free(scope);
     return 0;

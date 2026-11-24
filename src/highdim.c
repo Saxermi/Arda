@@ -11,7 +11,8 @@ static Obj *arr(VM *v, Val x) {
 }
 
 static int same(Obj *a, Obj *b) {
-    return A(a).rank == A(b).rank && !memcmp(A(a).shape, A(b).shape, (size_t) A(a).rank * sizeof(int));
+    return A(a).rank == A(b).rank &&
+           !memcmp(A(a).shape, A(b).shape, (size_t)A(a).rank * sizeof(int));
 }
 
 static Obj *like(VM *v, Obj *a) {
@@ -34,25 +35,25 @@ static void finite_arr(VM *v, Obj *a) {
 static int steps(VM *v, Val x) {
     if (x.t != V_INT || x.i < 1 || x.i > 1000000)
         vmerror(v, "maxiter must be 1..1000000");
-    return (int) x.i;
+    return (int)x.i;
 }
 /* Extended precision accumulation, four independent chains to reduce latency. */
 long double linear_dot(size_t n, const double *a, const double *b) {
     long double s0 = 0, s1 = 0, s2 = 0, s3 = 0;
     size_t i = 0;
     for (; i + 3 < n; i += 4) {
-        s0 += (long double) a[i] * b[i];
-        s1 += (long double) a[i + 1] * b[i + 1];
-        s2 += (long double) a[i + 2] * b[i + 2];
-        s3 += (long double) a[i + 3] * b[i + 3];
+        s0 += (long double)a[i] * b[i];
+        s1 += (long double)a[i + 1] * b[i + 1];
+        s2 += (long double)a[i + 2] * b[i + 2];
+        s3 += (long double)a[i + 3] * b[i + 3];
     }
     for (; i < n; i++)
-        s0 += (long double) a[i] * b[i];
+        s0 += (long double)a[i] * b[i];
     return (s0 + s1) + (s2 + s3);
 }
 
 static double norm(size_t n, const double *x) {
-    return (double) sqrtl(linear_dot(n, x, x));
+    return (double)sqrtl(linear_dot(n, x, x));
 }
 
 static void dense_apply(const void *context, const double *x, size_t xs, double *y, size_t ys) {
@@ -61,17 +62,18 @@ static void dense_apply(const void *context, const double *x, size_t xs, double 
     for (size_t i = 0; i < rows; i++) {
         const double *row = A(matrix).data + i * cols;
         if (xs == 1)
-            y[i * ys] = (double) linear_dot(cols, row, x);
+            y[i * ys] = (double)linear_dot(cols, row, x);
         else {
             long double sum = 0;
             for (size_t j = 0; j < cols; j++)
-                sum += (long double) row[j] * x[j * xs];
-            y[i * ys] = (double) sum;
+                sum += (long double)row[j] * x[j * xs];
+            y[i * ys] = (double)sum;
         }
     }
 }
 
-static void dense_apply_transpose(const void *context, const double *x, size_t xs, double *y, size_t ys) {
+static void dense_apply_transpose(const void *context, const double *x, size_t xs, double *y,
+                                  size_t ys) {
     const Obj *matrix = context;
     size_t rows = A(matrix).rows, cols = A(matrix).cols;
     for (size_t j = 0; j < cols; j++)
@@ -90,7 +92,7 @@ static void laplace(const void *context, const double *x, size_t xs, double *y, 
     for (size_t i = 0; i < n; i++)
         y[i * ys] = 2.0 * r * x[i * xs];
     for (int axis = 0; axis < r; axis++) {
-        size_t stride = A(grid).stride[axis], span = stride * (size_t) A(grid).shape[axis];
+        size_t stride = A(grid).stride[axis], span = stride * (size_t)A(grid).shape[axis];
         if (span == stride)
             continue;
         for (size_t base = 0; base < n; base += span) {
@@ -103,13 +105,19 @@ static void laplace(const void *context, const double *x, size_t xs, double *y, 
 }
 
 LinearOperator dense_operator(Obj *matrix) {
-    return (LinearOperator){.rows = A(matrix).rows, .cols = A(matrix).cols, .context = matrix,
-                            .apply = dense_apply, .apply_transpose = dense_apply_transpose};
+    return (LinearOperator){.rows = A(matrix).rows,
+                            .cols = A(matrix).cols,
+                            .context = matrix,
+                            .apply = dense_apply,
+                            .apply_transpose = dense_apply_transpose};
 }
 
 static LinearOperator poisson_operator(Obj *grid) {
-    return (LinearOperator){.rows = A(grid).n, .cols = A(grid).n, .context = grid,
-                            .apply = laplace, .apply_transpose = laplace};
+    return (LinearOperator){.rows = A(grid).n,
+                            .cols = A(grid).n,
+                            .context = grid,
+                            .apply = laplace,
+                            .apply_transpose = laplace};
 }
 
 static Val report(VM *v, Obj *x, int it, double residual, int ok) {
@@ -128,7 +136,8 @@ static Val cg(VM *v, Obj *matrix, Obj *b, double tol, int maxit) {
         vmerror(v, "CG needs nonempty rhs and tolerance in (0,1)");
     finite_arr(v, b);
     if (matrix) {
-        if (A(b).rank != 1 || A(matrix).rank != 2 || (size_t) A(matrix).rows != n || (size_t) A(matrix).cols != n)
+        if (A(b).rank != 1 || A(matrix).rank != 2 || (size_t)A(matrix).rows != n ||
+            (size_t)A(matrix).cols != n)
             vmerror(v, "CG shape mismatch");
         finite_arr(v, matrix);
         for (size_t i = 0; i < n; i++) {
@@ -152,7 +161,7 @@ static Val cg(VM *v, Obj *matrix, Obj *b, double tol, int maxit) {
     double rel = 1;
     int it = 0, restart = 1;
     long double prev = 0;
-    for (; it < maxit; ) {
+    for (; it < maxit;) {
         for (size_t i = 0; i < n; i++)
             z[i] = matrix ? r[i] / A(matrix).data[i * n + i] : r[i];
         long double rho = linear_dot(n, r, z);
@@ -202,27 +211,28 @@ static Val cg(VM *v, Obj *matrix, Obj *b, double tol, int maxit) {
 }
 /* CGLS: rectangular least squares without forming A^T A. */
 static Val cgls(VM *v, Obj *mat, Obj *b, double tol, int maxit) {
-    if (A(mat).rank != 2 || A(b).rank != 1 || A(mat).rows != A(b).rows || !A(mat).rows || !A(mat).cols || tol <= 0 || tol >= 1)
+    if (A(mat).rank != 2 || A(b).rank != 1 || A(mat).rows != A(b).rows || !A(mat).rows ||
+        !A(mat).cols || tol <= 0 || tol >= 1)
         vmerror(v, "CGLS shape or tolerance mismatch");
     finite_arr(v, mat);
     finite_arr(v, b);
     LinearOperator op = dense_operator(mat);
-    int m = (int) op.rows, n = (int) op.cols;
-    Obj *out = array_new(v, 1, n, 1), *rr = like(v, b), *ss = like(v, out), *pp = like(v, out), *qq = like(v,
-            b);
+    int m = (int)op.rows, n = (int)op.cols;
+    Obj *out = array_new(v, 1, n, 1), *rr = like(v, b), *ss = like(v, out), *pp = like(v, out),
+        *qq = like(v, b);
     double *x = A(out).data, *r = A(rr).data, *s = A(ss).data, *p = A(pp).data, *q = A(qq).data;
-    memcpy(r, A(b).data, (size_t) m * sizeof(double));
+    memcpy(r, A(b).data, (size_t)m * sizeof(double));
     op.apply_transpose(op.context, r, 1, s, 1);
     double gn = norm(n, s);
     if (!isfinite(gn))
         vmerror(v, "CGLS gradient overflow");
     if (gn == 0)
         return report(v, out, 0, 0, 1);
-    memcpy(p, s, (size_t) n * sizeof(double));
+    memcpy(p, s, (size_t)n * sizeof(double));
     long double gamma = linear_dot(n, s, s);
     double rel = 1;
     int it = 0;
-    for (; it < maxit; ) {
+    for (; it < maxit;) {
         op.apply(op.context, p, 1, q, 1);
         long double d = linear_dot(m, q, q);
         if (!(d > 0) || !isfinite(d))
@@ -235,7 +245,7 @@ static Val cgls(VM *v, Obj *mat, Obj *b, double tol, int maxit) {
         op.apply_transpose(op.context, r, 1, s, 1);
         long double g = linear_dot(n, s, s);
         it++;
-        rel = (double) sqrtl(g) / gn;
+        rel = (double)sqrtl(g) / gn;
         if (!isfinite(rel))
             vmerror(v, "CGLS nonfinite residual");
         if (rel <= tol) {
@@ -244,10 +254,10 @@ static Val cgls(VM *v, Obj *mat, Obj *b, double tol, int maxit) {
                 r[i] = A(b).data[i] - q[i];
             op.apply_transpose(op.context, r, 1, s, 1);
             g = linear_dot(n, s, s);
-            rel = (double) sqrtl(g) / gn;
+            rel = (double)sqrtl(g) / gn;
             if (rel <= tol)
                 break;
-            memcpy(p, s, (size_t) n * sizeof(double));
+            memcpy(p, s, (size_t)n * sizeof(double));
             gamma = g;
             continue;
         }
@@ -266,14 +276,11 @@ static Val cgls(VM *v, Obj *mat, Obj *b, double tol, int maxit) {
     return report(v, out, it, rel, rel <= tol);
 }
 
-static const char *names[] = {
-    "cg", "poisson", "laplace", "lstsq", "axpy", "inner", "sum_axis", "rkerror", "finite"
-};
+static const char *names[] = {"cg",    "poisson",  "laplace", "lstsq", "axpy",
+                              "inner", "sum_axis", "rkerror", "finite"};
 Val high_call(VM *v, int id, int argc, Val *a) {
     int k = id - HIGH_BASE;
-    const int ar[] = {
-        4, 3, 1, 4, 3, 2, 2, 5, 1
-    };
+    const int ar[] = {4, 3, 1, 4, 3, 2, 2, 5, 1};
     if (k < 0 || k >= 9 || argc != ar[k])
         vmerror(v, "invalid highdim function arity");
     if (k == 8) {
@@ -291,7 +298,8 @@ Val high_call(VM *v, int id, int argc, Val *a) {
             vmerror(v, "invalid RK45 tolerance");
         if (!isobj(a[0], O_ARRAY)) {
             double y = finite_num(v, a[0]), z = finite_num(v, a[1]), l = finite_num(v, a[2]);
-            return number((double)(fabsl((long double) z - l) / (at + (long double) rt * fmax(fabs(y), fabs(z)))));
+            return number((double)(fabsl((long double)z - l) /
+                                   (at + (long double)rt * fmax(fabs(y), fabs(z)))));
         }
         Obj *x = arr(v, a[0]), *z = arr(v, a[1]), *l = arr(v, a[2]);
         size_t n = A(x).n;
@@ -302,10 +310,10 @@ Val high_call(VM *v, int id, int argc, Val *a) {
             double u = A(x).data[i], w = A(z).data[i], q = A(l).data[i];
             if (!isfinite(u) || !isfinite(w) || !isfinite(q))
                 vmerror(v, "nonfinite RK45 state");
-            long double e = ((long double) w - q) / (at + (long double) rt * fmax(fabs(u), fabs(w)));
+            long double e = ((long double)w - q) / (at + (long double)rt * fmax(fabs(u), fabs(w)));
             sum += e * e;
         }
-        return number((double) sqrtl(sum / n));
+        return number((double)sqrtl(sum / n));
     }
     if (k == 0 || k == 3) {
         Obj *m = arr(v, a[0]), *b = arr(v, a[1]);
@@ -334,7 +342,7 @@ Val high_call(VM *v, int id, int argc, Val *a) {
             long double s = 0;
             for (size_t i = 0; i < A(x).n; i++)
                 s += A(x).data[i];
-            return number((double) s);
+            return number((double)s);
         }
         Obj *o = tensor_new(v, r, shape);
         if (len && inner)
@@ -343,7 +351,7 @@ Val high_call(VM *v, int id, int argc, Val *a) {
                 long double s = 0;
                 for (size_t j = 0; j < len; j++)
                     s += A(x).data[base + j * inner];
-                A(o).data[i] = (double) s;
+                A(o).data[i] = (double)s;
             }
         return objval(o);
     }
@@ -351,7 +359,7 @@ Val high_call(VM *v, int id, int argc, Val *a) {
     if (!same(x, y))
         vmerror(v, "highdim shape mismatch");
     if (k == 5)
-        return number((double) linear_dot(A(x).n, A(x).data, A(y).data));
+        return number((double)linear_dot(A(x).n, A(x).data, A(y).data));
     double alpha = finite_num(v, a[2]);
     Obj *o = like(v, x);
     for (size_t i = 0; i < A(x).n; i++)
@@ -360,7 +368,7 @@ Val high_call(VM *v, int id, int argc, Val *a) {
 }
 
 Obj *high_module(VM *v) {
-    const char * key = "<native:high>";
+    const char *key = "<native:high>";
     Entry *e = tablefind(&v->modules, key);
     if (e)
         return e->val.o;

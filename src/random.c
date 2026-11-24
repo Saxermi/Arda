@@ -4,9 +4,8 @@
 #define A(o) ((o)->as.array)
 
 enum { GENERATOR, UINT32, UNIFORM, NORMAL, INTEGER, POISSON, SHUFFLE, CHOICE };
-static const char *const names[] = {
-    "generator", "uint32", "uniform", "normal", "integer", "poisson", "shuffle", "choice"
-};
+static const char *const names[] = {"generator", "uint32",  "uniform", "normal",
+                                    "integer",   "poisson", "shuffle", "choice"};
 static const int arities[] = {1, 1, 3, 3, 3, 2, 2, 2};
 _Static_assert(sizeof names / sizeof *names == sizeof arities / sizeof *arities,
                "random arity table");
@@ -15,8 +14,8 @@ _Static_assert(sizeof names / sizeof *names == sizeof arities / sizeof *arities,
 static uint32_t next32(RandomState *rng) {
     uint64_t previous = rng->state;
     rng->state = previous * UINT64_C(6364136223846793005) + rng->increment;
-    uint32_t mixed = (uint32_t) ((previous ^ (previous >> 18)) >> 27);
-    unsigned rotation = (unsigned) (previous >> 59);
+    uint32_t mixed = (uint32_t)((previous ^ (previous >> 18)) >> 27);
+    unsigned rotation = (unsigned)(previous >> 59);
     return (mixed >> rotation) | (mixed << ((32 - rotation) & 31));
 }
 
@@ -36,8 +35,8 @@ static uint64_t bounded(RandomState *rng, uint64_t width) {
 
 static int64_t signed_bits(uint64_t value) {
     if (value <= INT64_MAX)
-        return (int64_t) value;
-    return -1 - (int64_t) (UINT64_MAX - value);
+        return (int64_t)value;
+    return -1 - (int64_t)(UINT64_MAX - value);
 }
 
 static double unit(RandomState *rng) {
@@ -57,7 +56,7 @@ static double positive_unit(RandomState *rng) {
 void random_seed(RandomState *rng, int64_t seed, uint64_t stream) {
     *rng = (RandomState){.increment = (stream << 1) | 1};
     next32(rng);
-    rng->state += (uint64_t) seed;
+    rng->state += (uint64_t)seed;
     next32(rng);
 }
 
@@ -66,7 +65,7 @@ static Val generator(VM *v, int argc, Val *args) {
         vmerror(v, "random seed must be an integer");
     if (argc == 2 && (args[1].t != V_INT || args[1].i < 0))
         vmerror(v, "random stream must be a nonnegative integer");
-    uint64_t stream = argc == 2 ? (uint64_t) args[1].i : 0;
+    uint64_t stream = argc == 2 ? (uint64_t)args[1].i : 0;
     Obj *out = newobj(v, O_RNG);
     random_seed(&out->as.rng, args[0].i, stream);
     return objval(out);
@@ -75,7 +74,7 @@ static Val generator(VM *v, int argc, Val *args) {
 static int sample_count(VM *v, Val value) {
     if (value.t != V_INT || value.i < 0 || value.i > ARDA_MAX_ELEMENTS)
         vmerror(v, "sample count must be a nonnegative integer within the array limit");
-    return (int) value.i;
+    return (int)value.i;
 }
 
 static double finite_parameter(VM *v, Val value) {
@@ -87,7 +86,7 @@ static double finite_parameter(VM *v, Val value) {
 
 static double uniform(RandomState *rng, double low, double high) {
     long double u = unit(rng);
-    double result = (double) ((1 - u) * low + u * high);
+    double result = (double)((1 - u) * low + u * high);
     return result < high ? result : nextafter(high, low);
 }
 
@@ -101,7 +100,7 @@ static double normal(VM *v, RandomState *rng, double mean, double deviation) {
     long double result = mean + deviation * random_normal_unit(rng);
     if (!isfinite(result) || fabsl(result) > DBL_MAX)
         vmerror(v, "normal sample is outside the Float64 range");
-    return (double) result;
+    return (double)result;
 }
 
 typedef struct {
@@ -128,8 +127,10 @@ static long double poisson_log_mass(PoissonParameters p, long double k) {
     /* Rearrange the Stirling expansion so the leading log terms cancel
      * analytically, which keeps the test useful at large means. */
     long double difference = p.mean - k, inv = 1 / k, square = inv * inv;
-    long double correction = inv * (1.0L / 12 - square * (1.0L / 360 - square *
-                             (1.0L / 1260 - square * (1.0L / 1680 - square / 1188))));
+    long double correction =
+        inv *
+        (1.0L / 12 -
+         square * (1.0L / 360 - square * (1.0L / 1260 - square * (1.0L / 1680 - square / 1188))));
     return (k + 0.5L) * log1pl(difference / k) - difference - 0.5L * p.log_mean -
            0.918938533204672741780329736406L - correction;
 }
@@ -153,10 +154,10 @@ static int64_t poisson(RandomState *rng, PoissonParameters p) {
         if (k < 0 || k >= 0x1p63L)
             continue;
         if (distance >= 0.07L && v <= p.squeeze)
-            return (int64_t) k;
+            return (int64_t)k;
         long double envelope = p.a / (distance * distance) + p.b;
         if (logl(v * p.accept_scale / envelope) <= poisson_log_mass(p, k))
-            return (int64_t) k;
+            return (int64_t)k;
     }
 }
 
@@ -169,8 +170,8 @@ static Val draw_samples(VM *v, RandomState *rng, int op, int argc, Val *args) {
     if (op == INTEGER) {
         if (args[1].t != V_INT || args[2].t != V_INT || args[1].i >= args[2].i)
             vmerror(v, "random integer requires integer bounds with low < high");
-        lower = (uint64_t) args[1].i;
-        width = (uint64_t) args[2].i - lower;
+        lower = (uint64_t)args[1].i;
+        width = (uint64_t)args[2].i - lower;
     } else {
         first = finite_parameter(v, args[1]);
         if (op == POISSON) {
@@ -190,10 +191,18 @@ static Val draw_samples(VM *v, RandomState *rng, int op, int argc, Val *args) {
     for (int i = 0; i < count; i++) {
         Val sample;
         switch (op) {
-        case UNIFORM: sample = number(uniform(rng, first, second)); break;
-        case NORMAL: sample = number(normal(v, rng, first, second)); break;
-        case INTEGER: sample = integer(signed_bits(lower + bounded(rng, width))); break;
-        default: sample = integer(poisson(rng, parameters)); break;
+        case UNIFORM:
+            sample = number(uniform(rng, first, second));
+            break;
+        case NORMAL:
+            sample = number(normal(v, rng, first, second));
+            break;
+        case INTEGER:
+            sample = integer(signed_bits(lower + bounded(rng, width)));
+            break;
+        default:
+            sample = integer(poisson(rng, parameters));
+            break;
         }
         if (!batch)
             return sample;
@@ -217,7 +226,7 @@ static Val sequence_value(Val input, int index) {
     Obj *object = input.o;
     if (object->type == O_LIST)
         return object->as.list.a[index];
-    return number(A(object).data[(size_t) index * A(object).stride[0]]);
+    return number(A(object).data[(size_t)index * A(object).stride[0]]);
 }
 
 static Val choice(VM *v, RandomState *rng, Val input, int argc, Val *args) {
@@ -225,12 +234,12 @@ static Val choice(VM *v, RandomState *rng, Val input, int argc, Val *args) {
     if (!size)
         vmerror(v, "random choice requires a nonempty sequence");
     if (argc == 2)
-        return sequence_value(input, (int) bounded(rng, size));
+        return sequence_value(input, (int)bounded(rng, size));
     int count = sample_count(v, args[2]);
     int from_list = input.o->type == O_LIST;
     Obj *out = from_list ? list(v) : array_new(v, 1, count, 1);
     for (int i = 0; i < count; i++) {
-        Val selected = sequence_value(input, (int) bounded(rng, size));
+        Val selected = sequence_value(input, (int)bounded(rng, size));
         if (from_list)
             append(v, out, selected);
         else
@@ -246,7 +255,7 @@ static Val shuffle(VM *v, RandomState *rng, Val input) {
         for (int i = 0; i < size; i++)
             append(v, out, input.o->as.list.a[i]);
         for (int i = size - 1; i > 0; i--) {
-            int j = (int) bounded(rng, (uint64_t) i + 1);
+            int j = (int)bounded(rng, (uint64_t)i + 1);
             Val saved = out->as.list.a[i];
             out->as.list.a[i] = out->as.list.a[j];
             out->as.list.a[j] = saved;
@@ -256,7 +265,7 @@ static Val shuffle(VM *v, RandomState *rng, Val input) {
     Obj *out = tensor_copy(v, input.o);
     double *data = A(out).data;
     for (int i = size - 1; i > 0; i--) {
-        int j = (int) bounded(rng, (uint64_t) i + 1);
+        int j = (int)bounded(rng, (uint64_t)i + 1);
         double saved = data[i];
         data[i] = data[j];
         data[j] = saved;
@@ -266,7 +275,7 @@ static Val shuffle(VM *v, RandomState *rng, Val input) {
 
 Val random_call(VM *v, int id, int argc, Val *args) {
     int op = id - RANDOM_BASE;
-    if (op < 0 || (size_t) op >= sizeof names / sizeof *names)
+    if (op < 0 || (size_t)op >= sizeof names / sizeof *names)
         vmerror(v, "unknown random operation");
     if (argc != arities[op] && !((op != UINT32 && op != SHUFFLE) && argc == arities[op] + 1))
         vmerror(v, "invalid random.%s arity", names[op]);
@@ -279,10 +288,18 @@ Val random_call(VM *v, int id, int argc, Val *args) {
     RandomState state = args[0].o->as.rng;
     Val result;
     switch (op) {
-    case UINT32: result = integer(next32(&state)); break;
-    case SHUFFLE: result = shuffle(v, &state, args[1]); break;
-    case CHOICE: result = choice(v, &state, args[1], argc, args); break;
-    default: result = draw_samples(v, &state, op, argc, args); break;
+    case UINT32:
+        result = integer(next32(&state));
+        break;
+    case SHUFFLE:
+        result = shuffle(v, &state, args[1]);
+        break;
+    case CHOICE:
+        result = choice(v, &state, args[1], argc, args);
+        break;
+    default:
+        result = draw_samples(v, &state, op, argc, args);
+        break;
     }
     args[0].o->as.rng = state;
     return result;

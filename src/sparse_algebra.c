@@ -8,12 +8,13 @@ static void csr_apply(const void *context, const double *x, size_t xs, double *y
     for (size_t row = 0; row < s->rows; row++) {
         long double sum = 0;
         for (size_t j = s->offset[row]; j < s->offset[row + 1]; j++)
-            sum += (long double) s->values[j] * x[s->col[j] * xs];
-        y[row * ys] = (double) sum;
+            sum += (long double)s->values[j] * x[s->col[j] * xs];
+        y[row * ys] = (double)sum;
     }
 }
 
-static void csr_apply_transpose(const void *context, const double *x, size_t xs, double *y, size_t ys) {
+static void csr_apply_transpose(const void *context, const double *x, size_t xs, double *y,
+                                size_t ys) {
     const Sparse *s = context;
     for (size_t col = 0; col < s->cols; col++)
         y[col * ys] = 0;
@@ -23,8 +24,11 @@ static void csr_apply_transpose(const void *context, const double *x, size_t xs,
 }
 
 LinearOperator sparse_operator(const Sparse *s) {
-    return (LinearOperator){.rows = s->rows, .cols = s->cols, .context = s,
-                            .apply = csr_apply, .apply_transpose = csr_apply_transpose};
+    return (LinearOperator){.rows = s->rows,
+                            .cols = s->cols,
+                            .context = s,
+                            .apply = csr_apply,
+                            .apply_transpose = csr_apply_transpose};
 }
 
 static void finite_elements(VM *v, Obj *o) {
@@ -36,14 +40,14 @@ static void finite_elements(VM *v, Obj *o) {
 
 Obj *sparse_product(VM *v, Obj *matrix, Val input, int rank) {
     Sparse *s = &S(matrix);
-    if (!isobj(input, O_ARRAY) || A(input.o).rank != rank || s->cols != (size_t) A(input.o).shape[0])
+    if (!isobj(input, O_ARRAY) || A(input.o).rank != rank || s->cols != (size_t)A(input.o).shape[0])
         vmerror(v, "sparse product shape mismatch");
     Obj *x = input.o;
-    size_t width = rank == 2 ? (size_t) A(x).shape[1] : 1;
+    size_t width = rank == 2 ? (size_t)A(x).shape[1] : 1;
     if (s->rows > ARDA_MAX_ELEMENTS / (width ? width : 1))
         vmerror(v, "array size limit: 16000000 elements");
     finite_elements(v, x);
-    Obj *y = array_new(v, rank, (int) s->rows, (int) width);
+    Obj *y = array_new(v, rank, (int)s->rows, (int)width);
     if (!A(y).n)
         return y;
     Obj *csr = sparse_as_csr(v, matrix);
@@ -66,13 +70,13 @@ Obj *sparse_transpose(VM *v, Obj *matrix) {
     Sparse *t = &S(out);
     sparse_entries(v, out, s->nnz);
     for (size_t j = 0; j < s->nnz; j++)
-        t->offset[(size_t) s->col[j] + 1]++;
+        t->offset[(size_t)s->col[j] + 1]++;
     for (size_t row = 0; row < t->rows; row++)
         t->offset[row + 1] += t->offset[row];
     for (size_t row = 0; row < s->rows; row++) {
         for (size_t j = s->offset[row]; j < s->offset[row + 1]; j++) {
             size_t pos = t->offset[s->col[j]]++;
-            t->col[pos] = (uint32_t) row;
+            t->col[pos] = (uint32_t)row;
             t->values[pos] = s->values[j];
         }
     }
@@ -185,9 +189,9 @@ Obj *sparse_diagonal(VM *v, Obj *matrix) {
     if (length > ARDA_MAX_ELEMENTS)
         vmerror(v, "array size limit: 16000000 elements");
     Obj *csr = sparse_as_csr(v, matrix);
-    Obj *out = array_new(v, 1, (int) length, 1);
+    Obj *out = array_new(v, 1, (int)length, 1);
     for (size_t i = 0; i < length; i++)
-        A(out).data[i] = sparse_csr_at(&S(csr), i, (uint32_t) i);
+        A(out).data[i] = sparse_csr_at(&S(csr), i, (uint32_t)i);
     sparse_drop_temporary(v, csr, matrix);
     return out;
 }
@@ -196,7 +200,7 @@ int sparse_symmetric(const Sparse *s) {
     if (s->rows != s->cols)
         return 0;
     for (uint32_t row = 0; row < s->rows; row++)
-        for (size_t j = s->offset[row]; j < s->offset[(size_t) row + 1]; j++)
+        for (size_t j = s->offset[row]; j < s->offset[(size_t)row + 1]; j++)
             if (s->col[j] != row && s->values[j] != sparse_csr_at(s, s->col[j], row))
                 return 0;
     return 1;
@@ -214,7 +218,7 @@ Val sparse_estimate(VM *v, Obj *matrix) {
     Obj *result = newobj(v, O_MAP);
     sparse_result_field(v, result, "rows", integer(s->rows));
     sparse_result_field(v, result, "cols", integer(s->cols));
-    sparse_result_field(v, result, "nnz", integer((int64_t) s->nnz));
-    sparse_result_field(v, result, "matvec_workspace_bytes", integer((int64_t) bytes));
+    sparse_result_field(v, result, "nnz", integer((int64_t)s->nnz));
+    sparse_result_field(v, result, "matvec_workspace_bytes", integer((int64_t)bytes));
     return objval(result);
 }

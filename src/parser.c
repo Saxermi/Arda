@@ -21,7 +21,8 @@ static int match(Parser *p, TokenType t) {
 }
 
 static void err(Parser *p, const char *msg) {
-    front_error("%s:%d: %s (got %s '%s')", p->path, peek(p)->line, msg, tokname(peek(p)->t), peek(p)->lex);
+    front_error("%s:%d: %s (got %s '%s')", p->path, peek(p)->line, msg, tokname(peek(p)->t),
+                peek(p)->lex);
 }
 
 static Token *expect(Parser *p, TokenType t) {
@@ -31,7 +32,7 @@ static Token *expect(Parser *p, TokenType t) {
 }
 
 static Node *node(NodeType t, int line) {
-    Node *n = front_mem(sizeof * n);
+    Node *n = front_mem(sizeof *n);
     n->t = t;
     n->line = line;
     return n;
@@ -40,7 +41,7 @@ static Node *node(NodeType t, int line) {
 static void add(Node *n, Node *x) {
     if (n->count == n->cap) {
         n->cap = n->cap ? 2 * n->cap : 8;
-        n->items = front_resize(n->items, sizeof(Node * ) * (size_t) n->cap);
+        n->items = front_resize(n->items, sizeof(Node *) * (size_t)n->cap);
     }
     n->items[n->count++] = x;
 }
@@ -79,7 +80,7 @@ static Node *primary(Parser *p) {
             for (int i = 0; i < n->n_names; i++)
                 if (!strcmp(s, n->names[i]))
                     err(p, "duplicate parameter");
-            n->names = front_resize(n->names, sizeof(char * ) * (size_t)(n->n_names + 1));
+            n->names = front_resize(n->names, sizeof(char *) * (size_t)(n->n_names + 1));
             n->names[n->n_names++] = s;
             if (!match(p, T_COMMA))
                 break;
@@ -199,7 +200,11 @@ static Node *binary(Parser *p, int level) {
     Node *left = binary(p, level - 1);
     while (1) {
         TokenType t = peek(p)->t;
-        int ok = (level == 1 && (t == T_STAR || t == T_SLASH || t == T_PERCENT)) || (level == 2 && (t == T_PLUS || t == T_MINUS)) || (level == 3 && (t == T_LT || t == T_LE || t == T_GT || t == T_GE)) || (level == 4 && (t == T_EQEQ || t == T_NE)) || (level == 5 && t == T_AND) || (level == 6 && t == T_OR);
+        int ok = (level == 1 && (t == T_STAR || t == T_SLASH || t == T_PERCENT)) ||
+                 (level == 2 && (t == T_PLUS || t == T_MINUS)) ||
+                 (level == 3 && (t == T_LT || t == T_LE || t == T_GT || t == T_GE)) ||
+                 (level == 4 && (t == T_EQEQ || t == T_NE)) || (level == 5 && t == T_AND) ||
+                 (level == 6 && t == T_OR);
         if (!ok)
             break;
         p->i++;
@@ -270,9 +275,9 @@ static Node *stmt(Parser *p) {
             for (int i = 0; i < n->n_names; i++)
                 if (!strcmp(s, n->names[i]))
                     err(p, "duplicate parameter");
-            n->names = front_resize(n->names, sizeof(char * ) * (size_t)(n->n_names + 1));
+            n->names = front_resize(n->names, sizeof(char *) * (size_t)(n->n_names + 1));
             n->names[n->n_names] = s;
-            n->defaults = front_resize(n->defaults, sizeof(Node * ) * (size_t)(n->n_names + 1));
+            n->defaults = front_resize(n->defaults, sizeof(Node *) * (size_t)(n->n_names + 1));
             n->defaults[n->n_names] = match(p, T_EQ) ? expr(p) : NULL;
             if (n->n_names && n->defaults[n->n_names - 1] && !n->defaults[n->n_names])
                 err(p, "required parameter after default");
@@ -320,7 +325,7 @@ static Node *stmt(Parser *p) {
             err(p, "module name or quoted relative path");
         n->str = m->lex;
         if (match(p, T_AS)) {
-            n->names = front_mem(sizeof(char * ));
+            n->names = front_mem(sizeof(char *));
             n->names[0] = expect(p, T_ID)->lex;
             n->n_names = 1;
         } else if (m->t == T_STR)
@@ -356,9 +361,7 @@ static Node *stmt(Parser *p) {
 }
 
 Node *parse(Tokens *ts, const char *path) {
-    Parser p = {
-        .ts = ts, .path = path
-    };
+    Parser p = {.ts = ts, .path = path};
     Node *n = node(N_BLOCK, 1);
     while (peek(&p)->t != T_EOF) {
         if (match(&p, T_NL))

@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import platform
 import random
+import shutil
 import statistics
 import subprocess
 import tempfile
@@ -51,9 +52,9 @@ def main():
     args = parser.parse_args()
     if args.rounds < 3:
         parser.error("at least three rounds required")
-    timer = Path("/usr/bin/time")
-    if not timer.is_file():
-        parser.error("GNU /usr/bin/time is required (Ubuntu package: time)")
+    timer = shutil.which("time")
+    if not timer:
+        parser.error("GNU time must be available on PATH (Ubuntu package: time)")
     if args.cpu is not None:
         os.sched_setaffinity(0, {args.cpu})
     modes = {
@@ -82,7 +83,7 @@ def main():
             samples = {label: [] for label in modes}
 
             def run(label):
-                command = [str(timer), "-f", "%M", "-o", str(rss_file),
+                command = [timer, "-f", "%M", "-o", str(rss_file),
                            *modes[label], str(script)]
                 start = perf_counter()
                 result = subprocess.run(command, env=env, capture_output=True,

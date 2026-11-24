@@ -1,13 +1,13 @@
 # Scientific research in Arda
 
-This directory records the mathematics behind Arda's scientific features and compares candidates for future milestones. The [roadmap](../ROADMAP.md) tracks scope and sequencing. The [decision log](../DECISIONS.md) records the outcome of project discussions. The source and tests establish implemented behavior. This inventory covers Arda through 0.15.3.
+This directory records the mathematics behind Arda's scientific features and compares candidates for future milestones. The [roadmap](../ROADMAP.md) tracks scope and sequencing. The [decision log](../DECISIONS.md) records the outcome of project discussions. The source and tests establish implemented behavior. This inventory covers Arda through 0.15.4.
 
 | Implemented | Planned or experimental candidates |
 | --- | --- |
 | [Dense linear algebra and reductions](implemented/linear-algebra.md) | [Factorizations, statistics, quadrature and special functions](planned/numerical-libraries.md) |
 | [Random generation and statistics](implemented/random-and-statistics.md) | |
 | [Complex scalars, structured operators and randomized SVD](implemented/structured-computing.md) | |
-| [Static native mathematical documentation](implemented/mathdoc.md) | |
+| [Static mathematical documentation](implemented/mathdoc.md) | |
 | [Sparse storage, algebra, assembly and solvers](implemented/sparse-matrices.md) | [Krylov methods, preconditioning and verification](planned/sparse-solvers.md) |
 | [Integration and differential equations](implemented/integration-and-odes.md) | [Simulation, discretization and adjoints](planned/simulation.md) |
 | [Optimization and automatic differentiation](implemented/optimization-and-ad.md) | [Tensor compression, tensor AD and mathematical introspection](planned/tensors-and-symbolics.md) |

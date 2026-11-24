@@ -158,16 +158,20 @@ class MathDocTests(unittest.TestCase):
             nan α+1
         caro minimum():
             nan -9223372036854775808
+        caro decimal(x):
+            nan 9.81*x+1.0000000000000002+1e-20
         pedo(f.getTex())
         pedo(my_fn.getTex())
         pedo(unicode.getTex())
         pedo(minimum.getTex())
+        pedo(decimal.getTex())
         """, stress=True).splitlines()
         self.assertEqual(output[0], r"f\left(a,b,c\right)=\frac{\left(a+b\right)\cdot \left(a-\left(b-c\right)\right)}{\frac{a}{b+c}}")
         self.assertIn(r"\mathrm{my\_fn}", output[1])
         self.assertEqual(output[1], r"\mathrm{my\_fn}\left(\mathrm{x\_1}\right)=\mathrm{x\_1}")
         self.assertIn("[U+03B1]", output[2])
         self.assertTrue(output[3].endswith("=-9223372036854775808"))
+        self.assertTrue(output[4].endswith(r"=9.81\cdot x+1.0000000000000002+1\times 10^{-20}"))
 
     def test_call_provenance_and_no_execution(self):
         output = self.run_code("""

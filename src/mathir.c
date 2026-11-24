@@ -1,12 +1,24 @@
 #include "frontend.h"
 
+#include <float.h>
+
 /* A bounded, source-level mathematical IR, owned by a compilation prototype.
  * All names are copied into the same allocation as the immutable nodes.
  * No VM values, AST pointers or runtime call evaluation are retained. */
 enum { MAX_NODES = 128, MAX_DEPTH = 32, MAX_NAME = 128, MAX_PARAMS = 32 };
 typedef enum {
-    MI_INT, MI_REAL, MI_PARAM, MI_EXTERNAL, MI_LOCAL, MI_NEG,
-    MI_ADD, MI_SUB, MI_MUL, MI_DIV, MI_CALL, MI_BIND
+    MI_INT,
+    MI_REAL,
+    MI_PARAM,
+    MI_EXTERNAL,
+    MI_LOCAL,
+    MI_NEG,
+    MI_ADD,
+    MI_SUB,
+    MI_MUL,
+    MI_DIV,
+    MI_CALL,
+    MI_BIND
 } Kind;
 typedef struct {
     Kind kind;
@@ -40,7 +52,7 @@ static int add(Extract *e, Kind kind, const char *name, int a, int b) {
     if (e->count == MAX_NODES || (name && !valid_name(name)))
         return -1;
     int i = e->count++;
-    e->nodes[i] = (MathNode){ .kind = kind, .a = a, .b = b, .next = -1, .name = name };
+    e->nodes[i] = (MathNode){.kind = kind, .a = a, .b = b, .next = -1, .name = name};
     return i;
 }
 
@@ -88,11 +100,20 @@ static int expression(Extract *e, const Node *n, int depth) {
         return a < 0 ? -1 : add(e, MI_NEG, NULL, a, -1);
     case N_BINARY:
         switch (n->op) {
-        case T_PLUS: kind = MI_ADD; break;
-        case T_MINUS: kind = MI_SUB; break;
-        case T_STAR: kind = MI_MUL; break;
-        case T_SLASH: kind = MI_DIV; break;
-        default: return -1;
+        case T_PLUS:
+            kind = MI_ADD;
+            break;
+        case T_MINUS:
+            kind = MI_SUB;
+            break;
+        case T_STAR:
+            kind = MI_MUL;
+            break;
+        case T_SLASH:
+            kind = MI_DIV;
+            break;
+        default:
+            return -1;
         }
         a = expression(e, n->a, depth + 1);
         if (a < 0)
@@ -103,8 +124,8 @@ static int expression(Extract *e, const Node *n, int depth) {
         /* Source names are not identities: mutable lexical environments can
          * rebind even a builtin. Document the spelling, not a guessed callee. */
         const Node *callee = n->a;
-        if (!callee || (callee->t != N_VAR &&
-                (callee->t != N_ATTR || !callee->a || callee->a->t != N_VAR)))
+        if (!callee ||
+            (callee->t != N_VAR && (callee->t != N_ATTR || !callee->a || callee->a->t != N_VAR)))
             return -1;
         int qualifier = -1;
         if (callee->t == N_ATTR) {
@@ -137,7 +158,7 @@ static MathIR *extract(const Node *fn) {
     for (int i = 0; i < fn->n_names; i++)
         if (!valid_name(fn->names[i]) || (fn->defaults && fn->defaults[i]))
             return NULL;
-    Extract e = { .fn = fn };
+    Extract e = {.fn = fn};
     int result = -1;
     if (fn->t == N_LAMBDA)
         result = expression(&e, fn->a, 0);
@@ -149,8 +170,7 @@ static MathIR *extract(const Node *fn) {
             const Node *s = body->items[i];
             if (s->t == N_DECLARE && i < body->count - 1) {
                 /* Rebinding and shadowing are deliberately outside v1. */
-                if (!valid_name(s->str) || parameter(&e, s->str) >= 0 ||
-                        binding(&e, s->str) >= 0)
+                if (!valid_name(s->str) || parameter(&e, s->str) >= 0 || binding(&e, s->str) >= 0)
                     return NULL;
                 int value = expression(&e, s->a, 0);
                 if (value < 0 || add(&e, MI_BIND, s->str, value, -1) < 0)
@@ -218,9 +238,8 @@ static void put(Writer *w, const char *s) {
  * tokens so the output does not depend on a particular TeX font or engine. */
 static void identifier(Writer *w, const char *name) {
     const unsigned char *s = (const unsigned char *)name;
-    if (s[0] && !s[1] && ((s[0] >= 'a' && s[0] <= 'z') ||
-                           (s[0] >= 'A' && s[0] <= 'Z'))) {
-        char one[] = { (char)s[0], 0 };
+    if (s[0] && !s[1] && ((s[0] >= 'a' && s[0] <= 'z') || (s[0] >= 'A' && s[0] <= 'Z'))) {
+        char one[] = {(char)s[0], 0};
         put(w, one);
         return;
     }
@@ -232,7 +251,7 @@ static void identifier(Writer *w, const char *name) {
                 put(w, "\\_");
             else if ((cp >= 'a' && cp <= 'z') || (cp >= 'A' && cp <= 'Z') ||
                      (cp >= '0' && cp <= '9')) {
-                char one[] = { (char)cp, 0 };
+                char one[] = {(char)cp, 0};
                 put(w, one);
             } else {
                 w->failed = 1;
@@ -258,10 +277,17 @@ static void identifier(Writer *w, const char *name) {
 
 static void render_number(Writer *w, const MathNode *n) {
     char text[64];
-    if (n->kind == MI_INT)
+    if (n->kind == MI_INT) {
         snprintf(text, sizeof text, "%" PRId64, n->integer);
-    else
-        snprintf(text, sizeof text, "%.17g", n->real);
+    } else {
+        // Use only as many significant digits as the stored double needs.
+        for (int digits = 1; digits <= DBL_DECIMAL_DIG; digits++) {
+            snprintf(text, sizeof text, "%.*g", digits, n->real);
+            double parsed = strtod(text, NULL);
+            if (parsed == n->real && !!signbit(parsed) == !!signbit(n->real))
+                break;
+        }
+    }
     char *exp = strchr(text, 'e');
     if (!exp) {
         put(w, text);
@@ -278,12 +304,19 @@ static void render_number(Writer *w, const MathNode *n) {
 
 static int precedence(const MathNode *n) {
     switch (n->kind) {
-    case MI_ADD: case MI_SUB: return 1;
-    case MI_MUL: return 2;
-    case MI_NEG: return 3;
-    case MI_INT: return n->integer < 0 ? 3 : 4;
-    case MI_REAL: return signbit(n->real) ? 3 : 4;
-    default: return 4;
+    case MI_ADD:
+    case MI_SUB:
+        return 1;
+    case MI_MUL:
+        return 2;
+    case MI_NEG:
+        return 3;
+    case MI_INT:
+        return n->integer < 0 ? 3 : 4;
+    case MI_REAL:
+        return signbit(n->real) ? 3 : 4;
+    default:
+        return 4;
     }
 }
 
@@ -315,8 +348,7 @@ static void render(Writer *w, const MathIR *ir, int i, int expand, int minimum, 
         int keep = -1;
         if (n->kind == MI_NEG && ir->nodes[n->a].kind == MI_NEG)
             keep = ir->nodes[n->a].a;
-        if (n->kind == MI_ADD || n->kind == MI_SUB ||
-                n->kind == MI_MUL || n->kind == MI_DIV) {
+        if (n->kind == MI_ADD || n->kind == MI_SUB || n->kind == MI_MUL || n->kind == MI_DIV) {
             const MathNode *a = &ir->nodes[n->a], *b = &ir->nodes[n->b];
             if ((n->kind == MI_ADD || n->kind == MI_SUB) && integer_literal(b, 0))
                 keep = n->a;
@@ -331,8 +363,7 @@ static void render(Writer *w, const MathIR *ir, int i, int expand, int minimum, 
                 put(w, "^{2}");
                 return;
             }
-            if (n->kind == MI_MUL && a->kind == MI_MUL &&
-                    same_parameter(&ir->nodes[a->b], b)) {
+            if (n->kind == MI_MUL && a->kind == MI_MUL && same_parameter(&ir->nodes[a->b], b)) {
                 int parens = minimum > 2;
                 if (parens)
                     put(w, "\\left(");
@@ -357,17 +388,22 @@ static void render(Writer *w, const MathIR *ir, int i, int expand, int minimum, 
     if (parens)
         put(w, "\\left(");
     switch (n->kind) {
-    case MI_INT: case MI_REAL:
+    case MI_INT:
+    case MI_REAL:
         render_number(w, n);
         break;
-    case MI_PARAM: case MI_EXTERNAL: case MI_LOCAL:
+    case MI_PARAM:
+    case MI_EXTERNAL:
+    case MI_LOCAL:
         identifier(w, n->name);
         break;
     case MI_NEG:
         put(w, "-");
         render(w, ir, n->a, expand, 4, depth + 1);
         break;
-    case MI_ADD: case MI_SUB: case MI_MUL:
+    case MI_ADD:
+    case MI_SUB:
+    case MI_MUL:
         render(w, ir, n->a, expand, prec, depth + 1);
         put(w, n->kind == MI_ADD ? "+" : n->kind == MI_SUB ? "-" : "\\cdot ");
         /* Preserve the AST association of right operands. */
@@ -419,24 +455,26 @@ static void signature(Writer *w, const Proto *p) {
 const char *mathir_assumptions(const Proto *p) {
     if (!p->mathir)
         return NULL;
-    return "Source-level mathematical notation conditional on numeric operands and compatible operations. "
+    return "Source-level mathematical notation conditional on numeric operands and compatible "
+           "operations. "
            "Level 0 may use formal identities for ordinary finite scalar real arithmetic; "
            "levels 1 and 3 retain source operations. "
-           "Types, shapes, domains, overflow, external values and dynamic call targets are not inferred. "
+           "Types, shapes, domains, overflow, external values and dynamic call targets are not "
+           "inferred. "
            "Not a claim of floating-point or runtime equivalence for arbitrary values.";
 }
 
 const char *mathir_algorithm(const Proto *p) {
-    return p->mathir ?
-           "Straight-line source expressions and local declarations; actual dynamic dispatch and native call implementations are not inferred."
-           : NULL;
+    return p->mathir ? "Straight-line source expressions and local declarations; actual dynamic "
+                       "dispatch and native call implementations are not inferred."
+                     : NULL;
 }
 
 int mathir_tex(const Proto *p, int level, char *out, size_t size) {
     const MathIR *ir = p->mathir;
     if (!ir || !size || level < 0 || level > 3)
         return 0;
-    Writer w = { .out = out, .size = size };
+    Writer w = {.out = out, .size = size};
     out[0] = 0;
     if (level == 2) {
         put(&w, "\\text{Numeric operands assumed; types, shapes and domains unknown.}");
@@ -457,7 +495,7 @@ int mathir_tex(const Proto *p, int level, char *out, size_t size) {
         if (!w.failed)
             return 1;
         /* Exponential expansion or depth limit: fall back to named steps. */
-        w = (Writer){ .out = out, .size = size };
+        w = (Writer){.out = out, .size = size};
         out[0] = 0;
     }
     put(&w, "\\begin{aligned}");

@@ -58,7 +58,7 @@ Represent complex scalars with two Float64 components and delegate principal ele
 
 ## 2026-11-24 — AMDE v1 metadata, call provenance and simplification
 
-**Status** — Accepted by the project owner for 0.15.4; local release validation pending.
+**Status** — Accepted by the project owner and locally validated for 0.15.4. [Release validation and overhead measurements](docs/RUMIL_0.15.4.md)
 
 Enable bounded compact user-function MathIR by default; retain `--mathdoc=none` to skip collection. Dynamic calls remain opaque source expressions, not inferred native identities. This preserves static-query non-execution and avoids resolving mutable runtime bindings.
 
