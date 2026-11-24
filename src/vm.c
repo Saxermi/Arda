@@ -153,7 +153,7 @@ static int eq(Val a, Val b) {
     return a.o == b.o;
 }
 
-static inline int64_t checked_arith(VM *v, Op op, int64_t x, int64_t y) {
+int64_t checked_arith(VM *v, Op op, int64_t x, int64_t y) {
 #if defined(__GNUC__) || defined(__clang__)
     int64_t r;
     int overflow = op == OP_ADD   ? __builtin_add_overflow(x, y, &r)
@@ -186,6 +186,8 @@ static Val binary(VM *v, Op op, Val a, Val b) {
         return ad_binary(v, op, a, b);
     if (op == OP_EQ || op == OP_NE)
         return boolean(eq(a, b) ^ (op == OP_NE));
+    if (isobj(a, O_TYPED_TENSOR) || isobj(b, O_TYPED_TENSOR))
+        return typed_tensor_binary(v, op, a, b);
     if (isobj(a, O_ARRAY) || isobj(b, O_ARRAY))
         return array_binary(v, op, a, b);
     if (op == OP_ADD && (isobj(a, O_STRING) || isobj(b, O_STRING))) {

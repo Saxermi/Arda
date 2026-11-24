@@ -230,6 +230,9 @@ static void trace(VM *v, Obj *o) {
     case O_ARRAY:
         markobj(v, o->as.array.buffer);
         break;
+    case O_TYPED_TENSOR:
+        markobj(v, o->as.tensor.buffer);
+        break;
     case O_AD:
         markobj(v, o->as.ad.a);
         markobj(v, o->as.ad.b);
