@@ -1,4 +1,6 @@
-# Arda 0.14 — Sparse foundations (proposal, not implemented)
+# Arda 0.14 — Sparse foundations
+
+**Status:** 0.14.0 foundations implemented. See [Moria specification](docs/MORIA_0.14.0.md) for the actual API and validated behavior; the remaining assembly, algebra and solver milestones are proposals.
 
 CSR (Compressed Sparse Row) and CRS (Compressed Row Storage) are synonyms. Use `csr` as the primary API name and consider `crs` as an alias. COO (Coordinate format) is also a first-class format, not a temporary dense matrix.
 
@@ -10,7 +12,7 @@ CSR (Compressed Sparse Row) and CRS (Compressed Row Storage) are synonyms. Use `
 - `sp.shape`, `sp.nnz`, `sp.bytes`, `sp.todense`, `sp.from_dense`, `sp.matvec`
 - Later: sparse CG/GMRES, transpose, sparse addition and general linear operators.
 
-All names are proposals, not executable 0.13.1 code.
+The constructors, conversions, inspection and dense bridges are implemented in 0.14.0. `sp.matvec` and the later algebra/solver APIs remain proposals.
 
 ## Storage and conversion contract
 

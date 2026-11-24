@@ -210,6 +210,7 @@ static void trace(VM *v, Obj *o) {
     switch (o->type) {
     case O_STRING:
     case O_NATIVE:
+    case O_SPARSE:
         break;
     case O_ARRAY:
         markobj(v, o->as.array.owner);
@@ -280,6 +281,13 @@ static void release(Obj *o) {
     switch (o->type) {
     case O_STRING:
         free(o->as.str.s);
+        break;
+    case O_SPARSE:
+        free(o->as.sparse.row);
+        free(o->as.sparse.col);
+        free(o->as.sparse.offset);
+        free(o->as.sparse.values);
+        free(o->as.sparse.work);
         break;
     case O_ARRAY:
         if (!o->as.array.owner)

@@ -1,0 +1,10 @@
+# Moria: unordered coordinates, duplicates, an empty row, and CSR round trip.
+tol sparse as sp
+esta A = sp.coo(3, 4, [2,0,0,2,0], [3,1,1,0,3], [7,2,3,4,-1])
+esta B = sp.to_csr(A)
+pedo(A, B)
+pedo(sp.components(B))
+pedo(sp.components(sp.to_coo(B)))
+pedo(sp.todense(B))
+pedo(sp.bytes(A), sp.bytes(B))
+pedo(sp.describe("to_csr"))

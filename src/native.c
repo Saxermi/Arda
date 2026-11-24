@@ -29,7 +29,7 @@ static const char *typename(Val v) {
         {
             static const char *n[] = {
                 "string", "list", "map", "scope", "function", "native", "class", "instance", "method", "module",
-                "iterator", "array", "ad"
+                "iterator", "array", "ad", "sparse"
             };
             return n[v.o->type];
         }
@@ -66,6 +66,10 @@ char *value_string(Val v) {
             for (int i = 0; i < v.o->as.array.rank; i++)
                 pos += (size_t) snprintf(b + pos, sizeof b - pos, "%s%d", i ? "x" : "", v.o->as.array.shape[i]);
             snprintf(b + pos, sizeof b - pos, ">");
+        } else if (isobj(v, O_SPARSE)) {
+            Sparse *s = &v.o->as.sparse;
+            snprintf(b, sizeof b, "<%s shape=%" PRIu32 "x%" PRIu32 " nnz=%zu>",
+                     s->csr ? "csr" : "coo", s->rows, s->cols, s->nnz);
         } else if (isobj(v, O_MAP))
             snprintf(b, sizeof b, "<map length=%d>", v.o->as.map.tab.n);
         else if (isobj(v, O_CLASS))
@@ -148,6 +152,8 @@ static void arity(VM *v, int id, int argc, int n) {
 }
 
 Val native_call(VM *v, int id, int argc, Val *a) {
+    if (id >= SPARSE_BASE)
+        return sparse_call(v, id, argc, a);
     if (id >= HIGH_BASE)
         return high_call(v, id, argc, a);
     if (id >= AD_BASE)
@@ -423,6 +429,8 @@ Val native_call(VM *v, int id, int argc, Val *a) {
 }
 
 Obj *native_module(VM *v, const char *name) {
+    if (!strcmp(name, "sparse"))
+        return sparse_module(v);
     if (!strcmp(name, "high"))
         return high_module(v);
     if (!strcmp(name, "numc"))

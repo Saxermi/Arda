@@ -4,7 +4,7 @@
 
 **Planungsstand:** 24. November 2026 · **Ausgangsversion:** 0.13.1 · **Ziel:** 1.0 · **Dokumentrevision:** 2.0 (konsolidiert)
 
-Dieses Dokument ist ein Entwicklungsplan, kein Bericht über bereits implementierte Features. Alle APIs ab 0.14 sind Entwürfe. Zahlen mit der Bezeichnung „Ziel“ oder „Modellrechnung“ sind keine Benchmarkergebnisse. Die bisherigen Ziele bleiben bestehen; Resource-Efficient Computing, maximale praktische Hardwareauslastung, Beyond-RAM Computing, mathematische Introspektion, überprüfbare Numerik und verteiltes HPC sind Querschnittsziele. Diese Revision ersetzt die frühere Planungsdatei, nicht deren Ziele. Die Quellcode-Version bleibt unverändert 0.13.1.
+Dieses Dokument ist ein Entwicklungsplan, kein Bericht über bereits implementierte Features. 0.14.0 (Moria Foundations, S0–S5) ist implementiert; alle folgenden APIs bleiben Entwürfe. Siehe [Moria specification and validation](docs/MORIA_0.14.0.md). Zahlen mit der Bezeichnung „Ziel“ oder „Modellrechnung“ sind keine Benchmarkergebnisse. Die bisherigen Ziele bleiben bestehen; Resource-Efficient Computing, maximale praktische Hardwareauslastung, Beyond-RAM Computing, mathematische Introspektion, überprüfbare Numerik und verteiltes HPC sind Querschnittsziele. Diese Revision ersetzt die frühere Planungsdatei, nicht deren Ziele. Die Quellcode-Version ist jetzt 0.14.0.
 
 ## 1. Mission und Nicht-Ziele
 
@@ -124,9 +124,9 @@ CPU-first, nicht CPU-only: serieller Pfad und identische mathematische API für 
 
 ### 0.14 — Moria — Resource-Efficient Sparse Computing (P0, sofort)
 
-**0.14.0 Foundations:** Baseline reproduzieren. `O_SPARSE` oder zwei explizite Objekttypen, `src/sparse.c/.h`, eigener nativer ID-Bereich ohne Kollision mit bisherigen Modulen. GC-Freigabe, Typanzeige, Formatierung, Modulregistrierung, Native-Dispatch. Intern geprüfte Größenarithmetik und Sparse-Allokation mit Reservierung/Fehlercleanup. Float64-Werte, uint32-Indizes, size_t-Zeilenoffsets; auf 64-Bit-Systemen 8 Byte pro Offset. Nullbasierte Indizes, leere/rechteckige Matrizen, endliche Werte. `sp.coo`, `sp.csr`, `sp.crs`, `sp.shape`, `sp.nnz`, `sp.bytes`, `sp.format`, `sp.get`, `sp.components`. Komponenten als Kopien oder unveränderliche Views, nie unkontrolliert veränderbare CSR-Struktur.
+**0.14.0 Foundations (implemented):** Baseline reproduzieren. `O_SPARSE` oder zwei explizite Objekttypen, `src/sparse.c/.h`, eigener nativer ID-Bereich ohne Kollision mit bisherigen Modulen. GC-Freigabe, Typanzeige, Formatierung, Modulregistrierung, Native-Dispatch. Intern geprüfte Größenarithmetik und Sparse-Allokation mit Reservierung/Fehlercleanup. Float64-Werte, uint32-Indizes, size_t-Zeilenoffsets; auf 64-Bit-Systemen 8 Byte pro Offset. Nullbasierte Indizes, leere/rechteckige Matrizen, endliche Werte. `sp.coo`, `sp.csr`, `sp.crs`, `sp.shape`, `sp.nnz`, `sp.bytes`, `sp.format`, `sp.get`, `sp.components`. Komponenten als Kopien oder unveränderliche Views, nie unkontrolliert veränderbare CSR-Struktur.
 
-**0.14.0 (Fortsetzung: Conversion):** COO → CSR ohne Dense: Zeilen zählen, Prefix-Sum, Einträge verteilen, pro Zeile stabil nach Spalte sortieren, Duplikate in dokumentierter Reihenfolge addieren, exakte Nullen entfernen, Offsets kompakt neu schreiben. Alternativ globales Sortieren als Referenz. Ziel O(rows + nnz + sum(k_i log k_i)), sortierter Input schneller; O(rows + nnz) Workspace, keine Kopie in Dense. Endliche Summen prüfen. CSR → COO linear. CSR-Konstruktor verlangt streng steigende Spalten je Zeile, gültige Offsets und keine strukturell gespeicherten Nullen. COO erlaubt explizite Nullen und Duplikate; `nnz` zählt gespeicherte Einträge. `sp.from_dense`, `sp.todense` mit Vorabprüfung des gesamten Outputs. 
+**0.14.0 (Fortsetzung: Conversion, implemented):** COO → CSR ohne Dense: Zeilen zählen, Prefix-Sum, Einträge verteilen, pro Zeile stabil nach Spalte sortieren, Duplikate in dokumentierter Reihenfolge addieren, exakte Nullen entfernen, Offsets kompakt neu schreiben. Alternativ globales Sortieren als Referenz. Ziel O(rows + nnz + sum(k_i log k_i)), sortierter Input schneller; O(rows + nnz) Workspace, keine Kopie in Dense. Endliche Summen prüfen. CSR → COO linear. CSR-Konstruktor verlangt streng steigende Spalten je Zeile, gültige Offsets und keine strukturell gespeicherten Nullen. COO erlaubt explizite Nullen und Duplikate; `nnz` zählt gespeicherte Einträge. `sp.from_dense`, `sp.todense` mit Vorabprüfung des gesamten Outputs. 
 
 **0.14.1 Assembly:** Native Builder `sp.builder`, `sp.append`, `sp.extend`, `sp.finish` (API-Entwurf): geometrisches Wachstum oder reservierte Kapazität, Limit vor Wachstum, batchweise Einfügung ohne Millionen VM-Objekte. Builder nach Finalisierung klar definierter Zustand. Direkte Konstruktoren `sp.eye`, `sp.diags`, `sp.tridiag` ohne große Listen.
 
@@ -362,7 +362,7 @@ Suggested lokale Validierung targets: `make test`, `make test-reference`, `make 
 | S8 | Operator contract, PCG and workspace | S7 |
 | S9 | SciPy comparisons, sanitizer, million-row benchmark, examples and release archive | S0–S8 |
 
-Ship 0.14.0 only when S0–S5 are complete, including bidirectional conversion; 0.14.1 follows when S6 is validated. Final 0.14 gate includes S9. Scope creep into full tensor rewrite, JIT or transformer engines is explicitly excluded. Update this roadmap and version-specific specs when evidence changes implementation choices.
+0.14.0 implements S0–S5, including bidirectional conversion (see docs/MORIA_0.14.0.md); 0.14.1 follows when S6 is validated. Final 0.14 gate includes S9. Scope creep into full tensor rewrite, JIT or transformer engines is explicitly excluded. Update this roadmap and version-specific specs when evidence changes implementation choices.
 
 ## 10. Zusätzliche Abnahmebenchmarks: AMDE, Numerik, HPC
 

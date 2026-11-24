@@ -1,0 +1,37 @@
+# End-to-end list-based assembly and format conversion, not the future builder.
+tol sparse as sp
+tol time
+esta n = 100000
+esta row = []
+esta col = []
+esta val = []
+esta t = time.monotonic()
+an i in range(n):
+    qui i+1 < n:
+        push(row,i)
+        push(col,i+1)
+        push(val,-1)
+    push(row,i)
+    push(col,i)
+    push(val,4)
+    qui i > 0:
+        push(row,i)
+        push(col,i-1)
+        push(val,-1)
+esta list_time = time.monotonic()-t
+esta t = time.monotonic()
+esta A = sp.coo(n,n,row,col,val)
+esta coo_time = time.monotonic()-t
+row = mun
+col = mun
+val = mun
+collect()
+esta t = time.monotonic()
+esta B = sp.to_csr(A)
+esta csr_time = time.monotonic()-t
+esta t = time.monotonic()
+esta C = sp.to_coo(B)
+esta back_time = time.monotonic()-t
+pedo(sp.nnz(B),sp.bytes(A),sp.bytes(B),sp.bytes(C))
+pedo(list_time,coo_time,csr_time,back_time)
+pedo(sp.get(B,12345,12345),sp.get(B,12345,12344),sp.get(B,12345,12346))

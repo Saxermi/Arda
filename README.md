@@ -6,9 +6,9 @@ Arda is an experimental, open-source, standalone scientific programming language
 
 Arda combines a dynamic, indentation-based language with native numerical data structures and algorithms. Its long-term ambition is to unite high-performance numerical computing, resource-aware execution, differentiable programming and mathematical documentation in one coherent runtime — from an ordinary student laptop without a dedicated GPU to a multi-node scientific computing cluster.
 
-**Current version: 0.13.1 — Scientific Maintenance. Next planned release: 0.14 — Moria.**
+**Current version: 0.14.0 — Moria (Sparse Foundations). Next milestone: 0.14.1 — Sparse Assembly.**
 
-> **Development status:** Arda is an early-stage scientific language. The interpreter, dense Float64 tensors, selected optimized CPU kernels, numerical solvers and scalar automatic differentiation already exist. The adaptive compute engine, general sparse matrices, beyond-RAM storage, mathematical introspection and distributed HPC described below are roadmap goals, not currently available features.
+> **Development status:** Arda is an early-stage scientific language. The interpreter, dense Float64 tensors, native COO/CSR sparse storage and conversions, selected optimized CPU kernels, numerical solvers and scalar automatic differentiation already exist. Sparse assembly builders and algebra, the adaptive compute engine, beyond-RAM storage, general mathematical introspection and distributed HPC are still roadmap goals.
 
 ## What is Arda?
 
@@ -43,7 +43,7 @@ A faster processor cannot fix every inefficient mathematical representation. Con
 
 Similarly, a regular-grid differential operator can often be applied directly to a vector using a stencil without storing any matrix at all. Arda already has a specialized matrix-free Poisson solver in its `high` module. For a grid of 128 × 128 × 128 points, a hypothetical dense operator would occupy 32 TiB; six Float64 work vectors occupy only 96 MiB. These figures describe theoretical storage, not measured peak memory or a universal solver workspace requirement.
 
-Arda's development strategy is to exploit such mathematical structure first, then optimize the resulting kernels using cache locality, SIMD, parallelism and suitable external libraries. General COO/CSR matrices are the next development milestone; tensor compression and a unified linear-operator interface follow.
+Arda's development strategy is to exploit such mathematical structure first, then optimize the resulting kernels using cache locality, SIMD, parallelism and suitable external libraries. Native COO/CSR storage and bidirectional conversion are available in Moria 0.14.0; typed assembly, sparse algebra, tensor compression and a unified linear-operator interface follow.
 
 This approach applies equally to scientific simulation and machine learning. Quantization, low-rank approximations, activation checkpointing and selective data loading can reduce the resources needed by suitable models. They do not eliminate the computational cost of arbitrary problems, and approximate methods must be explicitly permitted.
 
@@ -186,7 +186,21 @@ print(magnitude(3, 4))
 | Differentiation | Scalar reverse-mode AD, SGD and Adam vector updates |
 | Large structured problems | Dense Jacobi-PCG, CGLS, specialized matrix-free 1–8D Cartesian Poisson solver |
 
-General sparse matrices, tensor AD, general multithreading, GPU execution, MPI, disk-backed tensors and mathematical introspection are **not implemented yet**.
+Native immutable COO/CSR matrices and direct conversions are implemented. Sparse builders, sparse algebra and solvers, tensor AD, general multithreading, GPU execution, MPI, disk-backed tensors and general mathematical introspection are **not implemented yet**.
+
+## Moria: native sparse matrices
+
+```arda
+tol sparse as sp
+esta A = sp.coo(3,4,[2,0,0,2,0],[3,1,1,0,3],[7,2,3,4,-1])
+esta B = sp.to_csr(A)
+pedo(sp.components(B))
+pedo(sp.components(sp.to_coo(B)))
+```
+
+Expected CSR components: `[[0, 2, 2, 4], [1, 3, 0, 3], [5, -1, 4, 7]]`.
+
+COO allows duplicates and explicit zeros; CSR uses strictly sorted columns within each row, combines duplicates in input order, and omits exact zeros. No dense intermediate is required. Explicit `sp.todense` and `sp.from_dense` bridges are available, along with shape, nnz, bytes, format, checked get, copied components, and static `sp.describe` conversion metadata. See the [Moria specification and validation](docs/MORIA_0.14.0.md) for API contracts, complexity, memory layout and measured conversion performance.
 
 ## Numerical standard library
 
@@ -297,7 +311,8 @@ The REPL accepts one statement per line and blocks terminated by a blank line. `
 | `tools/` | Embedded source generators |
 | `docs/` | Historical reference documentation |
 | `ROADMAP.md` | Full development roadmap (German, with English technical terminology) |
-| `ROADMAP_0.14.md` | Initial sparse specification proposal |
+| `ROADMAP_0.14.md` | Moria sparse milestone scope |
+| `docs/MORIA_0.14.0.md` | Implemented sparse API, mathematical contracts and local validation |
 | `CHANGELOG.md` | Release history |
 | `MAINTENANCE.md` | 0.13.1 changes and measured validation |
 | `CONTRIBUTING.md` | Local development and validation policy |
@@ -325,13 +340,13 @@ make test-reference
 
 `make sanitize` enables ASan, UBSan and leak detection. `make format` and `make format-check` require clang-format. Generated module headers should not be formatted by hand.
 
-The 0.13.1 maintenance report records 126 regular and eight independent reference test methods passing in default, BLAS/LAPACK and sanitizer builds on Debian 13/GCC 14.2. These are historical local results, not GitHub CI results or a general numerical correctness guarantee. Historical performance measurements are in `benchmarks/`; compare only under matching configurations and accuracy requirements.
+0.14.0 passed 136 regular and nine independent reference methods locally in all three build configurations; see the [Moria report](docs/MORIA_0.14.0.md). The 0.13.1 maintenance report records 126 regular and eight independent reference test methods passing in default, BLAS/LAPACK and sanitizer builds on Debian 13/GCC 14.2. These are historical local results, not GitHub CI results or a general numerical correctness guarantee. Historical performance measurements are in `benchmarks/`; compare only under matching configurations and accuracy requirements.
 
 ## Roadmap: from laptops to HPC
 
 | Version | Codename | Focus |
 | --- | --- | --- |
-| 0.14 | Moria | COO/CSR, sparse algebra and memory accounting |
+| 0.14 | Moria | COO/CSR foundations implemented in 0.14.0; assembly, sparse algebra, solvers and budgets planned |
 | 0.15 | Rúmil | Scientific foundations and mathematical documentation |
 | 0.16 | Mithril | Virtual tensors, file-backed storage and compact representations |
 | 0.17 | Vilya | Memory-efficient tensor autodiff |

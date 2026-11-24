@@ -2,6 +2,15 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
+## 0.14.0 — Moria (Sparse Foundations)
+
+- Native immutable COO and canonical CSR/CRS matrices, checked indices, finite Float64 values and GC-owned, accounted payloads.
+- Direct bidirectional COO/CSR conversion without dense intermediates; deterministic duplicate summation, removal of exact zeros and empty-row support.
+- Shape, format, nnz, payload bytes, checked lookup, copied components and explicit dense bridges honoring tensor strides and the existing dense limit.
+- Versioned static mathematical descriptions of conversion algorithms, preparing the future Rúmil engine.
+- Ten new regression methods and one independent SciPy reference method (24 cases), with 136 regular and nine reference methods passing locally in default, BLAS/LAPACK and sanitizer configurations.
+- See [Moria specification and validation](docs/MORIA_0.14.0.md). Builder, sparse algebra, solvers and hard budgets remain planned for 0.14.1–0.14.4.
+
 ## 0.13.1 — Scientific maintenance
 
 - Reformatted the C sources without altering numeric algorithms; added clang-format configuration for future formatting.

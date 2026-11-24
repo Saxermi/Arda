@@ -13,6 +13,7 @@
 #include <limits.h>
 #include <inttypes.h>
 #include <errno.h>
+#include "sparse.h"
 _Noreturn void die(const char *fmt, ...);
 void *mem(size_t n);
 void *resize(void *p, size_t n);
@@ -121,7 +122,7 @@ typedef struct {
 } Val;
 typedef enum {
     O_STRING, O_LIST, O_MAP, O_ENV, O_FUNC, O_NATIVE, O_CLASS, O_INSTANCE, O_BOUND, O_MODULE, O_ITER,
-    O_ARRAY, O_AD
+    O_ARRAY, O_AD, O_SPARSE
 } OType;
 typedef struct {
     char *key;
@@ -200,6 +201,7 @@ struct Obj {
             Obj *a, *b;
             unsigned char visited;
         } ad;
+        Sparse sparse;
     } as;
 };
 typedef struct {
@@ -348,6 +350,9 @@ void install_tensor(VM *v, Obj *module);
 #define CALC_BASE 300
 #define AD_BASE 400
 #define HIGH_BASE 500
+#define SPARSE_BASE 600
+Val sparse_call(VM *v, int id, int argc, Val *a);
+Obj *sparse_module(VM *v);
 Val high_call(VM *v, int id, int argc, Val *a);
 Obj *high_module(VM *v);
 #endif
