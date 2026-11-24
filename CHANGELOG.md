@@ -2,6 +2,18 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
+## 0.16.2 — Tensor File Storage
+
+- Added read-only memory mapping, bounded block reads and atomic tensor file creation with a per-file byte budget. [Tensor contracts and validation](research/implemented/typed-tensors.md)
+
+## 0.16.1 — Typed Tensors
+
+- Added CPU tensor dtypes, explicit casts, broadcast arithmetic, reductions, batched multiplication, contractions, indexing helpers and complex FFTs. [Tensor contracts](research/implemented/typed-tensors.md)
+
+## 0.16.0 — Shared Tensor Buffers
+
+- Moved legacy Float64 arrays and their views onto shared buffer handles. Added read-only aliases and checked tensor views with signed or zero strides. [View contracts](research/implemented/typed-tensors.md#buffers-and-views)
+
 ## 0.15.5 — Mathematical Library
 
 - Added Gamma, Beta, integer-order Bessel and error functions with logarithmic and tail APIs.

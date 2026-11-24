@@ -71,3 +71,9 @@ Allow bounded, display-only formal scalar-real identities in level 0 for call-fr
 Use libm for established real special functions. Combine the log-Gamma terms analytically for unbalanced Beta arguments to reduce cancellation. Use sign brackets for Brent and safeguarded Newton. The natural cubic spline has a linear-cost tridiagonal setup. Gauss–Kronrod quadrature reuses samples between its two rules and uses a panel budget with explicit failure. Keep the older Simpson routine for uniform fixed grids. [Library contracts and method comparisons](research/implemented/mathematical-library.md)
 
 AMDE models one source loop with a local accumulator and a literal nonzero step. Check that the captured `range` binding resolves to the native callable at query time. Render pure additions and multiplications in closed sum and product notation, and preserve the ordered update in recurrence and source views. The model uses metadata independent of the number of iterations. [Range-loop contract](research/implemented/mathdoc.md#single-range-loops)
+
+## 2026-11-24 — CPU tensor buffers and file access
+
+Share one GC-traced buffer across views. Keep the existing Float64 kernels on the legacy array interface and expose explicit materialization from the typed tensor API. Arbitrary strided views are read-only so overlapping coordinates have unambiguous mutation behavior.
+
+Keep the first disk format contiguous. Map stable files read-only or read explicit flat blocks with `pread` when truncation must be recoverable. Publish complete replacement files by same-directory rename after flushing the file. This allows existing mappings to retain their old inode. [Tensor and storage contracts](research/implemented/typed-tensors.md)

@@ -22,6 +22,28 @@ class TensorTests(unittest.TestCase):
         nc.put(v,[1,0],42)
         pedo(v, nc.sum(v))
         ''','[[1, 2], [42, 4]] 49',stress=True)
+    def test_readonly_views_share_storage_and_copy_is_writable(self):
+        self.run_code("""
+        tol numc as nc
+        esta x = nc.array([1,2,3,4])
+        esta r = nc.readonly(x)
+        esta m = nc.reshape(r,[2,2])
+        x[2] = 8
+        x = mun
+        r = mun
+        collect()
+        pedo(nc.tolist(m))
+        esta c = nc.copy(m)
+        nc.set(c,1,0,9)
+        pedo(nc.get(c,1,0),nc.get(m,1,0))
+        """, "[[1, 2], [8, 4]]\n9 8", stress=True)
+        for code in (
+            "esta r = nc.readonly(nc.ones(2))\nr[0] = 9",
+            "esta r = nc.permute(nc.readonly(nc.ones(2,2)),[1,0])\nnc.set(r,0,0,9)",
+            "esta r = nc.view(nc.readonly(nc.ones(2)),0,0,2,1)\nnc.put(r,[0],9)",
+        ):
+            self.run_code("tol numc as nc\n" + code, error="read-only", stress=True)
+
     def test_view_permute(self):
         self.check('''
         esta a = nc.array([[1,2,3],[4,5,6]])

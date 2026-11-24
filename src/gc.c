@@ -215,6 +215,7 @@ static void trace(VM *v, Obj *o) {
     case O_RNG:
     case O_MOMENTS:
     case O_COMPLEX:
+    case O_BUFFER:
     case O_SPARSE:
     case O_SPARSE_BUILDER:
     case O_SPARSE_WORKSPACE:
@@ -227,7 +228,10 @@ static void trace(VM *v, Obj *o) {
         markobj(v, o->as.linop.second);
         break;
     case O_ARRAY:
-        markobj(v, o->as.array.owner);
+        markobj(v, o->as.array.buffer);
+        break;
+    case O_TYPED_TENSOR:
+        markobj(v, o->as.tensor.buffer);
         break;
     case O_AD:
         markobj(v, o->as.ad.a);
@@ -301,9 +305,8 @@ static void release(Obj *o) {
     case O_SPARSE_WORKSPACE:
         sparse_release_payload(o);
         break;
-    case O_ARRAY:
-        if (!o->as.array.owner)
-            free(o->as.array.data);
+    case O_BUFFER:
+        o->as.buffer.release(o->as.buffer.allocation, o->as.buffer.allocation_bytes);
         break;
     case O_LIST:
         free(o->as.list.a);

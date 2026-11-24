@@ -35,7 +35,7 @@ static const char *typename(Val v) {
             "native",           "class",  "instance",  "method",  "module",
             "iterator",         "array",  "ad",        "sparse",  "sparse_builder",
             "sparse_workspace", "factor", "generator", "moments", "complex",
-            "linear_operator"};
+            "linear_operator",  "buffer", "tensor"};
         return n[v.o->type];
     }
     }
@@ -169,6 +169,8 @@ static void arity(VM *v, int id, int argc, int n) {
 }
 
 Val native_call(VM *v, int id, int argc, Val *a) {
+    if (id >= TYPED_TENSOR_BASE)
+        return typed_tensor_call(v, id, argc, a);
     if (id >= SPECIAL_BASE)
         return special_call(v, id, argc, a);
     if (id >= MATHDOC_BASE)
@@ -471,6 +473,8 @@ Obj *named_native_module(VM *v, const char *name, const char *const *names, size
 }
 
 Obj *native_module(VM *v, const char *name) {
+    if (!strcmp(name, "tensor"))
+        return typed_tensor_module(v);
     if (!strcmp(name, "special"))
         return special_module(v);
     if (!strcmp(name, "mathdoc"))

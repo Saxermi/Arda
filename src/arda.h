@@ -13,6 +13,7 @@
 #include <limits.h>
 #include <inttypes.h>
 #include <errno.h>
+#include <stddef.h>
 #include "sparse.h"
 _Noreturn void die(const char *fmt, ...);
 void *mem(size_t n);
@@ -274,8 +275,41 @@ typedef enum {
     O_RNG,
     O_MOMENTS,
     O_COMPLEX,
-    O_LINOP
+    O_LINOP,
+    O_BUFFER,
+    O_TYPED_TENSOR
 } OType;
+
+typedef struct {
+    unsigned char *data;
+    void *allocation;
+    size_t bytes, allocation_bytes, alignment;
+    void (*release)(void *, size_t);
+    bool readonly;
+} Buffer;
+
+typedef enum {
+    DT_BOOL,
+    DT_U8,
+    DT_I32,
+    DT_I64,
+    DT_F16,
+    DT_BF16,
+    DT_F32,
+    DT_F64,
+    DT_C64,
+    DT_C128,
+    DT_COUNT
+} DType;
+
+typedef struct {
+    Obj *buffer;
+    size_t n, offset;
+    ptrdiff_t stride[8];
+    int shape[8], rank;
+    DType dtype;
+    bool readonly;
+} TypedTensor;
 
 static inline int sparse_owns_payload(OType type) {
     return type == O_SPARSE || type == O_SPARSE_BUILDER || type == O_SPARSE_WORKSPACE;
@@ -353,8 +387,12 @@ struct Obj {
             size_t n;
             int shape[8];
             size_t stride[8];
-            Obj *owner;
+            Obj *buffer;
+            size_t offset;
+            bool readonly;
         } array;
+        Buffer buffer;
+        TypedTensor tensor;
         struct {
             double value, grad, da, db;
             Obj *a, *b;
@@ -505,6 +543,8 @@ void array_set_index(VM *v, Val a, Val b, Val x);
 void array_print(Obj *o);
 Obj *array_new(VM *v, int rank, int rows, int cols);
 #define ARDA_MAX_ELEMENTS 16000000u
+Obj *buffer_new(VM *v, size_t bytes);
+void tensor_require_writable(VM *v, Obj *x);
 Obj *tensor_new(VM *v, int rank, const int *shape);
 Obj *tensor_copy(VM *v, Obj *x);
 size_t tensor_offset(Obj *x, size_t i);
@@ -532,6 +572,11 @@ void install_tensor(VM *v, Obj *module);
 #define LINOP_BASE 1100
 #define MATHDOC_BASE 1200
 #define SPECIAL_BASE 1300
+#define TYPED_TENSOR_BASE 1400
+Obj *typed_tensor_module(VM *v);
+Val typed_tensor_call(VM *v, int id, int argc, Val *a);
+Val typed_tensor_binary(VM *v, Op op, Val a, Val b);
+int64_t checked_arith(VM *v, Op op, int64_t x, int64_t y);
 Val linalg_call(VM *v, int id, int argc, Val *a);
 const char *linalg_name(int id);
 Val linalg_eigh(VM *v, Val a);
