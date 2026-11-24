@@ -123,3 +123,35 @@ class LinalgTests(unittest.TestCase):
         ]:
             with self.subTest(expression=expr):
                 self.run_code("tol numc as nc\ntol linalg as la\n" + expr, error=error, stress=True)
+
+    def test_svd_availability_and_errors(self):
+        imports = "tol numc as nc\ntol linalg as la\n"
+        if self.run_code("tol calc\npedo(calc.backend())").strip() != "lapack":
+            for operation in ("svd", "pinv", "rank", "cond"):
+                with self.subTest(operation=operation):
+                    self.run_code(imports + f"la.{operation}(nc.ones(1,1))",
+                                  error="rebuild with LAPACK=1", stress=True)
+            return
+
+        for expr, error in [
+            ("la.svd(nc.ones(2))", "requires a matrix"),
+            ("la.svd(nc.array([[1e308*1e308]]))", "requires finite inputs"),
+            ("la.rank(nc.ones(1,1),-1)", "rcond must be finite and nonnegative"),
+            ("la.pinv(nc.ones(1,1),1e308*1e308)", "rcond must be finite and nonnegative"),
+            ("la.pinv(nc.array([[1e-310]]))", "nonfinite factorization or solution"),
+            ("la.cond(nc.zeros(0,3))", "requires a nonempty matrix"),
+            ("la.cond(nc.ones(1,1),1)", "invalid linalg.cond arity"),
+        ]:
+            with self.subTest(expression=expr):
+                self.run_code(imports + expr, error=error, stress=True)
+
+        self.run_code(imports + """
+esta a = nc.array([[4,0],[0,1]])
+pedo(la.rank(a), la.rank(a,0.25), nc.tolist(la.pinv(a,0.25)))
+esta singular = nc.array([[4,0],[0,0]])
+pedo(la.rank(singular,0), la.cond(singular), la.cond(nc.zeros(2,2)))
+pedo(la.rank(nc.array([[1e-310]])))
+esta parts = la.svd(nc.zeros(3,0))
+pedo(nc.shape(parts[0]), nc.shape(parts[1]), nc.shape(parts[2]))
+pedo(la.rank(nc.zeros(0,3)), nc.shape(la.pinv(nc.zeros(0,3))))
+""", "2 1 [[0.25, 0], [0, 0]]\n1 inf inf\n1\n[3, 0] [0] [0, 0]\n0 [3, 0]", stress=True)

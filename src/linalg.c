@@ -1,17 +1,24 @@
 #include "arda.h"
 #include <float.h>
 
+#ifdef ARDA_LAPACK
+extern void dgesvd_(const char *, const char *, const int *, const int *, double *, const int *,
+                    double *, double *, const int *, double *, const int *, double *, const int *,
+                    int *);
+#endif
+
 #define A(o) ((o)->as.array)
 #define F(o) ((o)->as.factor)
 
 typedef enum { LU, CHOLESKY, QR } FactorKind;
-enum { PARTS = QR + 1, SOLVE, DET, TRACE, DIAG, INV, SOLVE_TRIDIAG, SOLVE_BANDED };
+enum { PARTS = QR + 1, SOLVE, DET, TRACE, DIAG, INV, SOLVE_TRIDIAG, SOLVE_BANDED,
+       SVD, PINV, RANK, COND };
 
 static const char *names[] = {
     "lu", "cholesky", "qr", "parts", "solve", "det", "trace", "diag", "inv",
-    "solve_tridiag", "solve_banded"
+    "solve_tridiag", "solve_banded", "svd", "pinv", "rank", "cond"
 };
-static const int arities[] = {1, 1, 1, 1, 2, 1, 1, 1, 1, 4, 4};
+static const int arities[] = {1, 1, 1, 1, 2, 1, 1, 1, 1, 4, 4, 1, 1, 1, 1};
 _Static_assert(sizeof names / sizeof *names == sizeof arities / sizeof *arities,
                "linalg arity table");
 
@@ -532,11 +539,130 @@ static Obj *solve_banded(VM *v, Val *args) {
     return out;
 }
 
+#ifdef ARDA_LAPACK
+typedef struct {
+    Obj *u, *s, *vt;
+} Svd;
+
+static Svd singular_value_decomposition(VM *v, Obj *input, int vectors) {
+    int m = A(input).rows, n = A(input).cols, k = m < n ? m : n;
+    Svd result = {.s = array_new(v, 1, k, 1)};
+    if (vectors) {
+        result.u = array_new(v, 2, m, k);
+        result.vt = array_new(v, 2, k, n);
+    }
+    if (!k)
+        return result;
+
+    /* LAPACK sees the row-major copy as A^T. Its column-major left vectors
+     * land directly in the row-major V^T, and its right transpose in U. */
+    Obj *packed = tensor_copy(v, input);
+    finite_packed(v, packed, "SVD requires finite inputs");
+    int ldu = vectors ? n : 1, ldvt = vectors ? k : 1;
+    double dummy_u, dummy_vt;
+    double *left = vectors ? A(result.vt).data : &dummy_u;
+    double *right_t = vectors ? A(result.u).data : &dummy_vt;
+    const char *job = vectors ? "S" : "N";
+    int lwork = -1, info = 0;
+    double optimum = 0;
+    dgesvd_(job, job, &n, &m, A(packed).data, &n, A(result.s).data,
+            left, &ldu, right_t, &ldvt, &optimum, &lwork, &info);
+    if (info || !isfinite(optimum) || optimum < 1)
+        vmerror(v, "LAPACK dgesvd workspace query failed (%d)", info);
+    if (optimum > ARDA_MAX_ELEMENTS) {
+        /* This bound covers all DGESVD paths when optimum exceeds the cap. */
+        int longest = m > n ? m : n;
+        if (3 * k + longest > (int) ARDA_MAX_ELEMENTS || 5 * k > (int) ARDA_MAX_ELEMENTS)
+            vmerror(v, "LAPACK dgesvd workspace exceeds the array size limit");
+        lwork = ARDA_MAX_ELEMENTS;
+    } else {
+        lwork = (int) ceil(optimum);
+    }
+    Obj *work = array_new(v, 1, lwork, 1);
+    dgesvd_(job, job, &n, &m, A(packed).data, &n, A(result.s).data,
+            left, &ldu, right_t, &ldvt, A(work).data, &lwork, &info);
+    if (info > 0)
+        vmerror(v, "LAPACK dgesvd failed to converge (%d)", info);
+    if (info < 0)
+        vmerror(v, "LAPACK dgesvd failed (%d)", info);
+    finite_packed(v, result.s, "nonfinite singular values");
+    if (vectors) {
+        finite_packed(v, result.u, "nonfinite singular vectors");
+        finite_packed(v, result.vt, "nonfinite singular vectors");
+    }
+    return result;
+}
+
+static int singular_value_rank(const Obj *values, double rcond) {
+    const double *s = A(values).data;
+    int k = A(values).rows, rank = 0;
+    /* Comparing ratios avoids an underflowed cutoff for tiny matrices. */
+    while (rank < k && s[rank] > 0 &&
+           (rcond == 0 || (long double) s[rank] / s[0] > rcond))
+        rank++;
+    return rank;
+}
+
+static Obj *pseudoinverse(VM *v, Svd svd, int rank) {
+    int m = A(svd.u).rows, n = A(svd.vt).cols;
+    Obj *out = array_new(v, 2, n, m);
+    if (!rank)
+        return out;
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < m; j++) {
+            long double value = 0;
+            for (int p = 0; p < rank; p++)
+                value += (long double) A(svd.vt).data[index_at(svd.vt, p, i)] *
+                         A(svd.u).data[index_at(svd.u, j, p)] / A(svd.s).data[p];
+            A(out).data[index_at(out, i, j)] = checked(v, value);
+        }
+    }
+    return out;
+}
+#endif
+
+static Val spectral_call(VM *v, int op, int argc, Val *args) {
+#ifndef ARDA_LAPACK
+    (void) op;
+    (void) argc;
+    (void) args;
+    vmerror(v, "LAPACK unavailable: rebuild with LAPACK=1");
+#else
+    Obj *input = numeric_array(v, args[0]);
+    if (A(input).rank != 2)
+        vmerror(v, "SVD requires a matrix");
+    int m = A(input).rows, n = A(input).cols;
+    double rcond = (m > n ? m : n) * DBL_EPSILON;
+    if (argc == 2) {
+        rcond = asnum(v, args[1]);
+        if (!isfinite(rcond) || rcond < 0)
+            vmerror(v, "rcond must be finite and nonnegative");
+    }
+    if (op == COND && (!m || !n))
+        vmerror(v, "condition number requires a nonempty matrix");
+    Svd svd = singular_value_decomposition(v, input, op == SVD || op == PINV);
+    if (op == SVD) {
+        Obj *out = list(v);
+        append(v, out, objval(svd.u));
+        append(v, out, objval(svd.s));
+        append(v, out, objval(svd.vt));
+        return objval(out);
+    }
+    if (op == COND) {
+        double *s = A(svd.s).data;
+        double smallest = s[A(svd.s).rows - 1];
+        return number(smallest > 0 ? s[0] / smallest : INFINITY);
+    }
+    int rank = singular_value_rank(svd.s, rcond);
+    return op == RANK ? integer(rank) : objval(pseudoinverse(v, svd, rank));
+#endif
+}
+
 Val linalg_call(VM *v, int id, int argc, Val *a) {
     int op = id - LINALG_BASE;
     if (op < 0 || op >= (int) (sizeof names / sizeof *names))
         vmerror(v, "unknown linalg operation");
-    if (argc != arities[op])
+    if (argc != arities[op] && !(argc == 2 && (op == RANK || op == PINV)))
         vmerror(v, "invalid linalg.%s arity", names[op]);
     if (op <= QR) {
         if (!isobj(a[0], O_ARRAY))
@@ -555,6 +681,11 @@ Val linalg_call(VM *v, int id, int argc, Val *a) {
         return objval(solve_tridiag(v, a));
     case SOLVE_BANDED:
         return objval(solve_banded(v, a));
+    case SVD:
+    case PINV:
+    case RANK:
+    case COND:
+        return spectral_call(v, op, argc, a);
     default:
         break;
     }

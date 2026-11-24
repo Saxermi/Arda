@@ -8,7 +8,7 @@ Arda's own source and documentation are distributed under the [MIT License](LICE
 | --- | --- | --- |
 | Platform C and math libraries | The default build uses C11 and links `-lm` for elementary functions and scalar math. | Provider-specific. Check the concrete platform runtime when redistributing it. |
 | CBLAS provider | Optional `BLAS=1` links system `-lblas` and calls `cblas_dgemm`. OpenBLAS was used in local evaluation. | The OpenBLAS top-level license is BSD 3-Clause. Preserve the applicable upstream and component notices if distributing its code or binaries. Other providers have their own terms. [OpenBLAS 0.3.29 license](https://github.com/OpenMathLib/OpenBLAS/blob/v0.3.29/LICENSE) |
-| LAPACK provider | Optional `LAPACK=1` links system `-llapack -lblas` and calls `dgesv` and `dsyev`. | Reference LAPACK uses BSD-style redistribution terms, including its attribution and disclaimer. Check the actual implementation and ABI supplied by the packaging environment. [Reference LAPACK 3.12.1 license](https://github.com/Reference-LAPACK/lapack/blob/v3.12.1/LICENSE) |
+| LAPACK provider | Optional `LAPACK=1` links system `-llapack -lblas` and calls `dgesv`, `dsyev`, and `dgesvd`. | Reference LAPACK uses BSD-style redistribution terms, including its attribution and disclaimer. Check the actual implementation and ABI supplied by the packaging environment. [Reference LAPACK 3.12.1 license](https://github.com/Reference-LAPACK/lapack/blob/v3.12.1/LICENSE) |
 
 The Makefile links libraries installed in the build environment. For a package that bundles libraries, verify the exact binary, upstream revision, transitive components and applicable notices. Keep the notice files required by each component with that distribution. [Build configuration](Makefile)
 

@@ -184,3 +184,75 @@ class LinalgReferenceTests(unittest.TestCase):
                     np.linalg.norm(a) * np.linalg.norm(actual) + np.linalg.norm(b)
                 )
                 self.assertLess(residual, 1e-14)
+
+
+class SvdReferenceTests(unittest.TestCase):
+    run_code = test_arda.ArdaTests.run_code
+
+    def setUp(self):
+        if self.run_code("tol calc\npedo(calc.backend())").strip() != "lapack":
+            self.skipTest("requires LAPACK=1")
+
+    def test_reduced_svd_and_pseudoinverse(self):
+        rng = np.random.default_rng(1510)
+        cases = [
+            (rng.normal(size=(8, 4)), 1.0),
+            (rng.normal(size=(4, 8)), 1.0),
+            (rng.normal(size=(1, 6)), 1e-210),
+            (rng.normal(size=(6, 1)), 1e210),
+            (np.array([[2, 0, 0], [0, 2, 0], [0, 0, 0], [0, 0, 0]]), 1.0),
+        ]
+        for matrix, scale in cases:
+            m, n = matrix.shape
+            k = min(m, n)
+            with self.subTest(shape=(m, n), scale=scale):
+                a = matrix * scale
+                output = self.run_code(f"""
+                tol numc as nc
+                tol linalg as la
+                esta a = nc.permute(nc.array({a.T.tolist()}),[1,0])
+                esta parts = la.svd(a)
+                pedo(nc.tolist(parts[0]))
+                pedo(nc.tolist(parts[1]))
+                pedo(nc.tolist(parts[2]))
+                pedo(nc.tolist(la.pinv(a)))
+                pedo(la.rank(a))
+                pedo(nc.tolist(a))
+                """, stress=True).splitlines()
+                u, s, vt, pinv, rank, unchanged = map(ast.literal_eval, output)
+                u, s, vt, pinv = map(np.asarray, (u, s, vt, pinv))
+                np.testing.assert_allclose(np.asarray(unchanged) / scale, matrix, rtol=1e-14)
+                self.assertEqual((u.shape, s.shape, vt.shape), ((m, k), (k,), (k, n)))
+                self.assertTrue(np.all(s[:-1] >= s[1:]) and np.all(s >= 0))
+                np.testing.assert_allclose(s / scale, linalg.svdvals(matrix), rtol=1e-13, atol=1e-14)
+                np.testing.assert_allclose((u * (s / scale)) @ vt, matrix, rtol=1e-13, atol=1e-14)
+                np.testing.assert_allclose(u.T @ u, np.eye(k), atol=1e-13)
+                np.testing.assert_allclose(vt @ vt.T, np.eye(k), atol=1e-13)
+
+                pinv = pinv * scale
+                expected, expected_rank = linalg.pinv(matrix, return_rank=True)
+                self.assertEqual(rank, expected_rank)
+                np.testing.assert_allclose(pinv, expected, rtol=1e-12, atol=1e-14)
+                left, right = matrix @ pinv, pinv @ matrix
+                np.testing.assert_allclose(left @ matrix, matrix, rtol=1e-13, atol=1e-14)
+                np.testing.assert_allclose(right @ pinv, pinv, rtol=1e-13, atol=1e-14)
+                np.testing.assert_allclose(left, left.T, atol=1e-13)
+                np.testing.assert_allclose(right, right.T, atol=1e-13)
+
+    def test_rank_cutoff_and_condition_number(self):
+        rng = np.random.default_rng(1511)
+        u, _ = np.linalg.qr(rng.normal(size=(8, 4)))
+        v, _ = np.linalg.qr(rng.normal(size=(4, 4)))
+        a = (u * [1, 0.1, 1e-6, 1e-10]) @ v.T
+        output = self.run_code(f"""
+        tol numc as nc
+        tol linalg as la
+        esta a = nc.array({a.tolist()})
+        pedo(la.cond(a))
+        pedo(la.rank(a), la.rank(a,1e-5))
+        pedo(nc.tolist(la.pinv(a,1e-5)))
+        """, stress=True).splitlines()
+        expected, expected_rank = linalg.pinv(a, rtol=1e-5, return_rank=True)
+        self.assertEqual(list(map(int, output[1].split())), [4, expected_rank])
+        np.testing.assert_allclose(float(output[0]), np.linalg.cond(a), rtol=3e-7)
+        np.testing.assert_allclose(ast.literal_eval(output[2]), expected, rtol=1e-12, atol=1e-13)

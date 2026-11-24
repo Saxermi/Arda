@@ -247,7 +247,20 @@ pedo(nc.solve(A, nc.array([7, 5])))
 | `reshape`, `view`, `permute`, `copy`, `contiguous` | Tensor layout and views |
 | `get`, `set`, `at`, `put` | Element access and mutation |
 
-Arrays are row-major Float64, with GC-traced ownership. Arithmetic `+ - * /` is elementwise with broadcasting; `matmul` is explicit and currently rank two. Reshape requires contiguous input with the same element count; views use positive steps; permutation and views share the backing buffer. Row indexing and `transpose` return copies. Equality is object identity, not an elementwise comparison. `bytes` measures logical data, not exclusive allocated storage. Some operations materialize non-contiguous inputs. Dense `solve` uses partial-pivot Gaussian elimination, not an explicit inverse; condition/error estimation is not implemented.
+Arrays are row-major Float64, with GC-traced ownership. Arithmetic `+ - * /` is elementwise with broadcasting; `matmul` is explicit and currently rank two. Reshape requires contiguous input with the same element count; views use positive steps; permutation and views share the backing buffer. Row indexing and `transpose` return copies. Equality is object identity, not an elementwise comparison. `bytes` measures logical data, not exclusive allocated storage. Some operations materialize non-contiguous inputs. The one-shot dense `solve` uses partial-pivoted LU and returns the solution.
+
+### `linalg`: matrix factorizations and direct solvers
+
+The portable build includes reusable LU, Cholesky and QR, dense utilities, and direct tridiagonal and banded solves. The 0.15.1 development checkout adds `svd`, `pinv`, `rank`, and `cond` with `make LAPACK=1`. `calc.backend()` reports `"lapack"` when these operations are available. [Portable examples](examples/factorizations.arda) · [SVD contracts](research/implemented/linear-algebra.md#lapack-reduced-svd)
+
+```arda
+tol numc as nc
+tol linalg as la
+esta a = nc.array([[4,0],[0,1],[0,0]])
+esta parts = la.svd(a)  # [U, s, Vt]
+pedo(nc.tolist(parts[1]), la.rank(a), la.cond(a))  # [4, 1] 2 4
+pedo(nc.tolist(la.pinv(a)))  # [[0.25, 0, 0], [0, 1, 0]]
+```
 
 ### `calc`, `ode`, `opt`: numerical algorithms
 

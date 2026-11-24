@@ -1,12 +1,36 @@
 # Dense linear algebra and reductions
 
-**Status** — Dense solves and reductions were already implemented in 0.14.3. Arda 0.15.0 adds reusable factorizations, dense utilities, and structured direct solvers. Work and storage below exclude inputs unless specified. View packing can allocate a copy of each non-contiguous operand. [Release validation](../../docs/RUMIL_0.15.0.md)
+**Status** — Dense solves and reductions were already implemented in 0.14.3. Arda 0.15.0 adds reusable factorizations, dense utilities, and structured direct solvers. The 0.15.1 development checkout adds the optional LAPACK SVD family. Work and storage below exclude inputs unless specified. View packing can allocate a copy of each non-contiguous operand. [0.15.0 release validation](../../docs/RUMIL_0.15.0.md)
 
 ## Gaussian elimination and external LAPACK
 
 `nc.solve(A,b)` solves a finite square dense system by Gaussian elimination with partial row pivoting. At column $k$ it chooses $p=\arg\max_{i\ge k}|a_{ik}|$, swaps the remaining row segment and right-hand side, then uses $\ell_{ik}=a_{ik}/a_{kk}$ and $a_{ij}\gets a_{ij}-\ell_{ik}a_{kj}$. It back-substitutes $x_i=(b_i-\sum_{j>i}a_{ij}x_j)/a_{ii}$, accumulating that inner subtraction in `long double`. Work is $O(n^3)$ and a copied matrix plus solution cost $O(n^2)$ storage. The one-shot interface returns only the solution. It shares the partial-pivoted LU kernel with the reusable API. Neither interface estimates conditioning or performs refinement. An exact-zero pivot is rejected. Partial pivoting controls multipliers and usually yields a small backward error, subject to growth in the elimination. An ill-conditioned matrix can produce a large forward error despite a small residual. [One-shot entry point](../../src/scientific.c) · [Pivoted LU kernel](../../src/linalg.c) · [Wilkinson 1961](https://doi.org/10.1145/321075.321076) · [Higham 2002](https://doi.org/10.1137/1.9780898718027)
 
 `calc.lapack_solve` can call `dgesv`, which uses pivoted LU and triangular solves. `calc.eigh` checks exact symmetry and calls `dsyev` in eigenvector mode for $A Q=Q\Lambda$. The reference LAPACK driver reduces to symmetric tridiagonal form then solves that eigenproblem and back-transforms eigenvectors. Arda copies to column-major storage, checks `INFO` and queries the eigensolver workspace. The square solve and eigenvectors each take $O(n^3)$ work and $O(n^2)$ storage including the copies and outputs. Eigenvectors in clustered eigenspaces can be sensitive and are assessed by residual, orthogonality and subspace agreement. The concrete kernels depend on the provider chosen at link time. [Source, `calculus_call`](../../src/calculus.c) · [Reference LAPACK routines](https://www.netlib.org/lapack/explore-html/) · [Third-party notices](../../THIRD_PARTY_NOTICES.md)
+
+## LAPACK reduced SVD
+
+With `LAPACK=1`, `la.svd(A)` accepts a finite rank-two Float64 tensor, including a strided view. For $A$ of shape $m\times n$ and $k=\min(m,n)$, it returns `[U,s,Vt]` with shapes `[m,k]`, `[k]`, and `[k,n]`. Singular values are descending, and $A=U\operatorname{diag}(s)V^T$. Singular vector signs and bases within repeated singular values can vary by provider. `calc.backend()` reports the LAPACK build. The portable build reports that LAPACK is unavailable for all four operations.
+
+| API | Numerical contract |
+| --- | --- |
+| `la.svd(A)` | Reduced decomposition. For an empty matrix, returns the three tensors with the corresponding zero dimensions. |
+| `la.rank(A[,rcond])` | Counts positive singular values with $s_i/s_0>\texttt{rcond}$. Empty matrices have rank zero. |
+| `la.pinv(A[,rcond])` | Returns $V\operatorname{diag}(s_i^+)U^T$ with shape `[n,m]`. The reciprocals use the same cutoff as `rank` and all discarded entries contribute zero. |
+| `la.cond(A)` | Returns the 2-norm condition number $s_0/s_{k-1}$ for a nonempty matrix, with positive infinity for a zero computed smallest singular value or a ratio outside Float64 range. |
+
+`rcond` defaults to $\max(m,n)\epsilon$ and accepts finite nonnegative values. A zero cutoff includes every positive computed singular value. Comparing ratios avoids rounding a tiny absolute cutoff to zero. Singular values near a cutoff can be sensitive to rounding, including to LAPACK's values-only and vector paths. The condition number uses the smallest computed singular value directly, so a matrix with deficient numerical rank can still have a finite condition estimate. [SciPy pseudoinverse convention](https://docs.scipy.org/doc/scipy/reference/generated/scipy.linalg.pinv.html)
+
+The wrapper invokes `DGESVD` for bidiagonal reduction and singular-value computation. It passes the packed row-major copy as a column-major view of $A^T$. This writes the reduced vectors directly into the two result tensors and preserves the input. Rank and condition request singular values alone. The factorization takes $O(mnk)$ work. Storage is $O(mn+k+w)$ for the copy, spectrum and provider workspace of length $w$, plus $O((m+n)k)$ for reduced vectors when requested. The provider supplies the preferred workspace length. Arda caps it at the existing tensor limit when that cap covers the general minimum. Pseudoinverse adds $O(mnr)$ work for $r$ retained values and $O(mn)$ output storage. The wrapper checks convergence, finiteness of the returned factors, and representability of the pseudoinverse. [Implementation](../../src/linalg.c) · [DGESVD](https://www.netlib.org/lapack/explore-html/d1/d7f/group__gesvd_gac6bd5d4e645049e49bb70691180abf07.html)
+
+Reference tests compare spectra with SciPy and condition numbers with NumPy. They also check reconstruction, orthogonality, the four Moore–Penrose identities, and rank truncation for rectangular, rank-deficient and scaled inputs. The benchmark used $A_{ij}=\sin(ij\cdot0.023)+8\delta_{ij}$ with one-based $i,j$, shape 256×192, a pinned logical CPU on an Intel Xeon Platinum 8573C, GCC 14.2 with `-O2`, OpenBLAS 0.3.29, and SciPy 1.17.0. Times are medians of seven calls after one warm-up with one BLAS thread. Input generation and accuracy checks are outside the timing. Linux peak RSS covers the entire process including its runtime and imports.
+
+| Operation | Arda ms | SciPy ms | Arda / SciPy peak RSS (MiB) | Arda / SciPy relative residual |
+| --- | ---: | ---: | ---: | ---: |
+| Reduced SVD, `gesvd` in both | 26.8 | 28.0 | 10.9 / 49.4 | $4.66\times10^{-15}$ / $4.90\times10^{-15}$ |
+| Pseudoinverse, SciPy default `pinv` | 44.0 | 7.46 | 11.1 / 50.6 | $4.08\times10^{-15}$ / $2.61\times10^{-15}$ |
+
+Residuals use $\|U\operatorname{diag}(s)V^T-A\|_F/\|A\|_F$ and $\|AA^+A-A\|_F/\|A\|_F$, respectively. SciPy's default pseudoinverse uses the divide-and-conquer SVD and a matrix product. Arda uses `DGESVD` and a checked extended-precision contraction. The pseudoinverse timing compares the full public operations. [Reference tests](../../tests/reference_linalg.py) · [Design decision](../../DECISIONS.md#2026-11-24--optional-lapack-svd-and-rank-cutoff)
 
 ## Reusable Float64 factorizations
 
@@ -65,4 +89,4 @@ The error column is the relative determinant difference, the Frobenius norm of $
 
 **Validation and provenance** — The checked-in suite covers pivoting, seeded solve, product and dot comparisons against SciPy and NumPy, a scaled norm near $10^{200}$, broadcasts, LAPACK solve and eigenpair residual checks when enabled. The historical kernel records describe specific builds and sizes. The original one-shot solve, products and reductions appeared by source import `e2ba505`. Consultation of the listed scientific publications during implementation is unknown. Calls to CBLAS, LAPACK and libm establish external backend use, with provider licenses tracked separately. [Regression tests](../../tests/test_science_012.py) · [NumPy references](../../tests/reference_numerics.py) · [Historical timings](../../benchmarks/highdim-results.txt)
 
-**Bibliography keys** — `ARahmanDiMare2026`, `Anderson2017`, `ChanGolubLeVeque1983`, `GotoVanDeGeijn2008`, `GuanEtAl2026`, `Higham2002`, `Householder1958`, `LawsonEtAl1979`, `ReferenceLAPACK`, `Welford1962`, `Wilkinson1961`.
+**Bibliography keys** — `ARahmanDiMare2026`, `Anderson2017`, `ChanGolubLeVeque1983`, `GotoVanDeGeijn2008`, `GuanEtAl2026`, `Higham2002`, `Householder1958`, `LawsonEtAl1979`, `ReferenceLAPACK`, `Welford1962`, `Wilkinson1961`, `ZhouTisseurWebb2026`.
