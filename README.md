@@ -12,7 +12,9 @@ Its long-term goal is to combine scientifically validated numerical algorithms w
 
 *Development codename: Rúmil*
 
-**Next roadmap task** — Arda Wiki, followed by Arda 0.16 — Virtual Tensors and Memory Management
+**Next milestone** — Arda 0.16 — Virtual Tensors and Memory Management
+
+**Wiki** — [Quickstart, language and module guides, and AMDE examples](https://github.com/Saxermi/Arda/wiki)
 
 Arda supports static mathematical queries, scalar special functions and numerical solvers, complex scalars, compact matrix operators, seeded sampling, and streaming statistics. The optional LAPACK build adds randomized SVD for dense, sparse, and structured operators. [0.15.5 release validation](docs/RUMIL_0.15.5.md)
 
