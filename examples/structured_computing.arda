@@ -1,0 +1,21 @@
+tol calc
+tol complex as cx
+tol linalg as la
+tol linop as lo
+tol numc as nc
+tol opt
+
+esta z = cx.new(3,4)
+pedo(abs(z), cx.conj(z))
+
+esta a = lo.lowrank(nc.ones(3,1),nc.array([[1],[2],[3],[4]]))
+pedo(lo.shape(a), nc.tolist(lo.apply(a,nc.ones(4))))
+qui calc.backend() == "lapack":
+    esta parts = la.rsvd(a,1,1,1,42)
+    pedo(nc.tolist(parts[1]), parts[3]<1e-12)
+
+caro f(x):
+    esta delta = x-nc.array([2,-1])
+    nan nc.dot(delta,delta)
+esta result = opt.zeroth_order(f,nc.array([5,3]))
+pedo(nc.tolist(result[0]), result[3])

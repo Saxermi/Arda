@@ -1,4 +1,5 @@
 #include "arda.h"
+#include "linear_operator.h"
 #include <float.h>
 
 #ifdef ARDA_LAPACK
@@ -16,13 +17,13 @@ extern void dgeev_(const char *, const char *, const int *, double *, const int 
 
 typedef enum { LU, CHOLESKY, QR } FactorKind;
 enum { PARTS = QR + 1, SOLVE, DET, TRACE, DIAG, INV, SOLVE_TRIDIAG, SOLVE_BANDED,
-       SVD, PINV, RANK, COND, EIGH, EIG };
+       SVD, PINV, RANK, COND, EIGH, EIG, RSVD };
 
 static const char *names[] = {
     "lu", "cholesky", "qr", "parts", "solve", "det", "trace", "diag", "inv",
-    "solve_tridiag", "solve_banded", "svd", "pinv", "rank", "cond", "eigh", "eig"
+    "solve_tridiag", "solve_banded", "svd", "pinv", "rank", "cond", "eigh", "eig", "rsvd"
 };
-static const int arities[] = {1, 1, 1, 1, 2, 1, 1, 1, 1, 4, 4, 1, 1, 1, 1, 1, 1};
+static const int arities[] = {1, 1, 1, 1, 2, 1, 1, 1, 1, 4, 4, 1, 1, 1, 1, 1, 1, 2};
 _Static_assert(sizeof names / sizeof *names == sizeof arities / sizeof *arities,
                "linalg arity table");
 
@@ -301,6 +302,17 @@ Obj *dense_lu_solve(VM *v, Obj *a, Obj *b) {
     return solve_factor(v, factorize(v, a, LU, "solve requires finite inputs", NULL), b);
 }
 
+static void qr_basis(VM *v, const Obj *f, Obj *q) {
+    const Obj *a = F(f).packed;
+    int k = A(q).cols;
+    memset(A(q).data, 0, A(q).n * sizeof(double));
+    for (int i = 0; i < k; i++)
+        A(q).data[index_at(q, i, i)] = 1;
+    const double *tau = (const double *) (f + 1);
+    for (int i = k - 1; i >= 0; i--)
+        apply_reflector(v, a, i, tau[i], q, 0);
+}
+
 static Val factor_parts(VM *v, const Obj *f) {
     const Obj *a = F(f).packed;
     int m = A(a).rows, n = A(a).cols;
@@ -308,14 +320,10 @@ static Val factor_parts(VM *v, const Obj *f) {
     if (F(f).kind == QR) {
         int k = m < n ? m : n;
         Obj *q = array_new(v, 2, m, k), *r = array_new(v, 2, k, n);
-        for (int i = 0; i < k; i++) {
-            A(q).data[index_at(q, i, i)] = 1.0;
+        for (int i = 0; i < k; i++)
             for (int j = i; j < n; j++)
                 A(r).data[index_at(r, i, j)] = A(a).data[index_at(a, i, j)];
-        }
-        const double *tau = (const double *) (f + 1);
-        for (int i = k - 1; i >= 0; i--)
-            apply_reflector(v, a, i, tau[i], q, 0);
+        qr_basis(v, f, q);
         append(v, out, objval(q));
         append(v, out, objval(r));
     } else {
@@ -707,7 +715,118 @@ static Val general_eigen(VM *v, Obj *matrix) {
     append(v, out, objval(matrix));
     return objval(out);
 }
+
+static void gaussian(Obj *out, RandomState *rng) {
+    for (size_t i = 0; i < A(out).n; i++)
+        A(out).data[i] = (double) random_normal_unit(rng);
+}
+
+static void orthonormalize(VM *v, Obj *factor, Obj *input, Obj *basis) {
+    F(factor).packed = input;
+    barrier(v, factor, objval(input));
+    memset(factor + 1, 0, (size_t) A(input).cols * sizeof(double));
+    qr_factor(v, factor);
+    qr_basis(v, factor, basis);
+}
+
+static double sketch_residual(VM *v, const LinearOperator *op, Svd factors, int64_t seed) {
+    int m = A(factors.u).rows, n = A(factors.vt).cols, k = A(factors.s).rows;
+    Obj *probe = array_new(v, 1, n, 1), *target = array_new(v, 1, m, 1);
+    Obj *coordinate = array_new(v, 1, k, 1);
+    RandomState rng;
+    random_seed(&rng, seed, 1);
+    long double error = 0, norm = 0;
+    for (int trial = 0; trial < 8; trial++) {
+        gaussian(probe, &rng);
+        linop_apply_into(v, op, probe, target, 0);
+        for (int j = 0; j < k; j++)
+            A(coordinate).data[j] = (double) linear_dot(n, A(factors.vt).data + (size_t) j * n,
+                                                       A(probe).data);
+        for (int i = 0; i < m; i++) {
+            long double value = 0;
+            for (int j = 0; j < k; j++)
+                value += (long double) A(factors.u).data[index_at(factors.u, i, j)] *
+                         A(factors.s).data[j] * A(coordinate).data[j];
+            norm = hypotl(norm, A(target).data[i]);
+            error = hypotl(error, A(target).data[i] - value);
+        }
+    }
+    if (!isfinite(norm) || !isfinite(error) || (norm == 0 && error != 0))
+        vmerror(v, "randomized SVD residual could not be estimated");
+    return norm == 0 ? 0 : checked(v, error / norm);
+}
+
+static int rsvd_integer(VM *v, Val a, int low, int high, const char *name) {
+    if (a.t != V_INT || a.i < low || a.i > high)
+        vmerror(v, "randomized SVD %s must be an integer in [%d, %d]", name, low, high);
+    return (int) a.i;
+}
 #endif
+
+static Val randomized_svd(VM *v, int argc, Val *a) {
+#ifndef ARDA_LAPACK
+    (void) argc;
+    (void) a;
+    vmerror(v, "LAPACK unavailable: rebuild with LAPACK=1");
+#else
+    if (a[0].t != V_OBJ)
+        vmerror(v, "expected a matrix or linear operator");
+    LinopContext context;
+    LinearOperator op = linop_open(v, a[0].o, &context);
+    if (!op.rows || !op.cols || op.rows > ARDA_MAX_ELEMENTS || op.cols > ARDA_MAX_ELEMENTS)
+        vmerror(v, "randomized SVD needs nonempty axes within the array limit");
+    int m = (int) op.rows, n = (int) op.cols, limit = m < n ? m : n;
+    if (!isobj(a[0], O_ARRAY))
+        limit--; /* Keep operator sketches and factors strictly below full width. */
+    if (limit < 1)
+        vmerror(v, "randomized SVD needs a positive rank below the smallest operator axis");
+    int k = rsvd_integer(v, a[1], 1, limit, "rank");
+    int extra = argc > 2 ? rsvd_integer(v, a[2], 0, ARDA_MAX_ELEMENTS, "oversampling") : 8;
+    int iterations = argc > 3 ? rsvd_integer(v, a[3], 0, 32, "power iterations") : 1;
+    if (argc > 4 && a[4].t != V_INT)
+        vmerror(v, "randomized SVD seed must be an integer");
+    int64_t seed = argc > 4 ? a[4].i : 0;
+    int width = extra < limit - k ? k + extra : limit;
+    RandomState rng;
+    random_seed(&rng, seed, 0);
+    Obj *omega = array_new(v, 2, n, width);
+    Obj *range = array_new(v, 2, m, width), *basis = array_new(v, 2, m, width);
+    Obj *corange = array_new(v, 2, n, width);
+    Obj *qr = newobj_extra(v, O_FACTOR, (size_t) width * sizeof(double));
+    F(qr).kind = QR;
+    gaussian(omega, &rng);
+    linop_apply_into(v, &op, omega, range, 0);
+    orthonormalize(v, qr, range, basis);
+    for (int i = 0; i < iterations; i++) {
+        linop_apply_into(v, &op, basis, corange, 1);
+        orthonormalize(v, qr, corange, omega);
+        linop_apply_into(v, &op, omega, range, 0);
+        orthonormalize(v, qr, range, basis);
+    }
+
+    /* SVD of (Q^T A)^T lets the skinny product stay in its native layout. */
+    linop_apply_into(v, &op, basis, corange, 1);
+    Svd small = singular_value_decomposition(v, corange, 1);
+    Svd result = {.u = array_new(v, 2, m, k), .s = array_new(v, 1, k, 1),
+                  .vt = array_new(v, 2, k, n)};
+    for (int j = 0; j < k; j++) {
+        A(result.s).data[j] = A(small.s).data[j];
+        for (int i = 0; i < m; i++)
+            A(result.u).data[index_at(result.u, i, j)] = checked(v, linear_dot(
+                width, A(basis).data + (size_t) i * width, A(small.vt).data + (size_t) j * width));
+        for (int i = 0; i < n; i++)
+            A(result.vt).data[index_at(result.vt, j, i)] = A(small.u).data[index_at(small.u, i, j)];
+    }
+    double error = sketch_residual(v, &op, result, seed);
+    linop_close(v, &context);
+    Obj *out = list(v);
+    append(v, out, objval(result.u));
+    append(v, out, objval(result.s));
+    append(v, out, objval(result.vt));
+    append(v, out, number(error));
+    return objval(out);
+#endif
+}
 
 static Val linalg_eigen(VM *v, Val a, int symmetric) {
 #ifndef ARDA_LAPACK
@@ -770,7 +889,8 @@ Val linalg_call(VM *v, int id, int argc, Val *a) {
     int op = id - LINALG_BASE;
     if (op < 0 || op >= (int) (sizeof names / sizeof *names))
         vmerror(v, "unknown linalg operation");
-    if (argc != arities[op] && !(argc == 2 && (op == RANK || op == PINV)))
+    if (argc != arities[op] && !(argc == 2 && (op == RANK || op == PINV)) &&
+        !(op == RSVD && argc >= 3 && argc <= 5))
         vmerror(v, "invalid linalg.%s arity", names[op]);
     if (op <= QR) {
         if (!isobj(a[0], O_ARRAY))
@@ -798,6 +918,8 @@ Val linalg_call(VM *v, int id, int argc, Val *a) {
         return linalg_eigh(v, a[0]);
     case EIG:
         return linalg_eigen(v, a[0], 0);
+    case RSVD:
+        return randomized_svd(v, argc, a);
     default:
         break;
     }

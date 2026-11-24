@@ -79,3 +79,108 @@ caro lbfgs(f, x0, tolerance = 0.000001, maxiter = 500, memory = 10):
         it = it+1
     esta gn = _nc.norm(g)
     nan [x,it,gn,gn <= tolerance,value]
+
+# Objective-only central differences with coordinate or seeded random directions.
+caro _zero_value(f, x):
+    esta value = f(_nc.copy(x))
+    qui type(value) != "float" and type(value) != "int":
+        throw "zeroth-order objective must return a real scalar"
+    nan float(value)
+
+caro _zero_derivative(above, below, span):
+    qui not _high.finite(above) or not _high.finite(below) or not _high.finite(span) or span <= 0:
+        throw "nonfinite objective or unresolved zeroth-order probe"
+    # Dividing the difference first avoids cancellation when the objectives
+    # share a large offset. Split the terms if their difference overflowed.
+    esta difference = above - below
+    qui _high.finite(difference):
+        nan difference/span
+    nan above/span-below/span
+
+caro _coordinate_gradient(f, x, radius):
+    esta n = len(x)
+    esta point = _nc.copy(x)
+    esta gradient = _nc.zeros(n)
+    an i in range(n):
+        esta center = x[i]
+        esta above = center + radius
+        esta below = center - radius
+        qui not _high.finite(above) or not _high.finite(below) or above <= below:
+            throw "nonfinite or unresolved zeroth-order probe"
+        point[i] = above
+        esta right = _zero_value(f,point)
+        point[i] = below
+        esta left = _zero_value(f,point)
+        point[i] = center
+        gradient[i] = _zero_derivative(right,left,above-below)
+    nan [gradient,2*n]
+
+caro _direction_gradient(f, x, radius, normal_sample, generator, directions):
+    esta n = len(x)
+    esta gradient = _nc.zeros(n)
+    an i in range(directions):
+        esta direction = normal_sample(generator,0,1,n)
+        esta norm = _nc.norm(direction)
+        qui norm == 0:
+            throw "zero random search direction"
+        direction = direction/norm
+        esta above = x + radius*direction
+        esta below = x - radius*direction
+        qui not _high.finite(above) or not _high.finite(below):
+            throw "nonfinite zeroth-order probe"
+        esta span = _high.inner(above-below,direction)
+        qui span <= 0:
+            throw "unresolved zeroth-order probe"
+        esta derivative = _zero_derivative(_zero_value(f,above),_zero_value(f,below),span)
+        gradient = gradient + direction*(derivative*(n/directions))
+    nan [gradient,2*directions]
+
+caro zeroth_order(f, x0, method = "coordinate", radius = 0.0001, tolerance = 0.000001, maxiter = 200, seed = 0, directions = 8):
+    qui type(x0) != "array" or len(_nc.shape(x0)) != 1 or len(x0) < 1 or not _high.finite(x0):
+        throw "zeroth-order optimization requires a nonempty finite Float64 vector"
+    qui (method != "coordinate" and method != "random") or not _high.finite(radius) or radius <= 0 or not _high.finite(tolerance) or tolerance <= 0 or type(maxiter) != "int" or maxiter < 1 or type(seed) != "int" or type(directions) != "int" or directions < 1:
+        throw "invalid zeroth-order optimization configuration"
+    esta generator = mun
+    esta normal_sample = mun
+    qui method == "random":
+        tol random as sampler
+        generator = sampler.generator(seed)
+        normal_sample = sampler.normal
+    esta x = _nc.copy(x0)
+    esta value = _zero_value(f,x)
+    qui not _high.finite(value):
+        throw "nonfinite initial zeroth-order objective"
+    esta evaluations = 1
+    esta iteration = 0
+    tenna nae:
+        esta estimate = mun
+        qui method == "coordinate":
+            estimate = _coordinate_gradient(f,x,radius)
+        ai:
+            estimate = _direction_gradient(f,x,radius,normal_sample,generator,directions)
+        evaluations = evaluations + estimate[1]
+        esta gradient = estimate[0]
+        esta magnitude = _nc.norm(gradient)
+        qui not _high.finite(magnitude):
+            throw "nonfinite zeroth-order gradient estimate"
+        qui magnitude <= tolerance or iteration == maxiter:
+            nan [x,iteration,magnitude,magnitude <= tolerance,value,evaluations]
+        esta step = 1
+        esta attempt = 0
+        esta improved = law
+        tenna attempt < 40:
+            esta trial = x - step*gradient
+            qui _high.finite(trial):
+                esta trial_value = _zero_value(f,trial)
+                evaluations = evaluations + 1
+                esta minimum_drop = (0.0001*step*magnitude)*magnitude
+                qui _high.finite(trial_value) and trial_value < value and value-trial_value >= minimum_drop:
+                    x = trial
+                    value = trial_value
+                    improved = nae
+                    break
+            step = step/2
+            attempt = attempt + 1
+        qui not improved:
+            nan [x,iteration,magnitude,law,value,evaluations]
+        iteration = iteration + 1

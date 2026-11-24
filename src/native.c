@@ -30,7 +30,7 @@ static const char *typename(Val v) {
             static const char *n[] = {
                 "string", "list", "map", "scope", "function", "native", "class", "instance", "method", "module",
                 "iterator", "array", "ad", "sparse", "sparse_builder", "sparse_workspace", "factor",
-                "generator", "moments"
+                "generator", "moments", "complex", "linear_operator"
             };
             return n[v.o->type];
         }
@@ -69,6 +69,10 @@ char *value_string(Val v) {
             snprintf(b + pos, sizeof b - pos, ">");
         } else if (isobj(v, O_FACTOR)) {
             snprintf(b, sizeof b, "<linear algebra factor>");
+        } else if (isobj(v, O_COMPLEX)) {
+            snprintf(b, sizeof b, "(%.15g%+.15gi)", v.o->as.cplx.re, v.o->as.cplx.im);
+        } else if (isobj(v, O_LINOP)) {
+            snprintf(b, sizeof b, "<linear operator shape=%dx%d>", v.o->as.linop.rows, v.o->as.linop.cols);
         } else if (isobj(v, O_SPARSE_WORKSPACE)) {
             snprintf(b, sizeof b, "<sparse solver workspace>");
         } else if (isobj(v, O_SPARSE_BUILDER)) {
@@ -159,6 +163,10 @@ static void arity(VM *v, int id, int argc, int n) {
 }
 
 Val native_call(VM *v, int id, int argc, Val *a) {
+    if (id >= LINOP_BASE)
+        return linop_call(v, id, argc, a);
+    if (id >= COMPLEX_BASE)
+        return complex_call(v, id, argc, a);
     if (id >= STATS_BASE)
         return stats_call(v, id, argc, a);
     if (id >= RANDOM_BASE)
@@ -344,6 +352,8 @@ Val native_call(VM *v, int id, int argc, Val *a) {
         }
     case 17:
         arity(v, id, argc, 1);
+        if (isobj(a[0], O_COMPLEX))
+            return number(hypot(a[0].o->as.cplx.re, a[0].o->as.cplx.im));
         if (a[0].t == V_INT) {
             if (a[0].i == INT64_MIN)
                 vmerror(v, "integer overflow");
@@ -462,6 +472,10 @@ Obj *named_native_module(VM *v, const char *name, const char *const *names, size
 }
 
 Obj *native_module(VM *v, const char *name) {
+    if (!strcmp(name, "complex"))
+        return complex_module(v);
+    if (!strcmp(name, "linop"))
+        return linop_module(v);
     if (!strcmp(name, "random"))
         return random_module(v);
     if (!strcmp(name, "stats"))

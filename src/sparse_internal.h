@@ -10,6 +10,16 @@ void *sparse_buffer(VM *v, Obj *o, size_t n, size_t width, int zero);
 Obj *sparse_matrix(VM *v, uint32_t rows, uint32_t cols, int csr);
 void sparse_entries(VM *v, Obj *o, size_t n);
 void sparse_drop_temporary(VM *v, Obj *temp, Obj *original);
+static inline void sparse_begin(VM *v) {
+    v->sparse_checkpoint = v->objects;
+    v->sparse_active = 1;
+}
+
+static inline void sparse_finish(VM *v) {
+    v->sparse_active = 0;
+    v->sparse_checkpoint = NULL;
+}
+
 Obj *sparse_as_csr(VM *v, Obj *o);
 size_t sparse_csr_estimate(VM *v, const Sparse *s);
 double sparse_csr_at(const Sparse *s, size_t row, uint32_t col);

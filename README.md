@@ -8,13 +8,13 @@ Arda is an independent, open-source, research-driven scientific programming lang
 
 Its long-term goal is to combine scientifically validated numerical algorithms with adaptive execution, from ordinary laptops to distributed research clusters. The language brings native numerical data structures and algorithms to an indentation-based runtime for physics, engineering, and other computational research.
 
-**Current version** — Arda 0.15.2 — Random Generators and Statistics
+**Current version** — Arda 0.15.3 — Complex Scalars and Structured Operators
 
 *Development codename: Rúmil*
 
-**Next milestone** — Arda 0.15.3 — Complex Scalars and Structured Operators
+**Next milestone** — Arda 0.15.4 — Mathematical Documentation (AMDE v1)
 
-The `linalg` module provides reusable factorizations and direct solvers. The `random` and `stats` modules add seeded sampling, descriptive statistics, and streaming moments. [Linear algebra contracts](research/implemented/linear-algebra.md) · [Random and statistics contracts](research/implemented/random-and-statistics.md) · [0.15.2 release validation](docs/RUMIL_0.15.2.md)
+Arda supports complex scalars, compact matrix operators, seeded sampling, and streaming statistics. The optional LAPACK build adds randomized SVD for dense, sparse, and structured operators. [Structured computing contracts](research/implemented/structured-computing.md) · [0.15.3 release validation](docs/RUMIL_0.15.3.md)
 
 > **Development status:** Arda is an early-stage scientific language. The interpreter, dense Float64 tensors, native COO/CSR sparse storage and conversions, sparse assembly and algebra, sparse solvers, selected optimized CPU kernels, and scalar automatic differentiation already exist. The adaptive compute engine, beyond-RAM storage, general mathematical introspection and distributed HPC are still roadmap goals.
 
@@ -266,6 +266,10 @@ pedo(nc.tolist(la.pinv(a)))  # [[0.25, 0, 0], [0, 1, 0]]
 
 `random.generator(seed[,stream])` creates an explicit PCG32 generator. Use it with `uniform`, `normal`, `integer`, `poisson`, `choice`, or `shuffle`. `stats` computes quantiles, covariance, correlation, regression, histograms and other vector statistics. `stats.online()` accumulates a count, mean and population variance without storing the samples. Both modules are available in portable builds. [Runnable example](examples/random_statistics.arda) · [API contracts](research/implemented/random-and-statistics.md)
 
+### `complex`, `linop`, and randomized SVD
+
+`complex.new(re,im)` creates a scalar with real and imaginary components. The module exposes conjugation, magnitude, phase and elementary functions. `linop` builds compact low-rank, diagonal, banded, Toeplitz and Kronecker operators and applies them or their transposes to vectors or blocks. With `LAPACK=1`, `linalg.rsvd(A,rank[,oversampling[,power_iterations[,seed]]])` returns `[U,s,Vt,estimated_relative_error]`. [Runnable example](examples/structured_computing.arda) · [API contracts](research/implemented/structured-computing.md)
+
 ### `calc`, `ode`, `opt`: numerical algorithms
 
 | API | Algorithm |
@@ -359,6 +363,7 @@ The REPL accepts one statement per line and blocks terminated by a blank line. `
 | `docs/RUMIL_0.15.0.md` | Dense factorization and direct solver release validation |
 | `docs/RUMIL_0.15.1.md` | SVD and eigenvalue release validation |
 | `docs/RUMIL_0.15.2.md` | Random generator and statistics release validation |
+| `docs/RUMIL_0.15.3.md` | Complex scalars, matrix operators and derivative-free optimization |
 | `CHANGELOG.md` | Release history |
 | `MAINTENANCE.md` | 0.13.1 changes and measured validation |
 | `CONTRIBUTING.md` | Local development and validation policy |

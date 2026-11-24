@@ -214,12 +214,17 @@ static void trace(VM *v, Obj *o) {
     case O_NATIVE:
     case O_RNG:
     case O_MOMENTS:
+    case O_COMPLEX:
     case O_SPARSE:
     case O_SPARSE_BUILDER:
     case O_SPARSE_WORKSPACE:
         break;
     case O_FACTOR:
         markobj(v, o->as.factor.packed);
+        break;
+    case O_LINOP:
+        markobj(v, o->as.linop.first);
+        markobj(v, o->as.linop.second);
         break;
     case O_ARRAY:
         markobj(v, o->as.array.owner);

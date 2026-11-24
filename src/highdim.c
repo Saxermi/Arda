@@ -102,7 +102,7 @@ static void laplace(const void *context, const double *x, size_t xs, double *y, 
     }
 }
 
-static LinearOperator dense_operator(Obj *matrix) {
+LinearOperator dense_operator(Obj *matrix) {
     return (LinearOperator){.rows = A(matrix).rows, .cols = A(matrix).cols, .context = matrix,
                             .apply = dense_apply, .apply_transpose = dense_apply_transpose};
 }

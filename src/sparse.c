@@ -791,11 +791,9 @@ static Val sparse_dispatch(VM *v, int id, int argc, Val *a) {
 }
 
 Val sparse_call(VM *v, int id, int argc, Val *a) {
-    v->sparse_checkpoint = v->objects;
-    v->sparse_active = 1;
+    sparse_begin(v);
     Val result = sparse_dispatch(v, id, argc, a);
-    v->sparse_active = 0;
-    v->sparse_checkpoint = NULL;
+    sparse_finish(v);
     return result;
 }
 

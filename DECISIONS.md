@@ -49,3 +49,9 @@ Share the existing `DSYEV` contract between `calc.eigh` and `linalg.eigh`. Use `
 **Status** — Accepted for 0.15.2
 
 Use explicit PCG32 generators with a versioned seed and stream contract, unbiased integer rejection, Box–Muller normal draws, and Poisson product sampling or transformed rejection by mean. Use sorting for exact linear quantiles, shifted Welford updates for moments and Neumaier compensation for sums. Counter-based streams and pairwise-mergeable moments are candidates for parallel execution. For batch throughput, compare selection-based quantiles and faster normal samplers at matched statistical accuracy. Changing the sampler can change seeded sequences, so tie such a change to an explicit version contract. [Arda methods and measurements](research/implemented/random-and-statistics.md) · [Research on compensated parallel sums](https://doi.org/10.1002/cpe.70886)
+
+## 2026-11-24 — Structured operators and sampled approximation
+
+**Status** — Accepted for 0.15.3
+
+Represent complex scalars with two Float64 components and delegate principal elementary functions to C11 libm. Keep matrix operators compact and share the forward and transpose product interface with dense and sparse inputs. Use Gaussian range finding, reorthogonalized subspace iteration, and the existing optional LAPACK SVD for the projected matrix. A separate stream estimates residual error so callers can judge a chosen rank. Block Krylov is a candidate for tighter spectra when a larger basis fits the memory budget. For objective-only optimization, start with central coordinate differences and seeded random directions, and record objective evaluations. Revisit orthogonal or adaptive directions on high-dimensional objectives after measuring convergence and estimator variance. [Contracts and measurements](research/implemented/structured-computing.md)

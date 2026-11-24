@@ -1,4 +1,4 @@
-"""Generate a C string literal header from a UTF-8 Arda standard module."""
+"""Generate a null-terminated C array from a UTF-8 Arda standard module."""
 import argparse
 from pathlib import Path
 import tempfile
@@ -13,6 +13,17 @@ def render(name):
                         92: r'\\', 63: r'\?'}.get(b, chr(b) if 32 <= b < 127 else f'\\{b:03o}')
                        for b in data)
     data = (ROOT / 'lib' / f'{name}.arda').read_bytes()
+    if len(data) > 4095:
+        # C11 guarantees at least 4095 characters in a concatenated literal.
+        # A byte array keeps longer modules within that translation limit.
+        values = data + b'\0'
+        rows = []
+        for start in range(0, len(values), 16):
+            row = values[start:start + 16]
+            rows.append('    ' + ', '.join(f'{"(char)" if byte > 127 else ""}0x{byte:02x}'
+                                          for byte in row) + ',\n')
+        return (f'/* Generated from lib/{name}.arda; do not edit. */\n'
+                f'static const char {name}_source[] = {{\n{"".join(rows)}}};\n').encode('ascii')
     lines = ''.join(f'"{escape(line)}"\n' for line in data.splitlines(keepends=True)) or '""\n'
     return (f'/* Generated from lib/{name}.arda; do not edit. */\n'
             f'static const char {name}_source[] =\n{lines};\n').encode('ascii')

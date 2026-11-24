@@ -2,6 +2,12 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
+## 0.15.3 — Complex Scalars and Structured Operators
+
+- Added complex scalars with mixed real arithmetic, principal elementary functions and real and imaginary accessors.
+- Added portable low-rank, diagonal, banded, Toeplitz and Kronecker operators with forward and transpose products. Optional LAPACK builds provide randomized SVD with an independent probe error estimate.
+- Added `opt.zeroth_order` with central coordinate differences and seeded random directions. [Release validation](docs/RUMIL_0.15.3.md)
+
 ## 0.15.2 — Random Generators and Statistics
 
 - Added seeded PCG32 generator objects, uniform, normal, integer and Poisson draws, choice with replacement, and shuffled copies.

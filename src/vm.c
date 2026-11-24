@@ -126,6 +126,13 @@ static int compare_numeric(Val a, Val b) {
 static int eq(Val a, Val b) {
     if (numeric(a) && numeric(b))
         return compare_numeric(a, b) == 0;
+    if (isobj(a, O_COMPLEX)) {
+        if (isobj(b, O_COMPLEX))
+            return a.o->as.cplx.re == b.o->as.cplx.re && a.o->as.cplx.im == b.o->as.cplx.im;
+        return numeric(b) && a.o->as.cplx.im == 0 && compare_numeric(number(a.o->as.cplx.re), b) == 0;
+    }
+    if (isobj(b, O_COMPLEX))
+        return eq(b, a);
     if (a.t != b.t)
         return 0;
     if (a.t == V_NIL)
@@ -180,6 +187,8 @@ static Val binary(VM *v, Op op, Val a, Val b) {
         free(y);
         return objval(o);
     }
+    if (isobj(a, O_COMPLEX) || isobj(b, O_COMPLEX))
+        return complex_binary(v, op, a, b);
     if (a.t == V_INT && b.t == V_INT && op != OP_DIV) {
         int64_t x = a.i, y = b.i;
         switch (op) {
@@ -692,7 +701,9 @@ static void dispatch(VM *v) {
                     if (x.i == INT64_MIN)
                         vmerror(v, "integer overflow");
                     push(v, integer(-x.i));
-                } else if (isobj(x, O_ARRAY) || isobj(x, O_AD))
+                } else if (isobj(x, O_COMPLEX))
+                    push(v, complex_value(v, -x.o->as.cplx.re, -x.o->as.cplx.im));
+                else if (isobj(x, O_ARRAY) || isobj(x, O_AD))
                     push(v, binary(v, OP_MUL, x, integer(-1)));
                 else
                     push(v, number(-asnum(v, x)));

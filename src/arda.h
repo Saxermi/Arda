@@ -122,7 +122,8 @@ typedef struct {
 } Val;
 typedef enum {
     O_STRING, O_LIST, O_MAP, O_ENV, O_FUNC, O_NATIVE, O_CLASS, O_INSTANCE, O_BOUND, O_MODULE, O_ITER,
-    O_ARRAY, O_AD, O_SPARSE, O_SPARSE_BUILDER, O_SPARSE_WORKSPACE, O_FACTOR, O_RNG, O_MOMENTS
+    O_ARRAY, O_AD, O_SPARSE, O_SPARSE_BUILDER, O_SPARSE_WORKSPACE, O_FACTOR, O_RNG, O_MOMENTS,
+    O_COMPLEX, O_LINOP
 } OType;
 
 static inline int sparse_owns_payload(OType type) {
@@ -213,6 +214,13 @@ struct Obj {
             int kind;
         } factor;
         RandomState rng;
+        struct {
+            double re, im;
+        } cplx;
+        struct {
+            Obj *first, *second;
+            int kind, rows, cols, lower, upper;
+        } linop;
         Sparse sparse;
         SparseBuilder sparse_builder;
         struct {
@@ -299,6 +307,8 @@ static inline int truth(Val v) {
         return v.i != 0;
     if (v.t == V_BOOL || v.t == V_NUM)
         return v.n != 0;
+    if (isobj(v, O_COMPLEX))
+        return v.o->as.cplx.re != 0 || v.o->as.cplx.im != 0;
     if (isobj(v, O_STRING))
         return v.o->as.str.len != 0;
     if (isobj(v, O_LIST))
@@ -375,14 +385,24 @@ void install_tensor(VM *v, Obj *module);
 #define LINALG_BASE 700
 #define RANDOM_BASE 800
 #define STATS_BASE 900
+#define COMPLEX_BASE 1000
+#define LINOP_BASE 1100
 Val linalg_call(VM *v, int id, int argc, Val *a);
 Val linalg_eigh(VM *v, Val a);
 Obj *linalg_module(VM *v);
 Obj *named_native_module(VM *v, const char *name, const char *const *names, size_t count, int base);
 Obj *random_module(VM *v);
 Val random_call(VM *v, int id, int argc, Val *a);
+void random_seed(RandomState *rng, int64_t seed, uint64_t stream);
+long double random_normal_unit(RandomState *rng);
 Obj *stats_module(VM *v);
 Val stats_call(VM *v, int id, int argc, Val *a);
+Obj *complex_module(VM *v);
+Val complex_call(VM *v, int id, int argc, Val *a);
+Val complex_value(VM *v, double re, double im);
+Val complex_binary(VM *v, Op op, Val a, Val b);
+Obj *linop_module(VM *v);
+Val linop_call(VM *v, int id, int argc, Val *a);
 Obj *dense_lu_solve(VM *v, Obj *a, Obj *b);
 Val sparse_call(VM *v, int id, int argc, Val *a);
 Obj *sparse_module(VM *v);

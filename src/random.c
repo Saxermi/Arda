@@ -54,6 +54,13 @@ static double positive_unit(RandomState *rng) {
     return result;
 }
 
+void random_seed(RandomState *rng, int64_t seed, uint64_t stream) {
+    *rng = (RandomState){.increment = (stream << 1) | 1};
+    next32(rng);
+    rng->state += (uint64_t) seed;
+    next32(rng);
+}
+
 static Val generator(VM *v, int argc, Val *args) {
     if (args[0].t != V_INT)
         vmerror(v, "random seed must be an integer");
@@ -61,11 +68,7 @@ static Val generator(VM *v, int argc, Val *args) {
         vmerror(v, "random stream must be a nonnegative integer");
     uint64_t stream = argc == 2 ? (uint64_t) args[1].i : 0;
     Obj *out = newobj(v, O_RNG);
-    RandomState *rng = &out->as.rng;
-    rng->increment = (stream << 1) | 1;
-    next32(rng);
-    rng->state += (uint64_t) args[0].i;
-    next32(rng);
+    random_seed(&out->as.rng, args[0].i, stream);
     return objval(out);
 }
 
@@ -88,10 +91,14 @@ static double uniform(RandomState *rng, double low, double high) {
     return result < high ? result : nextafter(high, low);
 }
 
-static double normal(VM *v, RandomState *rng, double mean, double deviation) {
+long double random_normal_unit(RandomState *rng) {
     long double radius = sqrtl(-2 * logl(positive_unit(rng)));
     long double angle = 6.283185307179586476925286766559L * unit(rng);
-    long double result = mean + deviation * (radius * cosl(angle));
+    return radius * cosl(angle);
+}
+
+static double normal(VM *v, RandomState *rng, double mean, double deviation) {
+    long double result = mean + deviation * random_normal_unit(rng);
     if (!isfinite(result) || fabsl(result) > DBL_MAX)
         vmerror(v, "normal sample is outside the Float64 range");
     return (double) result;
