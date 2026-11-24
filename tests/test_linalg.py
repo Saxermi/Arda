@@ -59,6 +59,7 @@ class LinalgTests(unittest.TestCase):
         for expr, error in [
             ("la.lu(nc.ones(2,3))", "square"),
             ("la.lu(nc.array([[1,2],[2,4]]))", "singular matrix"),
+            ("nc.solve(nc.array([[1,2],[2,4]]),nc.ones(2))", "singular matrix"),
             ("la.cholesky(nc.array([[4,1],[2,5]]))", "symmetric"),
             ("la.cholesky(nc.array([[1,2],[2,1]]))", "positive definite"),
             ("la.qr(nc.ones(2))", "expects a matrix"),

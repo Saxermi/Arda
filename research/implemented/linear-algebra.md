@@ -1,6 +1,6 @@
 # Dense linear algebra and reductions
 
-**Status** — Dense solves and reductions were already implemented in 0.14.3. Reusable factorizations, dense utilities, and structured direct solvers are implemented in the 0.15 development checkout. Work and storage below exclude inputs unless specified. View packing can allocate a copy of each non-contiguous operand.
+**Status** — Dense solves and reductions were already implemented in 0.14.3. Arda 0.15.0 adds reusable factorizations, dense utilities, and structured direct solvers. Work and storage below exclude inputs unless specified. View packing can allocate a copy of each non-contiguous operand. [Release validation](../../docs/RUMIL_0.15.0.md)
 
 ## Gaussian elimination and external LAPACK
 

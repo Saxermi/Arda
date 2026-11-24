@@ -15,8 +15,14 @@ class LinalgReferenceTests(unittest.TestCase):
         rng = np.random.default_rng(1500)
         q, _ = np.linalg.qr(rng.normal(size=(12, 12)))
         p, _ = np.linalg.qr(rng.normal(size=(12, 12)))
-        matrices = [rng.normal(size=(12, 12)), (q * np.geomspace(1, 1e-10, 12)) @ p.T]
-        for matrix in matrices:
+        mixed_eigenvalues = np.concatenate((-np.linspace(1, 3, 6), np.linspace(1, 3, 6)))
+        indefinite = (q * mixed_eigenvalues) @ q.T
+        matrices = [
+            ("general", rng.normal(size=(12, 12))),
+            ("ill-conditioned", (q * np.geomspace(1, 1e-10, 12)) @ p.T),
+            ("symmetric indefinite", (indefinite + indefinite.T) / 2),
+        ]
+        for label, matrix in matrices:
             b = rng.normal(size=(12, 4))
             output = self.run_code(f"""
             tol numc as nc
@@ -32,14 +38,21 @@ class LinalgReferenceTests(unittest.TestCase):
             """, stress=True).splitlines()
             perm, l, u, actual, legacy = map(ast.literal_eval, output)
             self.assertEqual(sorted(perm), list(range(12)))
-            np.testing.assert_allclose(np.asarray(l) @ u, matrix[perm], rtol=1e-13, atol=1e-14)
+            reconstructed = np.asarray(l) @ u
+            np.testing.assert_allclose(reconstructed, matrix[perm], rtol=1e-13, atol=1e-14)
             np.testing.assert_allclose(legacy, np.asarray(actual)[:, 0], rtol=1e-13, atol=1e-14)
             expected = linalg.solve(matrix, b)
-            self.assertLess(np.linalg.norm(actual - expected) / np.linalg.norm(expected), 5e-6)
+            solution_difference = np.linalg.norm(actual - expected) / np.linalg.norm(expected)
+            self.assertLess(solution_difference, 5e-6 if label == "ill-conditioned" else 1e-13)
+            matrix_norm = np.linalg.norm(matrix)
             error = np.linalg.norm(matrix @ actual - b) / (
-                np.linalg.norm(matrix) * np.linalg.norm(actual) + np.linalg.norm(b)
+                matrix_norm * np.linalg.norm(actual) + np.linalg.norm(b)
             )
             self.assertLess(error, 2e-14)
+            reconstruction_error = np.linalg.norm(reconstructed - matrix[perm]) / matrix_norm
+            print(f"\nLU {label} cond2 {np.linalg.cond(matrix):.3g}, "
+                  f"reconstruction {reconstruction_error:.3g}, residual {error:.3g}, "
+                  f"relative SciPy solution difference {solution_difference:.3g}")
 
     def test_cholesky_reconstruction_and_reused_solve(self):
         rng = np.random.default_rng(1501)

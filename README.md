@@ -8,11 +8,13 @@ Arda is an independent, open-source, research-driven scientific programming lang
 
 Its long-term goal is to combine scientifically validated numerical algorithms with adaptive execution, from ordinary laptops to distributed research clusters. The language brings native numerical data structures and algorithms to an indentation-based runtime for physics, engineering, and other computational research.
 
-**Current version** — Arda 0.14.4 — Sparse Computing Release Validation (Moria)
+**Current version** — Arda 0.15.0 — Dense Factorizations and Direct Solvers
 
-**Next milestone** — Arda 0.15.0 — Dense Factorizations (Rúmil)
+*Development codename: Rúmil*
 
-The development checkout includes reusable pivoted LU, Cholesky and Householder QR, dense matrix utilities, and direct tridiagonal and banded solves through the `linalg` module. [Linear algebra contracts and validation](research/implemented/linear-algebra.md#reusable-float64-factorizations)
+**Next milestone** — Arda 0.15.1 — SVD, Eigenvalues, and Conditioning
+
+The `linalg` module provides reusable pivoted LU, Cholesky and Householder QR, dense matrix utilities, and direct tridiagonal and banded solves. [Linear algebra contracts](research/implemented/linear-algebra.md#reusable-float64-factorizations) · [0.15.0 release validation](docs/RUMIL_0.15.0.md)
 
 > **Development status:** Arda is an early-stage scientific language. The interpreter, dense Float64 tensors, native COO/CSR sparse storage and conversions, sparse assembly and algebra, sparse solvers, selected optimized CPU kernels, and scalar automatic differentiation already exist. The adaptive compute engine, beyond-RAM storage, general mathematical introspection and distributed HPC are still roadmap goals.
 
@@ -337,6 +339,7 @@ The REPL accepts one statement per line and blocks terminated by a blank line. `
 | `docs/MORIA_0.14.0.md` | Sparse storage and conversion foundations |
 | `docs/MORIA_0.14.3.md` | Assembly, algebra, solvers, memory budgets and local validation |
 | `docs/MORIA_0.14.4.md` | Sparse release validation and benchmark results |
+| `docs/RUMIL_0.15.0.md` | Dense factorization and direct solver release validation |
 | `CHANGELOG.md` | Release history |
 | `MAINTENANCE.md` | 0.13.1 changes and measured validation |
 | `CONTRIBUTING.md` | Local development and validation policy |

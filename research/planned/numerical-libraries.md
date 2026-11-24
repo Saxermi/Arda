@@ -1,6 +1,6 @@
 # Numerical libraries
 
-**Status** — Remaining candidates for 0.15 and related 0.16 work. See the [implemented note](../implemented/linear-algebra.md#reusable-float64-factorizations) for reusable LU, Cholesky and QR, dense utilities, and structured solves in development. Cost models below describe standard serial algorithms on CPU, with shared matrix data and output storage excluded unless stated.
+**Status** — Remaining candidates for 0.15 and related 0.16 work. See the [implemented note](../implemented/linear-algebra.md#reusable-float64-factorizations) for reusable LU, Cholesky and QR, dense utilities, and structured solves in Arda 0.15.0. Cost models below describe standard serial algorithms on CPU, with shared matrix data and output storage excluded unless stated.
 
 | Capability | Baseline and alternatives | Cost, reliability and constraints | Implementation and local validation |
 | --- | --- | --- | --- |

@@ -2,10 +2,11 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
-## Unreleased — 0.15 development
+## 0.15.0 — Dense Factorizations and Direct Solvers
 
 - Added immutable, reusable dense LU, Cholesky, and Householder QR factors and solves for vector and matrix right-hand sides. The one-shot `numc.solve` shares the LU kernel.
 - Added determinant, trace, diagonal extraction, inverse via one LU factorization, guarded Thomas tridiagonal solves, and pivoted compact band solves.
+- Checked reconstruction, solve residuals, singularity handling, and one-shot `numc.solve` compatibility with the portable, BLAS/LAPACK, and sanitizer builds. [Release validation](docs/RUMIL_0.15.0.md)
 
 ## 0.14.4 — Sparse Computing Release Validation (Moria)
 
