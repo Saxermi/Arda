@@ -172,9 +172,7 @@ class MoriaTests(unittest.TestCase):
         pedo(breakdown["converged"],breakdown["reason"])
         ''', stress=True).splitlines()
         self.assertEqual(output[0], "nae converged nae")
-        solution = ast.literal_eval(output[1])
-        self.assertEqual(len(solution), 5)
-        for value, expected in zip(solution, range(1, 6)):
+        for value, expected in zip(ast.literal_eval(output[1]), range(1, 6), strict=True):
             self.assertAlmostEqual(value, expected, places=12)
         self.assertEqual(output[2:], ["law 1 max_iterations", "0 0 5", "law nonpositive_curvature"])
 
