@@ -195,6 +195,7 @@ Matrix Market, Dokumentation, ASan/UBSan/LSan, GC-Stress, automatisierte SciPy-R
   - **Status** — Implementiert und lokal validiert. Die skalare Bibliothek enthält reelle Spezialfunktionen, abgesicherte Nullstellensuche, lineare und natürliche kubische Interpolation, adaptive Gauss–Kronrod-Quadratur und erweiterte Verteilungen und Statistik. AMDE erkennt eine einzelne halboffene native `range`-Schleife mit einem skalaren Akkumulator und konstanter von null verschiedener Schrittweite. [Release-Bericht](docs/RUMIL_0.15.5.md)
 - **Gate:** QR-Rekonstruktion und Orthogonalität, Cholesky für SPD und Fehlermeldung für ungeeignete Matrizen, SVD-Spektren gegen LAPACK, Low-Rank-Approximation mit gemessenem Fehler. Beispiel 100.000×100.000 rank-50: 80 GB dense, 80 MB für U,V in Float64; O(nr) Matvec. Keine Behauptung, jede Matrix habe niedrigen Rang.
 - **Abschlussaufgabe — Arda-Wiki.** Nach Abschluss von 0.15.5 einschließlich der statischen Schleifenanalyse und vor Beginn von 0.16 ein englischsprachiges GitHub-Wiki mit Schnellstart, Sprach- und Modulübersicht sowie AMDE-Beispielen für native Funktionen, Nutzerfunktionen und einfache Schleifen veröffentlichen. Für API-Details und ausführbare Beispiele auf die Dokumentation im Repository verweisen und das Wiki in der [README](README.md) verlinken.
+  - **Status** — Veröffentlicht. Die Beispiele wurden lokal mit Arda 0.15.5 ausgeführt. [Arda-Wiki](https://github.com/Saxermi/Arda/wiki)
 
 ### Arda 0.16 — Virtual Tensors and Memory Management (AME v1)
 
