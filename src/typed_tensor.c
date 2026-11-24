@@ -22,25 +22,33 @@ TypedTensor typed_tensor(VM *v, Val x) {
     return t;
 }
 
-TypedTensor typed_layout(VM *v, DType dtype, int rank, const int *shape) {
-    if (rank < 1 || rank > 8)
-        vmerror(v, "tensor rank must be 1..8");
+bool typed_layout_checked(DType dtype, int rank, const int *shape, TypedTensor *result) {
+    if (rank < 1 || rank > 8 || (unsigned)dtype >= DT_COUNT)
+        return false;
     TypedTensor t = {.rank = rank, .dtype = dtype};
     size_t span = 1, capacity = PTRDIFF_MAX / dtype_info[dtype].size;
     bool empty = false;
     for (int i = rank - 1; i >= 0; i--) {
         if (shape[i] < 0)
-            vmerror(v, "invalid tensor dimension");
+            return false;
         t.shape[i] = shape[i];
         t.stride[i] = (ptrdiff_t)span;
         size_t length = shape[i] ? (size_t)shape[i] : 1;
         if (span > capacity / length)
-            vmerror(v, "tensor layout exceeds addressable size");
+            return false;
         span *= length;
         empty |= shape[i] == 0;
     }
     t.n = empty ? 0 : span;
-    return t;
+    *result = t;
+    return true;
+}
+
+TypedTensor typed_layout(VM *v, DType dtype, int rank, const int *shape) {
+    TypedTensor result;
+    if (!typed_layout_checked(dtype, rank, shape, &result))
+        vmerror(v, "invalid tensor layout or layout exceeds addressable size");
+    return result;
 }
 
 static void materializable(VM *v, const TypedTensor *t) {
@@ -89,7 +97,7 @@ static void store(VM *v, const TypedTensor *t, ptrdiff_t pos, TensorScalar x) {
     dtype_store(v, t->dtype, typed_element(t, pos), x);
 }
 
-static int contiguous(const TypedTensor *t) {
+bool typed_contiguous(const TypedTensor *t) {
     if (!t->n)
         return 1;
     ptrdiff_t stride = 1;
@@ -141,7 +149,7 @@ static ptrdiff_t index_offset(VM *v, const TypedTensor *t, Val x) {
 static Obj *cast(VM *v, const TypedTensor *t, DType dtype) {
     Obj *out = typed_new(v, dtype, t->rank, t->shape);
     TypedTensor *dst = &out->as.tensor;
-    if (dtype == t->dtype && contiguous(t)) {
+    if (dtype == t->dtype && typed_contiguous(t)) {
         memcpy(typed_element(dst, 0), typed_element(t, (ptrdiff_t)t->offset),
                t->n * dtype_info[dtype].size);
     } else
@@ -173,7 +181,7 @@ static TypedTensor strided_view(VM *v, const TypedTensor *src, Val shape, Val st
     int dims[8];
     int rank = get_shape(v, shape, dims);
     const Obj *steps = list_input(v, strides);
-    if (!contiguous(src) || steps->as.list.n != rank || offset.t != V_INT || offset.i < 0 ||
+    if (!typed_contiguous(src) || steps->as.list.n != rank || offset.t != V_INT || offset.i < 0 ||
         (uint64_t)offset.i > src->n)
         vmerror(v, "strided view requires a contiguous source and valid offset and strides");
     TypedTensor t = typed_layout(v, src->dtype, rank, dims);
@@ -567,20 +575,31 @@ enum {
     MASK,
     FFT,
     IFFT,
-    EINSUM
+    EINSUM,
+    MMAP,
+    READ_BLOCK,
+    SAVE
 };
-static const char *const names[] = {"array",    "zeros",  "cast", "dtype",     "shape",   "bytes",
-                                    "tolist",   "at",     "put",  "view",      "permute", "to_numc",
-                                    "readonly", "matmul", "sum",  "tensordot", "gather",  "scatter",
-                                    "mask",     "fft",    "ifft", "einsum"};
-static const int arities[] = {2, 2, 2, 1, 1, 1, 1, 2, 3, 4, 2, 1, 1, 2, 2, 4, 2, 3, 2, 1, 1, 3};
+static const char *const names[] = {"array",     "zeros",   "cast",     "dtype",      "shape",
+                                    "bytes",     "tolist",  "at",       "put",        "view",
+                                    "permute",   "to_numc", "readonly", "matmul",     "sum",
+                                    "tensordot", "gather",  "scatter",  "mask",       "fft",
+                                    "ifft",      "einsum",  "mmap",     "read_block", "save"};
+static const int arities[] = {2, 2, 2, 1, 1, 1, 1, 2, 3, 4, 2, 1, 1,
+                              2, 2, 4, 2, 3, 2, 1, 1, 3, 1, 3, 2};
 _Static_assert(sizeof names / sizeof *names == sizeof arities / sizeof *arities, "tensor arities");
 
 Val typed_tensor_call(VM *v, int id, int argc, Val *args) {
     int op = id - TYPED_TENSOR_BASE;
     if (op < 0 || (size_t)op >= sizeof names / sizeof *names ||
-        (argc != arities[op] && !(op == ARRAY && argc == 3)))
+        (argc != arities[op] && !((op == ARRAY || op == SAVE) && argc == 3)))
         vmerror(v, "invalid tensor API arity");
+    if (op == MMAP)
+        return tensor_mmap(v, args[0]);
+    if (op == READ_BLOCK)
+        return tensor_read_block(v, args[0], args[1], args[2]);
+    if (op == SAVE)
+        return tensor_save(v, args[0], args[1], argc == 3 ? args[2] : nil());
     if (op == EINSUM)
         return einsum(v, asstr(v, args[0]), typed_tensor(v, args[1]), typed_tensor(v, args[2]));
     if (op == ARRAY || op == ZEROS) {

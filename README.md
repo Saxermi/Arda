@@ -8,17 +8,17 @@ Arda is an independent, open-source, research-driven scientific programming lang
 
 Its long-term goal is to combine scientifically validated numerical algorithms with adaptive execution, from ordinary laptops to distributed research clusters. The language brings native numerical data structures and algorithms to an indentation-based runtime for physics, engineering, and other computational research.
 
-**Current version** — Arda 0.15.5 — Mathematical Library
+**Current version** — Arda 0.16.2 — Typed Tensors and File Storage
 
-*Development codename: Rúmil*
+*Development codename: Mithril*
 
-**Next milestone** — Arda 0.16 — Virtual Tensors and Memory Management
+**Next milestone** — Arda 0.16.3 — Buffer Pools, Workspace Reservations, and Memory Budgets
 
 **Wiki** — [Quickstart, language and module guides, and AMDE examples](https://github.com/Saxermi/Arda/wiki)
 
-Arda supports static mathematical queries, scalar special functions and numerical solvers, complex scalars, compact matrix operators, seeded sampling, and streaming statistics. The optional LAPACK build adds randomized SVD for dense, sparse, and structured operators. [0.15.5 release validation](docs/RUMIL_0.15.5.md)
+Arda supports typed tensors, read-only tensor file mapping, static mathematical queries, numerical solvers, and compact matrix operators. The optional LAPACK build adds randomized SVD for dense, sparse, and structured operators. [Tensor API and validation](research/implemented/typed-tensors.md)
 
-> **Development status:** Arda is an early-stage scientific language. The interpreter, dense Float64 tensors, native COO/CSR sparse storage and conversions, sparse assembly and algebra, sparse solvers, selected optimized CPU kernels, and scalar automatic differentiation already exist. The adaptive compute engine, beyond-RAM storage, general mathematical introspection and distributed HPC are still roadmap goals.
+> **Development status:** Arda is an early-stage scientific language with dense and sparse tensors, bounded tensor-file reads, selected optimized CPU kernels, and scalar automatic differentiation. Automatic out-of-core planning, general mathematical introspection, and distributed HPC are roadmap goals.
 
 ## What is Arda?
 
@@ -232,6 +232,8 @@ COO allows duplicates and explicit zeros; CSR uses strictly sorted columns withi
 
 ## Numerical standard library
 
+The `tensor` module supports typed CPU arrays and file-backed storage. Use `tensor.array(values,dtype[,shape])` for flat input, `tensor.cast` for explicit conversion, and `tensor.to_numc` to materialize a Float64 array for the existing kernels. Use `tensor.mmap` for read-only views or `tensor.read_block` for bounded reads that handle truncated files with an error. [Typed tensor and file contracts](research/implemented/typed-tensors.md)
+
 ### `numc`: dense arrays and linear algebra
 
 ```arda
@@ -434,7 +436,7 @@ The roadmap extends mathematical queries with nested loop and control-flow analy
 ## Limitations and safety
 
 - The runtime is not sandboxed; run only trusted scripts. Arda code can access files with the process's permissions.
-- Dense arrays have an existing 16,000,000-element cap and rank limit of eight; this is not a total process memory limit.
+- Heap-backed dense tensors have a 16,000,000-element cap and a rank limit of eight. File-backed tensors may be larger and support bounded block reads. [File access limits](research/implemented/typed-tensors.md#tensor-files)
 - Numerical error and convergence depend on conditioning and problem structure; independent reference tests are not formal guarantees.
 - The portable runtime is single-threaded; external BLAS may manage its own threads. No general GPU, MPI, JIT or package manager yet.
 - The C API, numerical APIs and language semantics are experimental and may change before 1.0.
