@@ -85,6 +85,23 @@ English alternatives are equivalent: `import`, `def`, `return`, `print`, and `le
 
 Read the [full roadmap](ROADMAP.md) for architecture, release gates and research goals. Future APIs such as `getTex()`, `getCost()`, `getPlan()`, bounded tracing and reproducible experiments will be optional and designed to avoid overhead in numerical hot loops.
 
+## Local testing (no hosted CI)
+
+All tests are intended to run locally. This repository does not use GitHub Actions or hosted test runners.
+
+```sh
+make test
+make sanitize
+make check-generated
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements-dev.txt
+make test-reference
+make BLAS=1 LAPACK=1 test
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the development process and [CHANGELOG.md](CHANGELOG.md) for release history.
+
 ## Validation and limitations
 
 The original 0.13.1 maintenance report records 126 regression and eight independent NumPy/SciPy reference test methods passing in default, BLAS/LAPACK and sanitizer builds on Debian 13/GCC 14.2. These are historical results, not a GitHub CI run or a general correctness guarantee.
