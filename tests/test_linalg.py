@@ -127,7 +127,7 @@ class LinalgTests(unittest.TestCase):
     def test_svd_availability_and_errors(self):
         imports = "tol numc as nc\ntol linalg as la\n"
         if self.run_code("tol calc\npedo(calc.backend())").strip() != "lapack":
-            for operation in ("svd", "pinv", "rank", "cond"):
+            for operation in ("svd", "pinv", "rank", "cond", "eigh", "eig"):
                 with self.subTest(operation=operation):
                     self.run_code(imports + f"la.{operation}(nc.ones(1,1))",
                                   error="rebuild with LAPACK=1", stress=True)
@@ -141,6 +141,10 @@ class LinalgTests(unittest.TestCase):
             ("la.pinv(nc.array([[1e-310]]))", "nonfinite factorization or solution"),
             ("la.cond(nc.zeros(0,3))", "requires a nonempty matrix"),
             ("la.cond(nc.ones(1,1),1)", "invalid linalg.cond arity"),
+            ("la.eigh(nc.array([[1,2],[3,4]]))", "requires symmetric matrix"),
+            ("la.eig(nc.ones(2,3))", "nonempty square matrix"),
+            ("la.eig(nc.zeros(0,0))", "nonempty square matrix"),
+            ("la.eig(nc.array([[1e308*1e308]]))", "expected finite array"),
         ]:
             with self.subTest(expression=expr):
                 self.run_code(imports + expr, error=error, stress=True)
@@ -154,4 +158,6 @@ pedo(la.rank(nc.array([[1e-310]])))
 esta parts = la.svd(nc.zeros(3,0))
 pedo(nc.shape(parts[0]), nc.shape(parts[1]), nc.shape(parts[2]))
 pedo(la.rank(nc.zeros(0,3)), nc.shape(la.pinv(nc.zeros(0,3))))
-""", "2 1 [[0.25, 0], [0, 0]]\n1 inf inf\n1\n[3, 0] [0] [0, 0]\n0 [3, 0]", stress=True)
+esta eigen = la.eig(nc.array([[5]]))
+pedo(nc.tolist(eigen[0]), nc.tolist(eigen[1]), nc.tolist(eigen[2]), nc.tolist(eigen[3]))
+""", "2 1 [[0.25, 0], [0, 0]]\n1 inf inf\n1\n[3, 0] [0] [0, 0]\n0 [3, 0]\n[5] [0] [[1]] [[0]]", stress=True)

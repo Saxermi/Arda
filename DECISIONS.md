@@ -37,3 +37,9 @@ Use row-normalized Thomas elimination when the tridiagonal coefficients pass an 
 **Status** — Accepted for 0.15.1 development
 
 Use `DGESVD` as the first rectangular Float64 SVD backend. It provides reduced vectors and a values-only mode with a linear minimum workspace bound. `DGESDD` uses divide and conquer for the vector path and can trade additional workspace for speed. Rank and pseudoinverse use a common relative cutoff. The condition number uses the raw computed singular-value ratio so users can distinguish conditioning from numerical truncation. Mixed-precision preconditioned Jacobi SVD is a candidate when accuracy of small singular values is a workload requirement. Its reported benefits depend on the cost of the higher-precision preconditioner and need independent validation on Arda's target machines. [Arda validation](research/implemented/linear-algebra.md#lapack-reduced-svd) · [DGESVD](https://www.netlib.org/lapack/explore-html/d1/d7f/group__gesvd_gac6bd5d4e645049e49bb70691180abf07.html) · [DGESDD](https://www.netlib.org/lapack/explore-html/df/d22/group__gesdd_ga8941e5ff50de36580dae8940015e9cb0.html) · [Zhou, Tisseur, and Webb 2026](https://arxiv.org/abs/2602.18134v2)
+
+## 2026-11-24 — LAPACK eigenpair representation
+
+**Status** — Accepted for 0.15.1
+
+Share the existing `DSYEV` contract between `calc.eigh` and `linalg.eigh`. Use `DGEEV` and separate real and imaginary tensors for general right eigenpairs. This allows complex results on the current Float64 runtime. Mixed-precision Jacobi methods with relative-gap error bounds merit comparison for symmetric positive definite problems. The general nonsymmetric solver uses the established Hessenberg/QR LAPACK path. [Eigenpair contracts](research/implemented/linear-algebra.md#lapack-eigensolvers) · [Zhou, Tisseur, and Webb 2026](https://arxiv.org/abs/2606.28069)

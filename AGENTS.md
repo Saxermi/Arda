@@ -21,7 +21,7 @@ Arda is CPU-first, not CPU-only. Preserve the small portable runtime while enabl
 - The source and tests describe implemented behavior; the roadmap describes proposals, not promises. Inspect the latest repository state rather than assuming a planned API exists.
 - At the time this guide was introduced, the baseline was 0.13.1 (Scientific Maintenance), with dense rank-1–8 Float64 tensors, scalar reverse-mode AD, selected SIMD kernels, numerical methods and a specialized matrix-free Poisson solver.
 - Arda 0.14.3 (development codename Moria) implements native COO/CSR, typed assembly, sparse algebra, Matrix Market I/O, CG/PCG, and sparse memory budgets. Read [docs/MORIA_0.14.3.md](docs/MORIA_0.14.3.md) and [the foundations report](docs/MORIA_0.14.0.md). Arda 0.14.4 closes sparse release validation. See [the sparse release report](docs/MORIA_0.14.4.md).
-- Arda 0.15.0 (development codename Rúmil) adds reusable dense factorizations, matrix utilities and structured direct solvers. See [the release report](docs/RUMIL_0.15.0.md). Next is 0.15.1 SVD, eigenvalues, and conditioning.
+- Arda 0.15.0 (development codename Rúmil) adds reusable dense factorizations, matrix utilities and structured direct solvers. See [the release report](docs/RUMIL_0.15.0.md). Arda 0.15.1 adds optional LAPACK SVD and eigenvalue routines. See [the spectral release report](docs/RUMIL_0.15.1.md). Next is 0.15.2 random generators and statistics.
 - Do not implement unrelated future milestones, invent benchmark results, or bump the version unless the requested task warrants it.
 
 ## Repository map

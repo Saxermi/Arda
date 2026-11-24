@@ -2,9 +2,10 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
-## Unreleased — 0.15.1
+## 0.15.1 — SVD, Eigenvalues, and Conditioning
 
 - Added optional LAPACK reduced SVD, pseudoinverse, numerical rank, and 2-norm condition numbers for real Float64 matrices. [Contracts and validation](research/implemented/linear-algebra.md#lapack-reduced-svd)
+- Added `linalg.eigh` and `linalg.eig` with optional LAPACK. General eigenpairs expose real and imaginary components. `calc.eigh` shares the symmetric solver and keeps its existing return layout. [Release validation](docs/RUMIL_0.15.1.md)
 
 ## 0.15.0 — Dense Factorizations and Direct Solvers
 

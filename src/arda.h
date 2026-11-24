@@ -370,6 +370,7 @@ void install_tensor(VM *v, Obj *module);
 #define SPARSE_BASE 600
 #define LINALG_BASE 700
 Val linalg_call(VM *v, int id, int argc, Val *a);
+Val linalg_eigh(VM *v, Val a);
 Obj *linalg_module(VM *v);
 Obj *dense_lu_solve(VM *v, Obj *a, Obj *b);
 Val sparse_call(VM *v, int id, int argc, Val *a);

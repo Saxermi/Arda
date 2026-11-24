@@ -1,0 +1,18 @@
+# Build with LAPACK=1 before running this example.
+tol numc as nc
+tol linalg as la
+
+esta symmetric = nc.array([[2,1],[1,2]])
+esta eigensystem = la.eigh(symmetric)
+pedo(nc.tolist(eigensystem[0]))
+
+# Rotation has the eigenvalues +i and -i.
+esta rotation = nc.array([[0,-1],[1,0]])
+esta parts = la.eig(rotation)
+esta wr = parts[0]
+esta wi = parts[1]
+esta vr = parts[2]
+esta vi = parts[3]
+pedo(nc.tolist(wr), nc.tolist(wi))
+pedo(nc.norm(nc.matmul(rotation,vr)-(vr*wr-vi*wi)))
+pedo(nc.norm(nc.matmul(rotation,vi)-(vr*wi+vi*wr)))

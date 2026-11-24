@@ -8,11 +8,11 @@ Arda is an independent, open-source, research-driven scientific programming lang
 
 Its long-term goal is to combine scientifically validated numerical algorithms with adaptive execution, from ordinary laptops to distributed research clusters. The language brings native numerical data structures and algorithms to an indentation-based runtime for physics, engineering, and other computational research.
 
-**Current version** — Arda 0.15.0 — Dense Factorizations and Direct Solvers
+**Current version** — Arda 0.15.1 — SVD, Eigenvalues, and Conditioning
 
 *Development codename: Rúmil*
 
-**Next milestone** — Arda 0.15.1 — SVD, Eigenvalues, and Conditioning
+**Next milestone** — Arda 0.15.2 — Random Generators and Statistics
 
 The `linalg` module provides reusable pivoted LU, Cholesky and Householder QR, dense matrix utilities, and direct tridiagonal and banded solves. [Linear algebra contracts](research/implemented/linear-algebra.md#reusable-float64-factorizations) · [0.15.0 release validation](docs/RUMIL_0.15.0.md)
 
@@ -251,7 +251,7 @@ Arrays are row-major Float64, with GC-traced ownership. Arithmetic `+ - * /` is 
 
 ### `linalg`: matrix factorizations and direct solvers
 
-The portable build includes reusable LU, Cholesky and QR, dense utilities, and direct tridiagonal and banded solves. The 0.15.1 development checkout adds `svd`, `pinv`, `rank`, and `cond` with `make LAPACK=1`. `calc.backend()` reports `"lapack"` when these operations are available. [Portable examples](examples/factorizations.arda) · [SVD contracts](research/implemented/linear-algebra.md#lapack-reduced-svd)
+The portable build includes reusable LU, Cholesky and QR, dense utilities, and direct tridiagonal and banded solves. Build with `make LAPACK=1` for `svd`, `pinv`, `rank`, `cond`, `eigh`, and `eig`. `calc.backend()` reports `"lapack"` when these operations are available. [Portable examples](examples/factorizations.arda) · [SVD contracts](research/implemented/linear-algebra.md#lapack-reduced-svd) · [Eigenvalue example](examples/eigenpairs.arda)
 
 ```arda
 tol numc as nc
@@ -353,6 +353,7 @@ The REPL accepts one statement per line and blocks terminated by a blank line. `
 | `docs/MORIA_0.14.3.md` | Assembly, algebra, solvers, memory budgets and local validation |
 | `docs/MORIA_0.14.4.md` | Sparse release validation and benchmark results |
 | `docs/RUMIL_0.15.0.md` | Dense factorization and direct solver release validation |
+| `docs/RUMIL_0.15.1.md` | SVD and eigenvalue release validation |
 | `CHANGELOG.md` | Release history |
 | `MAINTENANCE.md` | 0.13.1 changes and measured validation |
 | `CONTRIBUTING.md` | Local development and validation policy |

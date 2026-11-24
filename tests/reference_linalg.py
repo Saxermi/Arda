@@ -4,6 +4,7 @@ import unittest
 
 import numpy as np
 from scipy import linalg
+from scipy.optimize import linear_sum_assignment
 
 import test_arda
 
@@ -186,7 +187,7 @@ class LinalgReferenceTests(unittest.TestCase):
                 self.assertLess(residual, 1e-14)
 
 
-class SvdReferenceTests(unittest.TestCase):
+class LapackReferenceTests(unittest.TestCase):
     run_code = test_arda.ArdaTests.run_code
 
     def setUp(self):
@@ -256,3 +257,70 @@ class SvdReferenceTests(unittest.TestCase):
         self.assertEqual(list(map(int, output[1].split())), [4, expected_rank])
         np.testing.assert_allclose(float(output[0]), np.linalg.cond(a), rtol=3e-7)
         np.testing.assert_allclose(ast.literal_eval(output[2]), expected, rtol=1e-12, atol=1e-13)
+
+    def test_symmetric_eigenpairs_and_legacy_api(self):
+        rng = np.random.default_rng(1512)
+        basis, _ = np.linalg.qr(rng.normal(size=(6, 6)))
+        a = (basis * [-4, -1, -1, 0.25, 2, 5]) @ basis.T
+        a = (a + a.T) / 2
+        scale = 1e140
+        output = self.run_code(f"""
+        tol calc
+        tol numc as nc
+        tol linalg as la
+        esta a = nc.permute(nc.array({(a * scale).tolist()}),[1,0])
+        esta p = la.eigh(a)
+        esta legacy = calc.eigh(a)
+        pedo(nc.tolist(p[0]))
+        pedo(nc.tolist(p[1]))
+        pedo(nc.norm(p[0]-legacy[0]) == 0 and nc.norm(p[1]-legacy[1]) == 0)
+        pedo(nc.tolist(a))
+        """, stress=True).splitlines()
+        values, vectors = (np.array(ast.literal_eval(line)) for line in output[:2])
+        values /= scale
+        expected, reference = linalg.eigh(a)
+        np.testing.assert_allclose(values, expected, atol=1e-13)
+        np.testing.assert_allclose(vectors[:, 1:3] @ vectors[:, 1:3].T,
+                                   reference[:, 1:3] @ reference[:, 1:3].T, atol=1e-13)
+        np.testing.assert_allclose(np.asarray(ast.literal_eval(output[3])) / scale, a, atol=1e-14)
+        self.assertEqual(output[2], 'nae')
+        residual = np.linalg.norm(a @ vectors - vectors * values) / np.linalg.norm(a)
+        orthogonality = np.linalg.norm(vectors.T @ vectors - np.eye(6))
+        self.assertLess(residual, 1e-13)
+        self.assertLess(orthogonality, 1e-13)
+        print(f"\nEigh relative residual {residual:.3g}, orthogonality {orthogonality:.3g}")
+
+    def test_real_complex_and_defective_general_eigenpairs(self):
+        blocks = linalg.block_diag([[0, -2], [2, 0]], [[1, -3], [3, 1]], [[5]])
+        basis = np.eye(5) + np.diag([1, -2, 1, 0.5], 1)
+        cases = [
+            ("mixed", basis @ blocks @ linalg.inv(basis), 1e-140),
+            ("real", np.array([[1, 2, 3], [0, 2, 4], [0, 0, 3]]), 1.0),
+            ("defective", np.array([[2, 1, 0], [0, 2, 1], [0, 0, 2]]), 1.0),
+        ]
+        for label, a, scale in cases:
+            with self.subTest(case=label):
+                output = self.run_code(f"""
+                tol numc as nc
+                tol linalg as la
+                esta a = nc.permute(nc.array({(a.T * scale).tolist()}),[1,0])
+                esta parts = la.eig(a)
+                an i in range(4):
+                    pedo(nc.tolist(parts[i]))
+                pedo(nc.tolist(a))
+                """, stress=True).splitlines()
+                wr, wi, vr, vi, original = (np.array(ast.literal_eval(line)) for line in output)
+                values, vectors = wr / scale + 1j * (wi / scale), vr + 1j * vi
+                expected = linalg.eigvals(a)
+                rows, cols = linear_sum_assignment(abs(values[:, None] - expected))
+                np.testing.assert_allclose(values[rows], expected[cols], atol=1e-13)
+                np.testing.assert_allclose(np.linalg.norm(vectors, axis=0), 1, atol=1e-13)
+                np.testing.assert_allclose(original / scale, a, atol=1e-14)
+                for j in np.flatnonzero(wi > 0):
+                    self.assertEqual(values[j + 1], values[j].conjugate())
+                    np.testing.assert_array_equal(vectors[:, j + 1], vectors[:, j].conjugate())
+                self.assertTrue(np.all(vi[:, wi == 0] == 0))
+                residuals = np.linalg.norm(a @ vectors - vectors * values, axis=0)
+                max_residual = max(residuals) / np.linalg.norm(a)
+                self.assertLess(max_residual, 1e-13)
+                print(f"\nEig {label} maximum relative residual {max_residual:.3g}")

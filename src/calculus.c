@@ -3,8 +3,6 @@
 #ifdef ARDA_LAPACK
 extern void dgesv_(const int * , const int * , double * , const int * , int * , double * , const int * ,
         int * );
-extern void dsyev_(const char * , const char * , const int * , double * , const int * , double * ,
-        double * , const int * , int * );
 #endif
 static Obj *array(VM *v, Val a, int rank) {
     if (!isobj(a, O_ARRAY) || a.o->as.array.rank != rank)
@@ -167,6 +165,8 @@ Val calculus_call(VM *v, int id, int argc, Val *a) {
     if (k == 4)
         return objval(rk4(v, array(v, a[0], 2), array(v, a[1], 1), finite_num(v, a[2]), count(v, a[3],
                         1000000)));
+    if (k == 6)
+        return linalg_eigh(v, a[0]);
 #ifndef ARDA_LAPACK
     vmerror(v, "LAPACK unavailable: rebuild with LAPACK=1");
 #else
@@ -181,43 +181,18 @@ Val calculus_call(VM *v, int id, int argc, Val *a) {
         for (int j = 0; j < n; j++)
             m[(size_t) j * n + i] = A(x).data[(size_t) i * n + j];
     int info = 0;
-    if (k == 5) {
-        Obj *b = array(v, a[1], 1);
-        if (A(b).rows != n)
-            vmerror(v, "solve shape mismatch");
-        finite_array(v, b);
-        Obj *r = tensor_copy(v, b);
-        int *ip = mem((size_t) n * sizeof(int));
-        int one = 1;
-        dgesv_(&n, &one, m, &n, ip, A(r).data, &n, &info);
-        free(ip);
-        if (info)
-            vmerror(v, "LAPACK dgesv failed (%d)", info);
-        return objval(r);
-    }
-    for (int i = 0; i < n; i++)
-        for (int j = 0; j < i; j++)
-            if (m[(size_t) i * n + j] != m[(size_t) j * n + i])
-                vmerror(v, "eigh requires symmetric matrix");
-    Obj *values = array_new(v, 1, n, 1);
-    int lw = -1;
-    double opt;
-    dsyev_("V", "U", &n, m, &n, A(values).data, &opt, &lw, &info);
-    if (info || !isfinite(opt) || opt < 1 || opt > ARDA_MAX_ELEMENTS)
-        vmerror(v, "LAPACK workspace query failed");
-    lw = (int) opt;
-    Obj *work = array_new(v, 1, lw, 1);
-    dsyev_("V", "U", &n, m, &n, A(values).data, A(work).data, &lw, &info);
+    Obj *b = array(v, a[1], 1);
+    if (A(b).rows != n)
+        vmerror(v, "solve shape mismatch");
+    finite_array(v, b);
+    Obj *r = tensor_copy(v, b);
+    int *ip = mem((size_t) n * sizeof(int));
+    int one = 1;
+    dgesv_(&n, &one, m, &n, ip, A(r).data, &n, &info);
+    free(ip);
     if (info)
-        vmerror(v, "LAPACK dsyev failed (%d)", info);
-    Obj *vectors = array_new(v, 2, n, n);
-    for (int i = 0; i < n; i++)
-        for (int j = 0; j < n; j++)
-            A(vectors).data[(size_t) i * n + j] = m[(size_t) j * n + i];
-    Obj *l = list(v);
-    append(v, l, objval(values));
-    append(v, l, objval(vectors));
-    return objval(l);
+        vmerror(v, "LAPACK dgesv failed (%d)", info);
+    return objval(r);
 #endif
 }
 

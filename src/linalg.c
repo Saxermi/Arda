@@ -5,6 +5,10 @@
 extern void dgesvd_(const char *, const char *, const int *, const int *, double *, const int *,
                     double *, double *, const int *, double *, const int *, double *, const int *,
                     int *);
+extern void dsyev_(const char *, const char *, const int *, double *, const int *, double *,
+                   double *, const int *, int *);
+extern void dgeev_(const char *, const char *, const int *, double *, const int *, double *, double *,
+                   double *, const int *, double *, const int *, double *, const int *, int *);
 #endif
 
 #define A(o) ((o)->as.array)
@@ -12,13 +16,13 @@ extern void dgesvd_(const char *, const char *, const int *, const int *, double
 
 typedef enum { LU, CHOLESKY, QR } FactorKind;
 enum { PARTS = QR + 1, SOLVE, DET, TRACE, DIAG, INV, SOLVE_TRIDIAG, SOLVE_BANDED,
-       SVD, PINV, RANK, COND };
+       SVD, PINV, RANK, COND, EIGH, EIG };
 
 static const char *names[] = {
     "lu", "cholesky", "qr", "parts", "solve", "det", "trace", "diag", "inv",
-    "solve_tridiag", "solve_banded", "svd", "pinv", "rank", "cond"
+    "solve_tridiag", "solve_banded", "svd", "pinv", "rank", "cond", "eigh", "eig"
 };
-static const int arities[] = {1, 1, 1, 1, 2, 1, 1, 1, 1, 4, 4, 1, 1, 1, 1};
+static const int arities[] = {1, 1, 1, 1, 2, 1, 1, 1, 1, 4, 4, 1, 1, 1, 1, 1, 1};
 _Static_assert(sizeof names / sizeof *names == sizeof arities / sizeof *arities,
                "linalg arity table");
 
@@ -619,7 +623,111 @@ static Obj *pseudoinverse(VM *v, Svd svd, int rank) {
     }
     return out;
 }
+
+static void transpose_square(Obj *matrix) {
+    int n = A(matrix).rows;
+    double *data = A(matrix).data;
+    for (int i = 0; i < n; i++)
+        for (int j = 0; j < i; j++)
+            swap(&data[index_at(matrix, i, j)], &data[index_at(matrix, j, i)]);
+}
+
+static int eigen_workspace(VM *v, double optimum, int info) {
+    if (info || !isfinite(optimum) || optimum < 1 || optimum > ARDA_MAX_ELEMENTS)
+        vmerror(v, "LAPACK workspace query failed");
+    return (int) ceil(optimum);
+}
+
+static Val symmetric_eigen(VM *v, Obj *vectors) {
+    int n = A(vectors).rows;
+    for (int i = 0; i < n; i++)
+        for (int j = 0; j < i; j++)
+            if (at(vectors, i, j) != at(vectors, j, i))
+                vmerror(v, "eigh requires symmetric matrix");
+
+    Obj *values = array_new(v, 1, n, 1);
+    int lw = -1, info = 0;
+    double optimum = 0;
+    double *data = A(vectors).data, *w = A(values).data;
+    dsyev_("V", "U", &n, data, &n, w, &optimum, &lw, &info);
+    lw = eigen_workspace(v, optimum, info);
+    Obj *work = array_new(v, 1, lw, 1);
+    dsyev_("V", "U", &n, data, &n, w, A(work).data, &lw, &info);
+    if (info)
+        vmerror(v, "LAPACK dsyev failed (%d)", info);
+    finite_packed(v, values, "nonfinite eigenvalues");
+    finite_packed(v, vectors, "nonfinite eigenvectors");
+    transpose_square(vectors);
+    Obj *out = list(v);
+    append(v, out, objval(values));
+    append(v, out, objval(vectors));
+    return objval(out);
+}
+
+static Val general_eigen(VM *v, Obj *matrix) {
+    int n = A(matrix).rows;
+    transpose_square(matrix);
+    Obj *wr = array_new(v, 1, n, 1);
+    Obj *wi = array_new(v, 1, n, 1);
+    Obj *vr = array_new(v, 2, n, n);
+    int lw = -1, info = 0, one = 1;
+    double optimum = 0, unused = 0;
+    double *a = A(matrix).data, *re = A(wr).data, *im = A(wi).data, *right = A(vr).data;
+    dgeev_("N", "V", &n, a, &n, re, im, &unused, &one, right, &n, &optimum, &lw, &info);
+    lw = eigen_workspace(v, optimum, info);
+    Obj *work = array_new(v, 1, lw, 1);
+    dgeev_("N", "V", &n, a, &n, re, im, &unused, &one, right, &n, A(work).data, &lw, &info);
+    if (info)
+        vmerror(v, "LAPACK dgeev failed (%d)", info);
+    finite_packed(v, wr, "nonfinite eigenvalues");
+    finite_packed(v, wi, "nonfinite eigenvalues");
+    finite_packed(v, vr, "nonfinite eigenvectors");
+
+    /* Reuse the overwritten input buffer for the imaginary parts. LAPACK
+     * packs each conjugate pair as two real columns, one per component. */
+    transpose_square(vr);
+    memset(a, 0, A(matrix).n * sizeof(double));
+    for (int j = 0; j < n; j++) {
+        if (im[j] == 0)
+            continue;
+        if (im[j] < 0 || j + 1 == n || im[j + 1] != -im[j])
+            vmerror(v, "invalid LAPACK conjugate eigenpair");
+        for (int i = 0; i < n; i++) {
+            size_t first = index_at(matrix, i, j), second = first + 1;
+            a[first] = right[second];
+            a[second] = -right[second];
+            right[second] = right[first];
+        }
+        j++;
+    }
+    Obj *out = list(v);
+    append(v, out, objval(wr));
+    append(v, out, objval(wi));
+    append(v, out, objval(vr));
+    append(v, out, objval(matrix));
+    return objval(out);
+}
 #endif
+
+static Val linalg_eigen(VM *v, Val a, int symmetric) {
+#ifndef ARDA_LAPACK
+    (void) a;
+    (void) symmetric;
+    vmerror(v, "LAPACK unavailable: rebuild with LAPACK=1");
+#else
+    if (!isobj(a, O_ARRAY) || A(a.o).rank != 2)
+        vmerror(v, "expected rank-2 array");
+    if (!A(a.o).rows || A(a.o).rows != A(a.o).cols)
+        vmerror(v, "expected nonempty square matrix");
+    Obj *packed = tensor_copy(v, a.o);
+    finite_packed(v, packed, "expected finite array");
+    return symmetric ? symmetric_eigen(v, packed) : general_eigen(v, packed);
+#endif
+}
+
+Val linalg_eigh(VM *v, Val a) {
+    return linalg_eigen(v, a, 1);
+}
 
 static Val spectral_call(VM *v, int op, int argc, Val *args) {
 #ifndef ARDA_LAPACK
@@ -686,6 +794,10 @@ Val linalg_call(VM *v, int id, int argc, Val *a) {
     case RANK:
     case COND:
         return spectral_call(v, op, argc, a);
+    case EIGH:
+        return linalg_eigh(v, a[0]);
+    case EIG:
+        return linalg_eigen(v, a[0], 0);
     default:
         break;
     }
