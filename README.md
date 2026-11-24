@@ -2,11 +2,130 @@
 
 **Compute. Optimize. Understand.**
 
-Arda is an experimental, standalone scientific programming language written in C11. Its indentation-based syntax offers Tolkien-inspired keywords and conventional English aliases. The project aims to make high-performance, resource-aware and explainable scientific computing accessible on everyday laptops, while scaling to workstations and HPC clusters.
+Arda is an experimental, open-source, standalone scientific programming language written in C11. It is designed around a central idea: scientists and engineers should be able to express complex mathematics naturally, execute it efficiently within the resources available to them, and understand how the result was obtained.
+
+Arda combines a dynamic, indentation-based language with native numerical data structures and algorithms. Its long-term ambition is to unite high-performance numerical computing, resource-aware execution, differentiable programming and mathematical documentation in one coherent runtime — from an ordinary student laptop without a dedicated GPU to a multi-node scientific computing cluster.
 
 **Current version: 0.13.1 — Scientific Maintenance. Next planned release: 0.14 — Moria.**
 
-Arda is an early-stage prototype, not production-validated scientific software or a sandbox. Features in the roadmap are proposals, not implemented capabilities.
+> **Development status:** Arda is an early-stage scientific language. The interpreter, dense Float64 tensors, selected optimized CPU kernels, numerical solvers and scalar automatic differentiation already exist. The adaptive compute engine, general sparse matrices, beyond-RAM storage, mathematical introspection and distributed HPC described below are roadmap goals, not currently available features.
+
+## What is Arda?
+
+Arda is a programming language in its own right, rather than a Python package, a wrapper around an existing interpreter, or a collection of mathematical scripts. Source files use the `.arda` extension. A native compiler translates the source into bytecode, which is executed by a stack-based virtual machine. The runtime manages objects, function calls, modules and garbage collection, while performance-sensitive numerical operations are implemented in native C.
+
+This design aims to combine the convenience of a high-level scripting language with the efficiency of specialized numerical kernels. A user can write a differential equation, manipulate a tensor, define a function or implement an optimization algorithm without manually managing every memory allocation. At the same time, the numerical layer can operate directly on contiguous native buffers instead of interpreting every scalar operation as a separate language instruction.
+
+Arda is **CPU-first, not CPU-only**. Its portable implementation does not require a dedicated GPU or a large external numerical framework. Optimized hardware-specific kernels and optional libraries complement the portable implementation. GPU acceleration, multi-core scheduling and distributed execution are intended to extend this foundation, not replace it.
+
+The language also has a distinctive literary identity: its name, optional Elvish-inspired keywords and release codenames draw on Tolkien's legendarium. Conventional English keyword aliases are equally valid and compile to the same internal tokens. Scientific APIs retain familiar names such as `solve`, `matmul`, and `sin`.
+
+## Why develop another scientific language?
+
+Python, Julia, MATLAB, Mathematica, C++, Fortran and their ecosystems already offer excellent scientific tools. Arda does not assume that existing numerical libraries are inefficient, nor does it claim to outperform them. Instead, it explores how several capabilities can be designed to work together from the beginning:
+
+| Design goal | What it means for Arda |
+| --- | --- |
+| **High performance** | Native numerical kernels, SIMD, cache-aware algorithms, and optional optimized backends; eventually multicore execution, fusion and specialized compilation. |
+| **Resource awareness** | Make memory consumption, computation cost and data movement explicit; choose suitable representations and algorithms within available resources. |
+| **High-dimensional mathematics** | Exploit sparsity, matrix-free operators, low-rank factorizations and compressed tensors instead of blindly materializing enormous dense arrays. |
+| **Beyond-RAM computing** | Eventually process file-backed data and models in bounded chunks, with controlled I/O, prefetching and offloading. |
+| **Mathematical transparency** | Eventually describe equations, assumptions, algorithms and costs directly from functions without requiring a numerical run. |
+| **Numerical reliability** | Independent reference tests today; planned verification, uncertainty propagation, units and reproducible experiment records. |
+| **Scalable execution** | Preserve efficient local CPU execution while developing optional GPU, NUMA and MPI support for larger systems. |
+| **Accessibility** | A compact standalone runtime with approachable syntax and a portable baseline, suitable for education, research and embedded numerical applications. |
+
+The intended distinction is the integration of these capabilities, not the invention of every underlying technique. A scientific function should ultimately be something that can be **executed, analyzed, optimized, verified and documented** using consistent mathematical objects and interfaces.
+
+## The mathematical idea: exploit structure before adding hardware
+
+A faster processor cannot fix every inefficient mathematical representation. Consider a tridiagonal linear system with one million unknowns. A conventional dense Float64 matrix requires 8 TB of storage, even though only 2,999,998 coefficients are nonzero. A CSR representation with 32-bit column indices and 64-bit row offsets requires approximately 44 MB for its three principal buffers.
+
+Similarly, a regular-grid differential operator can often be applied directly to a vector using a stencil without storing any matrix at all. Arda already has a specialized matrix-free Poisson solver in its `high` module. For a grid of 128 × 128 × 128 points, a hypothetical dense operator would occupy 32 TiB; six Float64 work vectors occupy only 96 MiB. These figures describe theoretical storage, not measured peak memory or a universal solver workspace requirement.
+
+Arda's development strategy is to exploit such mathematical structure first, then optimize the resulting kernels using cache locality, SIMD, parallelism and suitable external libraries. General COO/CSR matrices are the next development milestone; tensor compression and a unified linear-operator interface follow.
+
+This approach applies equally to scientific simulation and machine learning. Quantization, low-rank approximations, activation checkpointing and selective data loading can reduce the resources needed by suitable models. They do not eliminate the computational cost of arbitrary problems, and approximate methods must be explicitly permitted.
+
+## Long-term vision: from a laptop to a research cluster
+
+Arda is intended to support multiple levels of computing without forcing users to abandon the mathematical model when their hardware changes.
+
+| Environment | Intended execution strategy |
+| --- | --- |
+| Everyday laptop | Efficient CPU kernels, compact data structures, bounded memory and optional SSD streaming |
+| Multicore workstation | Parallel numerical kernels, cache-aware scheduling, NUMA-aware placement and optional accelerators |
+| Research cluster | MPI, distributed tensors and sparse matrices, domain decomposition, distributed solvers and parallel I/O |
+
+The planned **Adaptive Compute Engine (ACE)** will use problem structure, shape, precision requirements, available memory, compute capacity and communication costs to select among supported execution strategies. It will not silently lower precision, introduce a lossy approximation or allocate a dense representation of a huge sparse operator.
+
+Beyond-RAM execution is not a promise that an SSD performs like RAM. Disk-backed algorithms must explicitly control data movement and working storage, and their practical speed depends on I/O bandwidth and access patterns. Very large quantized model inference is an experimental research goal, not a guarantee of interactive performance; full pretraining of a 70B model on an ordinary laptop is not a project target.
+
+## Explainable mathematics: the Rúmil vision
+
+Arda's planned mathematical documentation engine (AMDE, codename **Rúmil**) aims to make the mathematics behind a function available independently of its execution. For example, a simple energy function can be written today using existing language syntax:
+
+```arda
+caro energy(m, v, h):
+    esta kinetic = 0.5 * m * v * v
+    esta potential = m * 9.81 * h
+    nan kinetic + potential
+```
+
+A future call such as `energy.getTex(2)` could produce LaTeX representing:
+
+$$
+E(m,v,h)=\frac{1}{2}mv^2+9.81mh
+$$
+
+The intended levels range from a compact equation, through intermediate expressions and assumptions, to the mathematical algorithm used by a supported native function. An optional recorded run could also provide selected numerical intermediate results and convergence data. Static documentation must not execute the numerical function or pretend that an unexecuted calculation has converged.
+
+The broader proposed introspection interface includes:
+
+| Planned API | Question it answers |
+| --- | --- |
+| `getTex(level)` / `getMath()` | What mathematics does this function express? |
+| `getAlgorithm()` / `getAssumptions()` | Which mathematical method and prerequisites apply? |
+| `getCost()` / `getPlan()` | What resources might it need, and how could it execute? |
+| `getUnits()` / `getSensitivity()` | What physical dimensions and parameter sensitivities matter? |
+| `verify()` | Does a computed result satisfy the relevant numerical criteria? |
+| `trace()` / `reproduce()` | What happened during a recorded run, and can it be repeated? |
+
+These APIs are proposals. Some require concrete inputs or actual computation; estimates must be distinguished from measurements. Native algorithm descriptions must match the implemented backend, and arbitrary dynamic code cannot always be converted into a closed-form expression.
+
+A key architectural requirement is **zero-cost scientific introspection as a design goal**: optional tracing, symbolic analysis and documentation must not insert logging, allocations or additional checks into numerical hot loops when unused. Trace collection should have explicit limits on depth, event count and storage. Basic safety checks remain enabled in every execution mode.
+
+## Architecture and development philosophy
+
+The current runtime is deliberately small. The roadmap expands it incrementally into the following logical subsystems, rather than replacing the existing interpreter:
+
+```text
+Arda source (.arda)
+  |
+  +-- Lexer / Parser / Bytecode compiler
+  |       |
+  |       +-- VM / Garbage collector / Native modules
+  |
+  +-- Planned scientific infrastructure
+          |
+          +-- AMDE / Rumil   Mathematical descriptions and reports
+          +-- AML            Differentiation and machine learning
+          +-- ACE            Adaptive planning and scheduling
+                 |
+                 +-- AME     Buffers, memory budgets and file storage
+                 +-- AKE     Numerical kernels, SIMD and parallelism
+                 +-- HPC     Partitioning, MPI and distributed operators
+```
+
+AME (Arda Memory Engine) will distinguish logical tensor size from physical storage; AKE (Arda Kernel Engine) will manage optimized numerical execution; ACE will plan supported operations using resource and algorithm cost models. AML and AMDE will build on these shared representations. The HPC layer will extend the same operator and storage abstractions to distributed memory. The portable C11 baseline remains available throughout development.
+
+Performance is measured, not assumed. Comparisons should use equivalent problems, precision, convergence criteria, hardware and optimized reference implementations. Runtime, peak memory, data movement, numerical error and scientific productivity all matter. The detailed [master roadmap](ROADMAP.md) sets out the release milestones and validation goals.
+
+## Who is Arda for?
+
+The project is intended for students and educators learning numerical methods, researchers building reproducible simulations, engineers solving scientific and physical problems, developers working with resource-constrained numerical applications, and eventually ML and HPC practitioners. Early releases focus on a small, reliable numerical core rather than trying to match the breadth of mature scientific ecosystems.
+
+Arda is currently a prototype suitable for exploration and experimentation, not production-validated scientific software or a security sandbox. Planned capabilities are not guarantees of eventual performance or support for every mathematical workload.
 
 ## Quick start (Ubuntu/Linux)
 
