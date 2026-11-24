@@ -1,0 +1,5 @@
+caro fib(n):
+    qui n < 2:
+        nan n
+    nan fib(n - 1) + fib(n - 2)
+pedo(fib(25))

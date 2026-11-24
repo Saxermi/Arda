@@ -1,0 +1,10 @@
+3D unknowns: 32768
+CG iterations: 79 relative residual: 8.4913577589952e-09 converged: nae
+Independent residual: 8.4913577589952e-09
+4D unknowns: 4096 relative solution error: 1.05612763510609e-10
+ODE unknowns: 1000 accepted: 19 rejected: 2
+ODE max error: 1.5210587789305e-09
+Optimization unknowns: 10000 iterations: 31 gradient norm: 8.78117173399393e-07 converged: nae
+Optimization error: 5.56359349504522e-07
+8D unknowns: 65536 iterations: 9 relative residual: 8.05797468052466e-16 converged: nae
+8D relative solution error: 2.1700473729927e-16

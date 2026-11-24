@@ -1,0 +1,5 @@
+Slope: 2
+Intercept: 1
+Predictions: [3, 5, 7, 9, 11]
+Residual norm: 0
+Linear system: [1, 2]

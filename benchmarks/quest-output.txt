@@ -1,0 +1,3 @@
+Frodo completed the quest
+Gold: 250
+Health: 90

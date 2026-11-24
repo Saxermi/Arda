@@ -1,0 +1,41 @@
+tol numc as nc
+tol high
+tol ode
+
+# 3D Poisson equation, zero Dirichlet boundary, unit grid spacing.
+esta rhs = nc.ones(32,32,32)
+esta result = high.poisson(rhs, 0.00000001, 500)
+pedo("3D unknowns:", nc.bytes(rhs)/8)
+pedo("CG iterations:", result[1], "relative residual:", result[2], "converged:", result[3])
+pedo("Independent residual:", nc.norm(high.laplace(result[0])-rhs)/nc.norm(rhs))
+
+# Four-dimensional tensor problem, manufactured solution.
+esta exact = nc.ones(8,8,8,8)
+esta r4 = high.poisson(high.laplace(exact), 0.000000001, 200)
+pedo("4D unknowns:", nc.bytes(exact)/8, "relative solution error:", nc.norm(r4[0]-exact)/nc.norm(exact))
+
+# 1000 simultaneous decay equations, with different decay rates.
+esta rate = nc.linspace(1,2,1000)
+caro decay(t,y):
+    nan 0-rate*y
+esta sim = ode.rk45(decay, 0, nc.ones(1000), 1, 0.5, 0.00000001, 0.0000000001)
+pedo("ODE unknowns:", 1000, "accepted:", sim[1], "rejected:", sim[2])
+pedo("ODE max error:", nc.max(nc.sqrt((sim[0]-nc.exp(0-rate))*(sim[0]-nc.exp(0-rate)))))
+
+# Nonlinear-optimizer API: weighted quadratic objective in 10,000 variables.
+tol opt
+esta target = nc.linspace(-1,1,10000)
+esta weight = nc.linspace(1,10,10000)
+caro objective(x):
+    esta d = x-target
+    nan [0.5*high.inner(d,weight*d),weight*d]
+esta best = opt.lbfgs(objective,nc.zeros(10000),0.000001,300,10)
+pedo("Optimization unknowns:", 10000, "iterations:", best[1], "gradient norm:", best[2], "converged:", best[3])
+pedo("Optimization error:", nc.norm(best[0]-target))
+
+# Actual eight-dimensional tensor: 4^8 = 65,536 unknowns.
+esta u8=nc.ones(4,4,4,4,4,4,4,4)
+esta rhs8=high.laplace(u8)
+esta r8=high.poisson(rhs8,1e-9,200)
+pedo("8D unknowns:",nc.bytes(u8)/8,"iterations:",r8[1],"relative residual:",r8[2],"converged:",r8[3])
+pedo("8D relative solution error:",nc.norm(r8[0]-u8)/nc.norm(u8))

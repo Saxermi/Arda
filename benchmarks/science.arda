@@ -1,0 +1,21 @@
+tol numc as nc
+tol time
+esta n = 1000000
+esta x = nc.ones(n)
+esta y = nc.ones(n) * 2
+esta t = time.monotonic()
+esta s = 0.0
+esta i = 0
+tenna i < n:
+    s = s + x[i] * y[i]
+    i = i + 1
+esta scalar = time.monotonic() - t
+esta t = time.monotonic()
+esta s2 = nc.dot(x, y)
+esta native = time.monotonic() - t
+pedo(s, s2, scalar, native)
+esta m = nc.ones(256, 256)
+esta t = time.monotonic()
+esta product = nc.matmul(m, m)
+esta elapsed = time.monotonic() - t
+pedo(nc.get(product, 0, 0), elapsed, nc.backend())

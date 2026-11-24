@@ -1,0 +1,16 @@
+tol numc as nc
+tol time
+esta a=nc.linspace(1,2,2000000)
+esta b=nc.ones(2000000)
+esta matrix=nc.ones(512,512)
+esta view=nc.permute(nc.reshape(a,[1000,2000]),[1,0])
+esta t=time.monotonic()
+esta d=nc.dot(a,b)
+esta dot_t=time.monotonic()-t
+esta t=time.monotonic()
+esta m=nc.matmul(matrix,matrix)
+esta mat_t=time.monotonic()-t
+esta t=time.monotonic()
+esta c=nc.copy(view)
+esta copy_t=time.monotonic()-t
+pedo(d,nc.get(m,511,511),nc.get(c,1999,999),dot_t,mat_t,copy_t)

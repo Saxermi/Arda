@@ -6,7 +6,7 @@ Arda is an experimental C11 scientific language. Correctness, resource efficienc
 
 Do not add GitHub Actions or hosted CI workflows. The repository owner's current policy is to avoid consuming hosted runtime minutes.
 
-Once the source is imported, use the Makefile:
+Use the Makefile:
 
 ```sh
 make -j

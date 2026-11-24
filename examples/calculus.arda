@@ -1,0 +1,12 @@
+tol numc as nc
+tol calc
+tol ode
+esta x = nc.linspace(0, 1, 101)
+pedo("Simpson x^2:", calc.simpson(x * x, 0.01))
+caro derivative(t, y):
+    nan -y
+esta trajectory = ode.rk4(derivative, 0, 1, 0.01, 100)
+pedo("RK4 exp(-1):", trajectory[-1])
+esta spectrum = calc.fft(nc.array([1, 0, 0, 0]))
+pedo("FFT impulse:", spectrum)
+pedo("Inverse FFT:", calc.ifft(spectrum))

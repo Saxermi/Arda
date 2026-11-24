@@ -1,0 +1,98 @@
+make clean
+make[1]: Entering directory '/mnt/data/arda-09'
+rm -f arda
+make[1]: Leaving directory '/mnt/data/arda-09'
+make CFLAGS='-std=c11 -O1 -g -Wall -Wextra -fsanitize=address,undefined -fno-omit-frame-pointer -fno-pie' LDFLAGS='-fsanitize=address,undefined -no-pie' arda
+make[1]: Entering directory '/mnt/data/arda-09'
+cc -D_XOPEN_SOURCE=700 -std=c11 -O1 -g -Wall -Wextra -fsanitize=address,undefined -fno-omit-frame-pointer -fno-pie src/compiler.c src/gc.c src/lexer.c src/main.c src/native.c src/parser.c src/scientific.c src/util.c src/vm.c -fsanitize=address,undefined -no-pie -lm -o arda
+src/vm.c: In function 'vm_run':
+src/vm.c:37:509: warning: variable 'self' might be clobbered by 'longjmp' or 'vfork' [-Wclobbered]
+   37 | static void call(VM *v,int argc){int base=v->sp-argc-1;Val callee=v->stack[base];if(isobj(callee,O_NATIVE)){Val r=native_call(v,callee.o->as.native.id,argc,&v->stack[base+1]);v->sp=base;push(v,r);}else if(isobj(callee,O_FUNC))enter_fn(v,callee.o,base,argc,nil());else if(isobj(callee,O_BOUND)){Obj *f=callee.o->as.bound.fn;Val self=callee.o->as.bound.self;insert_self(v,base,argc,f,self);enter_fn(v,f,base,argc+1,nil());}else if(isobj(callee,O_CLASS)){Obj *o=newobj(v,O_INSTANCE);o->as.inst.cls=callee.o;Val self=objval(o);Entry *init=method(callee.o,"init");if(!init)init=method(callee.o,"__init__");if(init){Obj *f=init->val.o;insert_self(v,base,argc,f,self);enter_fn(v,f,base,argc+1,self);}else{if(argc)vmerror(v,"class %s has no constructor",callee.o->as.cls.name);v->sp=base;push(v,self);}}else vmerror(v,"attempt to call non-callable value");}
+      |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             ^~~~
+make[1]: Leaving directory '/mnt/data/arda-09'
+ASAN_OPTIONS=detect_leaks=0 python3 -m unittest discover -s tests -v
+test_aliases (test_arda.ArdaTests.test_aliases) ... ok
+test_arithmetic (test_arda.ArdaTests.test_arithmetic) ... ok
+test_block_scope (test_arda.ArdaTests.test_block_scope) ... ok
+test_bytecode (test_arda.ArdaTests.test_bytecode) ... ok
+test_class_bound_method (test_arda.ArdaTests.test_class_bound_method) ... ok
+test_class_error (test_arda.ArdaTests.test_class_error) ... ok
+test_closure (test_arda.ArdaTests.test_closure) ... ok
+test_comments_blank_lines_eof (test_arda.ArdaTests.test_comments_blank_lines_eof) ... ok
+test_compile_error (test_arda.ArdaTests.test_compile_error) ... ok
+test_exception_unwind (test_arda.ArdaTests.test_exception_unwind) ... ok
+test_file_io (test_arda.ArdaTests.test_file_io) ... ok
+test_for_closures (test_arda.ArdaTests.test_for_closures) ... ok
+test_for_control (test_arda.ArdaTests.test_for_control) ... ok
+test_gc_cycles (test_arda.ArdaTests.test_gc_cycles) ... ok
+test_gc_incremental_live_graph (test_arda.ArdaTests.test_gc_incremental_live_graph) ... ok
+test_gc_mutations (test_arda.ArdaTests.test_gc_mutations) ... ok
+test_gc_stack_temporaries (test_arda.ArdaTests.test_gc_stack_temporaries) ... ok
+test_indentation (test_arda.ArdaTests.test_indentation) ... ok
+test_index_error (test_arda.ArdaTests.test_index_error) ... ok
+test_list (test_arda.ArdaTests.test_list) ... ok
+test_map (test_arda.ArdaTests.test_map) ... ok
+test_map_non_string (test_arda.ArdaTests.test_map_non_string) ... ok
+test_module_builtins_isolation (test_arda.ArdaTests.test_module_builtins_isolation) ... ok
+test_module_cache (test_arda.ArdaTests.test_module_cache) ... ok
+test_module_cycle (test_arda.ArdaTests.test_module_cycle) ... ok
+test_module_failure_caught (test_arda.ArdaTests.test_module_failure_caught) ... ok
+test_module_visibility (test_arda.ArdaTests.test_module_visibility) ... ok
+test_multiline_literal (test_arda.ArdaTests.test_multiline_literal) ... ok
+test_native_first_class (test_arda.ArdaTests.test_native_first_class) ... ok
+test_nested_for (test_arda.ArdaTests.test_nested_for) ... ok
+test_nested_module (test_arda.ArdaTests.test_nested_module) ... ok
+test_no_semicolon (test_arda.ArdaTests.test_no_semicolon) ... ok
+test_recursion (test_arda.ArdaTests.test_recursion) ... ok
+test_repl (test_arda.ArdaTests.test_repl) ... ok
+test_return_from_try (test_arda.ArdaTests.test_return_from_try) ... ok
+test_runtime_exception (test_arda.ArdaTests.test_runtime_exception) ... ok
+test_shortcircuit (test_arda.ArdaTests.test_shortcircuit) ... ok
+test_string (test_arda.ArdaTests.test_string) ... ok
+test_tabs (test_arda.ArdaTests.test_tabs) ... ok
+test_tokens (test_arda.ArdaTests.test_tokens) ... ok
+test_try_loop_cleanup (test_arda.ArdaTests.test_try_loop_cleanup) ... ok
+test_try_with_outer_iterator (test_arda.ArdaTests.test_try_with_outer_iterator) ... ok
+test_unclosed_delimiter (test_arda.ArdaTests.test_unclosed_delimiter) ... ok
+test_unhandled_trace (test_arda.ArdaTests.test_unhandled_trace) ... ok
+test_while_control (test_arda.ArdaTests.test_while_control) ... ok
+test_accuracy (test_science.ScientificTests.test_accuracy) ... ok
+test_caught_errors (test_science.ScientificTests.test_caught_errors) ... ok
+test_empty (test_science.ScientificTests.test_empty) ... ok
+test_errors (test_science.ScientificTests.test_errors) ... ok
+test_functions (test_science.ScientificTests.test_functions) ... ok
+test_gc_buffer (test_science.ScientificTests.test_gc_buffer) ... ok
+test_index_iter (test_science.ScientificTests.test_index_iter) ... ok
+test_matrix (test_science.ScientificTests.test_matrix) ... ok
+test_solve_pivot (test_science.ScientificTests.test_solve_pivot) ... ok
+test_stats (test_science.ScientificTests.test_stats) ... ok
+test_vector (test_science.ScientificTests.test_vector) ... ok
+test_v08_bad_inheritance (test_v08.UpgradeTests.test_v08_bad_inheritance) ... ok
+test_v08_bytecode_slots (test_v08.UpgradeTests.test_v08_bytecode_slots) ... ok
+test_v08_comp (test_v08.UpgradeTests.test_v08_comp) ... ok
+test_v08_default_errors (test_v08.UpgradeTests.test_v08_default_errors) ... ok
+test_v08_defaults (test_v08.UpgradeTests.test_v08_defaults) ... ok
+test_v08_inheritance (test_v08.UpgradeTests.test_v08_inheritance) ... ok
+test_v08_int_literal_error (test_v08.UpgradeTests.test_v08_int_literal_error) ... ok
+test_v08_integer_limits (test_v08.UpgradeTests.test_v08_integer_limits) ... ok
+test_v08_invalid_utf8 (test_v08.UpgradeTests.test_v08_invalid_utf8) ... ok
+test_v08_lambda (test_v08.UpgradeTests.test_v08_lambda) ... ok
+test_v08_modules (test_v08.UpgradeTests.test_v08_modules) ... ok
+test_v08_numeric_mixed (test_v08.UpgradeTests.test_v08_numeric_mixed) ... ok
+test_v08_overflow (test_v08.UpgradeTests.test_v08_overflow) ... ok
+test_v08_param_slots (test_v08.UpgradeTests.test_v08_param_slots) ... ok
+test_v08_slicing (test_v08.UpgradeTests.test_v08_slicing) ... ok
+test_v08_utf8 (test_v08.UpgradeTests.test_v08_utf8) ... ok
+test_v08_weak_intern (test_v08.UpgradeTests.test_v08_weak_intern) ... ok
+test_cache_alternating_tables (test_v081.PerformanceRegressionTests.test_cache_alternating_tables) ... ok
+test_cache_resize_repl_like_scopes (test_v081.PerformanceRegressionTests.test_cache_resize_repl_like_scopes) ... ok
+test_cache_scope_and_closure (test_v081.PerformanceRegressionTests.test_cache_scope_and_closure) ... ok
+test_fused_assignment_expression (test_v081.PerformanceRegressionTests.test_fused_assignment_expression) ... ok
+test_fused_bytecode (test_v081.PerformanceRegressionTests.test_fused_bytecode) ... ok
+test_fused_dynamic_fallback (test_v081.PerformanceRegressionTests.test_fused_dynamic_fallback) ... ok
+test_fused_gc_barriers (test_v081.PerformanceRegressionTests.test_fused_gc_barriers) ... ok
+
+----------------------------------------------------------------------
+Ran 80 tests in 0.919s
+
+OK

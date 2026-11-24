@@ -1,0 +1,81 @@
+# Limited-memory BFGS, user supplies f(x) -> [objective, gradient tensor].
+tol numc as _nc
+tol high as _high
+caro lbfgs(f, x0, tolerance = 0.000001, maxiter = 500, memory = 10):
+    qui type(x0) != "array" or not _high.finite(x0) or _nc.bytes(x0) == 0 or not _high.finite(tolerance) or tolerance <= 0 or type(maxiter) != "int" or maxiter < 1 or type(memory) != "int" or memory < 1 or memory > 50:
+        throw "invalid L-BFGS configuration"
+    esta x = _nc.copy(x0)
+    esta fg = f(x)
+    esta value = fg[0]
+    esta g = fg[1]
+    esta ss = []
+    esta ys = []
+    esta rho = []
+    esta it = 0
+    tenna it < maxiter:
+        qui not _high.finite(value) or not _high.finite(g):
+            throw "nonfinite L-BFGS objective or gradient"
+        # Also enforces matching tensor shape.
+        esta gn = _nc.norm(g)
+        esta q = _nc.copy(g)
+        _high.inner(g,x)
+        qui gn <= tolerance:
+            nan [x,it,gn,nae,value]
+        esta alphas = []
+        esta j = len(ss)-1
+        tenna j >= 0:
+            esta a = rho[j]*_high.inner(ss[j],q)
+            push(alphas,a)
+            q = _high.axpy(ys[j],q,0-a)
+            j = j-1
+        esta scale = 1
+        qui len(ss) > 0:
+            scale = _high.inner(ss[-1],ys[-1])/_high.inner(ys[-1],ys[-1])
+        esta d = scale*q
+        j = 0
+        tenna j < len(ss):
+            esta beta = rho[j]*_high.inner(ys[j],d)
+            d = _high.axpy(ss[j],d,alphas[len(ss)-1-j]-beta)
+            j = j+1
+        d = 0-d
+        esta slope = _high.inner(g,d)
+        qui slope >= 0 or not _high.finite(slope):
+            d = 0-g
+            slope = 0-_high.inner(g,g)
+            ss = []
+            ys = []
+            rho = []
+        esta step = 1
+        esta found = law
+        esta attempt = 0
+        esta trial = x
+        esta next = fg
+        tenna attempt < 40:
+            trial = _high.axpy(d,x,step)
+            next = f(trial)
+            qui _high.finite(next[0]) and _high.finite(next[1]) and next[0] <= value + 0.0001*step*slope:
+                _high.inner(next[1],x)
+                found = nae
+                break
+            step = step/2
+            attempt = attempt+1
+        qui not found:
+            nan [x,it,gn,law,value]
+        esta s = trial-x
+        esta y = next[1]-g
+        esta sy = _high.inner(s,y)
+        qui sy > 0.0000000001*_nc.norm(s)*_nc.norm(y) and _high.finite(sy) and _high.finite(1/sy):
+            qui len(ss) == memory:
+                ss = ss[1:]
+                ys = ys[1:]
+                rho = rho[1:]
+            push(ss,s)
+            push(ys,y)
+            push(rho,1/sy)
+        x = trial
+        fg = next
+        value = fg[0]
+        g = fg[1]
+        it = it+1
+    esta gn = _nc.norm(g)
+    nan [x,it,gn,gn <= tolerance,value]

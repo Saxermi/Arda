@@ -1,0 +1,9 @@
+tol numc as nc
+esta a = nc.reshape(nc.linspace(1, 12, 12), [2, 2, 3])
+esta bias = nc.array([10, 20, 30])
+pedo("Tensor:", nc.shape(a))
+pedo("Broadcast:", a + bias)
+esta v = nc.view(a, 2, 0, 3, 2)
+nc.put(v, [1, 0, 1], 99)
+pedo("Shared storage:", nc.at(a, [1, 0, 2]))
+pedo("SIMD:", nc.simd())

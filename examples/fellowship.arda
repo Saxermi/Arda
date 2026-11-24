@@ -1,0 +1,3 @@
+esta heroes = ["Frodo", "Sam", "Aragorn"]
+an hero in heroes:
+    pedo("Mae govannen, " + hero)

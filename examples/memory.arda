@@ -1,0 +1,9 @@
+esta i = 0
+esta before = clock_gc()
+tenna i < 30000:
+    esta cycle = []
+    push(cycle, cycle)
+    i = i + 1
+pedo("Collections inside loop:", clock_gc() - before)
+collect()
+pedo("Live objects:", heap(), "Managed bytes:", heap_bytes())

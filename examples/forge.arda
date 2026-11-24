@@ -1,0 +1,4 @@
+caro double(x):
+    nan x * 2
+
+esta metal = "mithril"

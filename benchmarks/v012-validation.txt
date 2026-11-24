@@ -1,0 +1,40 @@
+Arda 0.12.0 validation
+System:
+Linux x86_64
+cc (Debian 14.2.0-19) 14.2.0
+
+Portable C11 -O2:
+cc -D_XOPEN_SOURCE=700 -std=c11 -O2 -g -Wall -Wextra -Wpedantic src/autodiff.c src/calculus.c src/compiler.c src/gc.c src/lexer.c src/main.c src/native.c src/parser.c src/scientific.c src/tensor.c src/util.c src/vm.c  -lm -o arda
+----------------------------------------------------------------------
+Ran 107 tests in 0.269s
+
+OK
+
+CBLAS + LAPACK -O2:
+cc -D_XOPEN_SOURCE=700 -DARDA_BLAS -DARDA_LAPACK -std=c11 -O2 -g -Wall -Wextra -Wpedantic src/autodiff.c src/calculus.c src/compiler.c src/gc.c src/lexer.c src/main.c src/native.c src/parser.c src/scientific.c src/tensor.c src/util.c src/vm.c  -lm -lblas -llapack -lblas -o arda
+----------------------------------------------------------------------
+Ran 107 tests in 0.441s
+
+OK
+
+AddressSanitizer + UndefinedBehaviorSanitizer (suite leak detection disabled for parser exit paths):
+----------------------------------------------------------------------
+Ran 107 tests in 1.285s
+
+OK
+
+Examples under GC stress + LeakSanitizer:
+--- tensors ---
+Tensor: [2, 2, 3]
+Broadcast: [[[11, 22, 33], [14, 25, 36]], [[17, 28, 39], [20, 31, 42]]]
+Shared storage: 99
+SIMD: sse2
+--- calculus ---
+Simpson x^2: 0.333333333333333
+RK4 exp(-1): 0.367879441202355
+FFT impulse: [[1, 0], [1, 0], [1, 0], [1, 0]]
+Inverse FFT: [[1, 0], [0, 0], [0, 0], [0, 0]]
+--- learning ---
+Learned slope: 1.99897908514876
+Learned intercept: 1.00202193212783
+MSE: 1.54348288423185e-06

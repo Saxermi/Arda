@@ -1,0 +1,19 @@
+tol forge
+
+nost Ring:
+    caro init(self, name, power):
+        self.name = name
+        self.power = power
+
+    caro charge(self, amount):
+        self.power = self.power + amount
+        nan self.power
+
+esta ring = Ring("Nenya", 10)
+esta powers = {"Nenya": ring.charge(forge.double(5))}
+pedo(ring.name, powers["Nenya"])
+
+try:
+    pedo(1 / 0)
+catch error:
+    pedo("Error: " + error)

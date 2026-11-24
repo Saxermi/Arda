@@ -1,0 +1,22 @@
+# Arda 0.8: no semicolons
+nost Hero:
+    caro init(self, name, level = 1):
+        self.name = name
+        self.level = level
+
+    caro greet(self):
+        pedo("Mae govannen, " + self.name, self.level)
+
+nost Elf(Hero):
+    pass
+
+esta galadriel = Elf("Galadriel", 10)
+galadriel.greet()
+esta squares = [x * x an x in range(6) qui x % 2 == 0]
+pedo(squares)
+pedo(9007199254740993 + 1)
+pedo(len("Mithríl 🌿"), "Mithríl 🌿"[-1])
+esta twice = lambda x: x * 2
+pedo(twice(21))
+tol math
+pedo(math.sqrt(81))

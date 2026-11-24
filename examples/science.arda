@@ -1,0 +1,16 @@
+# Linear regression, y = a*x + b, using native vector kernels.
+tol numc as nc
+esta x = nc.array([1, 2, 3, 4, 5])
+esta y = nc.array([3, 5, 7, 9, 11])
+esta dx = x - nc.mean(x)
+esta dy = y - nc.mean(y)
+esta slope = nc.dot(dx, dy) / nc.dot(dx, dx)
+esta intercept = nc.mean(y) - slope * nc.mean(x)
+esta predicted = slope * x + intercept
+pedo("Slope:", slope)
+pedo("Intercept:", intercept)
+pedo("Predictions:", predicted)
+pedo("Residual norm:", nc.norm(y - predicted))
+esta A = nc.array([[3, 2], [1, 2]])
+esta b = nc.array([7, 5])
+pedo("Linear system:", nc.solve(A, b))

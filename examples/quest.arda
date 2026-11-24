@@ -1,0 +1,22 @@
+# Standalone game-rule simulation; no game engine needed.
+nost Hero:
+    caro init(self, name, health = 100):
+        self.name = name
+        self.health = health
+        self.gold = 0
+
+    caro reward(self, amount):
+        self.gold = self.gold + amount
+
+    caro heal(self, amount):
+        self.health = self.health + amount
+
+caro complete_quest(hero):
+    hero.reward(250)
+    hero.heal(10)
+    pedo(hero.name, "completed the quest")
+
+esta frodo = Hero("Frodo", 80)
+complete_quest(frodo)
+pedo("Gold:", frodo.gold)
+pedo("Health:", frodo.health)

@@ -1,5 +1,6 @@
 /arda
-/build/
-/.venv/
 __pycache__/
 *.pyc
+
+/build/
+/.venv/

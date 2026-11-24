@@ -1,0 +1,7 @@
+caro square(x):
+    nan x * x
+
+esta name = "Aragorn"
+pedo("Mae govannen, " + name)
+an i in range(1, 6):
+    pedo(i, square(i))

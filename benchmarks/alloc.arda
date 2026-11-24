@@ -1,0 +1,7 @@
+esta i = 0
+esta total = 0
+tenna i < 100000:
+    esta values = [i, i + 1, i + 2]
+    total = total + values[1]
+    i = i + 1
+pedo(total)
