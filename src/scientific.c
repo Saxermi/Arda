@@ -54,6 +54,7 @@ Val array_index(VM *v, Val a, Val b) {
 void array_set_index(VM *v, Val a, Val b, Val x) {
     Obj *o = asarray(v, a);
     vector(v, o);
+    tensor_require_writable(v, o);
     A(o).data[(size_t)indexnum(v, b, A(o).rows) * A(o).stride[0]] = asnum(v, x);
 }
 
@@ -276,6 +277,7 @@ Val scientific_call(VM *v, int id, int argc, Val *a) {
         size_t q = (size_t)i * A(x).stride[0] + (size_t)j * A(x).stride[1];
         if (k == S_GET)
             return number(p[q]);
+        tensor_require_writable(v, x);
         p[q] = asnum(v, a[3]);
         return nil();
     }

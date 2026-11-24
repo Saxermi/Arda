@@ -35,7 +35,7 @@ static const char *typename(Val v) {
             "native",           "class",  "instance",  "method",  "module",
             "iterator",         "array",  "ad",        "sparse",  "sparse_builder",
             "sparse_workspace", "factor", "generator", "moments", "complex",
-            "linear_operator"};
+            "linear_operator",  "buffer"};
         return n[v.o->type];
     }
     }

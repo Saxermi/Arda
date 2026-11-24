@@ -13,6 +13,7 @@
 #include <limits.h>
 #include <inttypes.h>
 #include <errno.h>
+#include <stddef.h>
 #include "sparse.h"
 _Noreturn void die(const char *fmt, ...);
 void *mem(size_t n);
@@ -274,8 +275,17 @@ typedef enum {
     O_RNG,
     O_MOMENTS,
     O_COMPLEX,
-    O_LINOP
+    O_LINOP,
+    O_BUFFER
 } OType;
+
+typedef struct {
+    unsigned char *data;
+    void *allocation;
+    size_t bytes, allocation_bytes, alignment;
+    void (*release)(void *, size_t);
+    bool readonly;
+} Buffer;
 
 static inline int sparse_owns_payload(OType type) {
     return type == O_SPARSE || type == O_SPARSE_BUILDER || type == O_SPARSE_WORKSPACE;
@@ -353,8 +363,11 @@ struct Obj {
             size_t n;
             int shape[8];
             size_t stride[8];
-            Obj *owner;
+            Obj *buffer;
+            size_t offset;
+            bool readonly;
         } array;
+        Buffer buffer;
         struct {
             double value, grad, da, db;
             Obj *a, *b;
@@ -505,6 +518,8 @@ void array_set_index(VM *v, Val a, Val b, Val x);
 void array_print(Obj *o);
 Obj *array_new(VM *v, int rank, int rows, int cols);
 #define ARDA_MAX_ELEMENTS 16000000u
+Obj *buffer_new(VM *v, size_t bytes);
+void tensor_require_writable(VM *v, Obj *x);
 Obj *tensor_new(VM *v, int rank, const int *shape);
 Obj *tensor_copy(VM *v, Obj *x);
 size_t tensor_offset(Obj *x, size_t i);

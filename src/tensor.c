@@ -46,8 +46,9 @@ static void layout(VM *v, Obj *x, int r, const int *s) {
 Obj *tensor_new(VM *v, int r, const int *s) {
     Obj *x = newobj(v, O_ARRAY);
     layout(v, x, r, s);
-    A(x).data = mem(A(x).n * sizeof(double));
-    account(v, x, 0, A(x).n * sizeof(double));
+    A(x).buffer = buffer_new(v, A(x).n * sizeof(double));
+    A(x).data = (double *)A(x).buffer->as.buffer.data;
+    barrier(v, x, objval(A(x).buffer));
     return x;
 }
 
@@ -99,10 +100,33 @@ static Obj *view(VM *v, Obj *x, int r, const int *s, const size_t *st, size_t of
     layout(v, y, r, s);
     if (st)
         memcpy(A(y).stride, st, (size_t)r * sizeof *st);
-    A(y).owner = A(x).owner ? A(x).owner : x;
-    A(y).data = A(x).data + (A(y).n ? off : 0);
-    barrier(v, y, objval(A(y).owner));
+    if (!st && A(y).n != A(x).n)
+        vmerror(v, "reshape size mismatch");
+    A(y).buffer = A(x).buffer;
+    A(y).readonly = A(x).readonly;
+    size_t capacity = A(y).buffer->as.buffer.bytes / sizeof(double);
+    size_t offset = A(x).offset;
+    if (A(y).n) {
+        if (off >= capacity - offset)
+            vmerror(v, "view offset outside tensor buffer");
+        offset += off;
+        size_t remaining = capacity - offset - 1;
+        for (int i = 0; i < r; i++) {
+            size_t last = (size_t)(s[i] - 1);
+            if (last && A(y).stride[i] > remaining / last)
+                vmerror(v, "view stride outside tensor buffer");
+            remaining -= last * A(y).stride[i];
+        }
+    }
+    A(y).offset = offset;
+    A(y).data = (double *)A(y).buffer->as.buffer.data + offset;
+    barrier(v, y, objval(A(y).buffer));
     return y;
+}
+
+void tensor_require_writable(VM *v, Obj *x) {
+    if (A(x).readonly || A(x).buffer->as.buffer.readonly)
+        vmerror(v, "tensor is read-only");
 }
 
 static void infer(VM *v, Val a, int depth, int *r, int *s) {
@@ -286,20 +310,20 @@ Val tensor_binary(VM *v, Op op, Val a, Val b) {
     return objval(z);
 }
 
-static const char *names[] = {"reshape", "view", "permute",    "copy",
-                              "at",      "put",  "contiguous", "simd"};
+static const char *names[] = {"reshape", "view",       "permute", "copy",    "at",
+                              "put",     "contiguous", "simd",    "readonly"};
 void install_tensor(VM *v, Obj *m) {
-    for (int i = 0; i < 8; i++) {
+    for (size_t i = 0; i < sizeof names / sizeof *names; i++) {
         Obj *f = newobj(v, O_NATIVE);
-        f->as.native.id = TENSOR_BASE + i;
+        f->as.native.id = TENSOR_BASE + (int)i;
         tableset(v, m->as.mod.env, &m->as.mod.env->as.env.tab, names[i], objval(f));
     }
 }
 
 Val tensor_call(VM *v, int id, int argc, Val *a) {
     int k = id - TENSOR_BASE;
-    int ar[] = {2, 5, 2, 1, 2, 3, 1, 0};
-    if (k < 0 || k >= 8 || argc != ar[k])
+    int ar[] = {2, 5, 2, 1, 2, 3, 1, 0, 1};
+    if (k < 0 || (size_t)k >= sizeof ar / sizeof *ar || argc != ar[k])
         vmerror(v, "invalid tensor function arity");
     if (k == 7) {
 #if defined(__SSE2__)
@@ -313,16 +337,18 @@ Val tensor_call(VM *v, int id, int argc, Val *a) {
         return objval(tensor_copy(v, x));
     if (k == 6)
         return boolean(tensor_contiguous(x));
+    if (k == 8) {
+        Obj *y = view(v, x, A(x).rank, A(x).shape, A(x).stride, 0);
+        A(y).readonly = true;
+        return objval(y);
+    }
     int s[8], r = A(x).rank;
     size_t st[8];
     if (k == 0) {
         int nr = shape_list(v, a[1], s);
         if (!tensor_contiguous(x))
             vmerror(v, "reshape needs contiguous array; use copy");
-        Obj *y = view(v, x, nr, s, NULL, 0);
-        if (A(y).n != A(x).n)
-            vmerror(v, "reshape size mismatch");
-        return objval(y);
+        return objval(view(v, x, nr, s, NULL, 0));
     }
     if (k == 1) {
         int axis = indexnum(v, a[1], r), start = dim(v, a[2]), stop = dim(v, a[3]),
@@ -357,6 +383,7 @@ Val tensor_call(VM *v, int id, int argc, Val *a) {
         off += (size_t)indexnum(v, a[1].o->as.list.a[i], A(x).shape[i]) * A(x).stride[i];
     if (k == 4)
         return number(A(x).data[off]);
+    tensor_require_writable(v, x);
     A(x).data[off] = asnum(v, a[2]);
     return nil();
 }
