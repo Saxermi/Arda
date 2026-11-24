@@ -1,5 +1,6 @@
 """Measure local Moria assembly, CSR SpMV and PCG with equivalent workloads."""
 import argparse
+import json
 import math
 import os
 from pathlib import Path
@@ -38,11 +39,14 @@ def triplet_source(n, workload, builder):
             code.extend(indent + expr for expr in ("push(rows,row)", f"push(cols,{col})", f"push(values,{value})"))
     code.extend(["esta assembly = time.monotonic()-t", "esta t = time.monotonic()"])
     if builder:
-        code.append("esta a = sp.finish(builder)")
+        code.extend(["esta coo_time = 0", "esta a = sp.finish(builder)"])
     else:
-        code.extend(["esta coo = sp.coo(n,n,rows,cols,values)", "rows = mun", "cols = mun", "values = mun",
-                     "collect()", "esta a = sp.to_csr(coo)"])
-    code.extend(["esta finish = time.monotonic()-t", "pedo(assembly,finish)"])
+        code.extend([
+            "esta coo = sp.coo(n,n,rows,cols,values)", "esta coo_time = time.monotonic()-t",
+            "rows = mun", "cols = mun", "values = mun", "collect()",
+            "t = time.monotonic()", "esta a = sp.to_csr(coo)",
+        ])
+    code.extend(["esta finish = time.monotonic()-t", "pedo(assembly,coo_time,finish)"])
     return "\n".join(code)
 
 
@@ -50,7 +54,7 @@ def arda_source(n, workload, method):
     code = ["tol sparse as sp", "tol numc as nc", "tol time", f"esta n = {n}"]
     if method in ("direct", "direct-spmv"):
         code.extend(["esta t = time.monotonic()", "esta a = sp.tridiag(n,-1,4,-1)",
-                     "pedo(time.monotonic()-t,0)"])
+                     "pedo(time.monotonic()-t,0,0)"])
     else:
         code.append(triplet_source(n, workload, method == "builder"))
     code.extend([
@@ -78,7 +82,7 @@ from scipy.sparse.linalg import LinearOperator, cg
 n = int(sys.argv[1])
 start = perf_counter()
 a = diags([-1.0, 4.0, -1.0], [-1, 0, 1], shape=(n, n), format="csr")
-print(perf_counter() - start, 0)
+print(perf_counter() - start, 0, 0)
 x = np.linspace(0.5, 1.5, n)
 b = a @ x
 start = perf_counter()
@@ -94,8 +98,9 @@ def count(_):
 start = perf_counter()
 m = LinearOperator((n,n), matvec=lambda v: v / 4, dtype=np.float64)
 solution, info = cg(a, b, rtol=1e-9, atol=0, maxiter=100, M=m, callback=count)
+residual = np.linalg.norm(a @ solution - b) / np.linalg.norm(b)
 elapsed = perf_counter() - start
-print(elapsed, iterations, np.linalg.norm(a @ solution - b) / np.linalg.norm(b),
+print(elapsed, iterations, residual,
       np.linalg.norm(solution - x) / np.linalg.norm(x), "converged" if info == 0 else "failed")
 """
 
@@ -136,6 +141,58 @@ def check(result, size, workload):
     return None
 
 
+def verify_scipy(arda, root, cpu, rows, solver_size):
+    """Compare complete results outside the timing and RSS measurements."""
+    import numpy as np
+    from scipy.io import mmread
+    from scipy.sparse import coo_matrix, diags
+
+    prefix = ["taskset", "-c", str(cpu)] if cpu is not None else []
+    program = root / "verify.arda"
+
+    def run(code):
+        program.write_text(code)
+        return subprocess.check_output([*prefix, str(arda), str(program)], text=True)
+
+    indices = np.arange(rows - 1, -1, -1, dtype=np.int32)
+    cols = np.column_stack(((indices + 2) % rows, indices,
+                            (indices + 1) % rows, indices, (indices + 2) % rows)).ravel()
+    values = np.tile(np.array([5, 3, 2, -1, -5], dtype=np.float64), rows)
+    expected = coo_matrix((values, (np.repeat(indices, 5), cols)), shape=(rows, rows)).tocsr()
+    expected.eliminate_zeros()
+    expected.sort_indices()
+    expected_coo = expected.tocoo()
+    for method in ("lists", "builder"):
+        output = root / f"verify-{method}.mtx"
+        run("\n".join([
+            "tol sparse as sp", "tol time", f"esta n = {rows}",
+            triplet_source(rows, "duplicates", method == "builder"),
+            f"sp.write_mm({json.dumps(str(output))},a)", "",
+        ]))
+        # Compare emitted entries in order before any SciPy canonicalization.
+        actual = mmread(output)
+        if actual.shape != expected.shape:
+            raise RuntimeError("Incorrect CSR dimensions")
+        np.testing.assert_array_equal(actual.row, expected_coo.row)
+        np.testing.assert_array_equal(actual.col, expected_coo.col)
+        np.testing.assert_array_equal(actual.data, expected_coo.data)
+        print(f"SciPy CSR comparison passed for {method}: {5 * rows:,} triplets, {actual.nnz:,} stored")
+
+    n = solver_size
+    output = run("\n".join([
+        "tol sparse as sp", "tol numc as nc", f"esta n = {n}",
+        "esta a = sp.tridiag(n,-1,4,-1)", "esta x = nc.linspace(0.5,1.5,n)",
+        "pedo(nc.tolist(sp.matvec(a,x)))", "",
+    ])).strip()
+    if not (output.startswith("[") and output.endswith("]")):
+        raise RuntimeError("Invalid matvec output")
+    actual = np.fromstring(output[1:-1], sep=",")
+    a = diags([-1.0, 4.0, -1.0], [-1, 0, 1], shape=(n, n), format="csr")
+    expected = a @ np.linspace(0.5, 1.5, n)
+    np.testing.assert_allclose(actual, expected, rtol=2e-14, atol=2e-14)
+    print(f"SciPy SpMV comparison passed for all {n:,} entries")
+
+
 def main():
     if sys.platform != "linux":
         raise SystemExit("This benchmark requires Linux peak RSS accounting.")
@@ -145,7 +202,8 @@ def main():
     parser.add_argument("--solver-size", type=int, default=1_000_000)
     parser.add_argument("--rounds", type=int, default=5)
     parser.add_argument("--cpu", type=int, help="optionally pin subprocesses to a Linux logical CPU")
-    parser.add_argument("--scipy", action="store_true", help="include a SciPy comparison for the large SPD workload")
+    parser.add_argument("--scipy", action="store_true",
+                        help="time SciPy PCG and verify full CSR and SpMV results outside timing")
     args = parser.parse_args()
     if min(args.size, args.solver_size) < 3 or args.rounds < 1:
         parser.error("sizes must be at least three and rounds must be positive")
@@ -174,14 +232,18 @@ def main():
                 assembly, product, _, rss = result
                 solver = check(result, n, shape)
                 samples[shape, method].append((*assembly, sum(assembly), product[0], rss, *(solver or ())))
-        print("workload method rows assembly_ms finish_ms total_ms spmv_ms peak_MiB [pcg_ms iterations residual relative_error]")
+        print("workload method rows assembly_ms coo_ms finish_ms total_ms spmv_ms median_RSS_MiB max_RSS_MiB "
+              "[pcg_ms iterations residual relative_error]")
         for (shape, method), results in samples.items():
             medians = [statistics.median(column) for column in zip(*results, strict=True)]
-            for i in range(4):
+            for i in range(5):
                 medians[i] *= 1000
             if method in ("direct", "scipy"):
-                medians[5] *= 1000
+                medians[6] *= 1000
+            medians.insert(6, max(result[5] for result in results))
             print(shape, method, cases[shape, method], *(f"{value:.6g}" for value in medians))
+        if args.scipy:
+            verify_scipy(args.arda.resolve(), root, args.cpu, args.size, args.solver_size)
 
 
 if __name__ == "__main__":

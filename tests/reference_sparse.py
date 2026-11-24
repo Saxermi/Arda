@@ -105,3 +105,28 @@ class SparseReferenceTests(unittest.TestCase):
             sp.write_mm({json.dumps(str(output))},a)
             """, stress=True)
             np.testing.assert_array_equal(mmread(output).toarray(), matrix.toarray())
+
+    def test_pcg_scaled_spd(self):
+        n = 48
+        scale = np.geomspace(1, 1000, n)
+        edge = -(scale[:-1] * scale[1:])
+        main = 4 * scale**2
+        a = diags([edge, main, edge], [-1, 0, 1], format="csr")
+        exact = np.random.default_rng(144).normal(size=n) / scale
+        b = a @ exact
+        output = self.run_code(f"""
+        tol sparse as sp
+        tol numc as nc
+        esta a = sp.tridiag({n},{edge.tolist()},{main.tolist()},{edge.tolist()})
+        esta b = nc.array({b.tolist()})
+        esta r = sp.pcg(a,b,1e-12,150)
+        pedo(r["reason"],r["residual"])
+        pedo(nc.tolist(r["solution"]))
+        """, stress=True).splitlines()
+        reason, reported = output[0].split()
+        self.assertEqual(reason, "converged")
+        x = np.asarray(ast.literal_eval(output[1]))
+        measured = np.linalg.norm(b - a @ x) / np.linalg.norm(b)
+        self.assertLess(measured, 1.01e-12)
+        self.assertAlmostEqual(measured, float(reported), delta=5e-15)
+        np.testing.assert_allclose(x * scale, exact * scale, rtol=1e-8, atol=1e-8)

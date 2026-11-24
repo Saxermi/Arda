@@ -18,7 +18,7 @@ static int source(VM *v, const char *s, const char *path, int mode) {
 }
 
 static void help(void) {
-    puts("Arda 0.14.3 | C11 bytecode VM\nusage: arda [--tokens|--bytecode] [--gc-stress] [--gc-stats] file.arda\n       arda [--gc-stress] [--gc-stats]  # REPL; blank line executes a block; :quit exits\n       arda --version");
+    puts("Arda 0.14.4 | C11 bytecode VM\nusage: arda [--tokens|--bytecode] [--gc-stress] [--gc-stats] file.arda\n       arda [--gc-stress] [--gc-stats]  # REPL; blank line executes a block; :quit exits\n       arda --version");
 }
 
 int main(int argc, char **argv) {
@@ -30,7 +30,7 @@ int main(int argc, char **argv) {
             return 0;
         }
         if (!strcmp(argv[i], "--version")) {
-            puts("Arda 0.14.3");
+            puts("Arda 0.14.4");
             return 0;
         }
         if (!strcmp(argv[i], "--tokens"))
@@ -67,7 +67,7 @@ int main(int argc, char **argv) {
         help();
         status = 1;
     } else {
-        puts("Arda 0.14.3 | blank line runs a block | :quit exits");
+        puts("Arda 0.14.4 | blank line runs a block | :quit exits");
         char *line = NULL, *buf = NULL;
         size_t cap = 0, n = 0;
         int block = 0;

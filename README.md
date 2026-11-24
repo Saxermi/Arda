@@ -8,11 +8,9 @@ Arda is an independent, open-source, research-driven scientific programming lang
 
 Its long-term goal is to combine scientifically validated numerical algorithms with adaptive execution, from ordinary laptops to distributed research clusters. The language brings native numerical data structures and algorithms to an indentation-based runtime for physics, engineering, and other computational research.
 
-**Current version** — Arda 0.14.3 — Sparse Solvers and Memory Budgets
+**Current version** — Arda 0.14.4 — Sparse Computing Release Validation (Moria)
 
-**Next milestone** — Arda 0.14.4 — Sparse Computing Release Validation
-
-*Development codename: Moria*
+**Next milestone** — Arda 0.15.0 — Dense Factorizations (Rúmil)
 
 > **Development status:** Arda is an early-stage scientific language. The interpreter, dense Float64 tensors, native COO/CSR sparse storage and conversions, sparse assembly and algebra, sparse solvers, selected optimized CPU kernels, and scalar automatic differentiation already exist. The adaptive compute engine, beyond-RAM storage, general mathematical introspection and distributed HPC are still roadmap goals.
 
@@ -336,6 +334,7 @@ The REPL accepts one statement per line and blocks terminated by a blank line. `
 | [`research/`](research/README.md) | Scientific references, implementation provenance, and future algorithm comparisons |
 | `docs/MORIA_0.14.0.md` | Sparse storage and conversion foundations |
 | `docs/MORIA_0.14.3.md` | Assembly, algebra, solvers, memory budgets and local validation |
+| `docs/MORIA_0.14.4.md` | Sparse release validation and benchmark results |
 | `CHANGELOG.md` | Release history |
 | `MAINTENANCE.md` | 0.13.1 changes and measured validation |
 | `CONTRIBUTING.md` | Local development and validation policy |

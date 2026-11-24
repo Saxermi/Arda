@@ -2,6 +2,12 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
+## 0.14.4 — Sparse Computing Release Validation (Moria)
+
+- Compared canonical CSR for three million unsorted COO triplets and the full million-row SpMV result against SciPy.
+- Measured assembly, COO construction, canonicalization, SpMV, and PCG on the release workloads. Added a scaled SPD reference case and clarified the sparse complexity and convergence documentation.
+- See [local validation and reproducible measurements](docs/MORIA_0.14.4.md).
+
 ## 0.14.3 — Moria (Sparse Solvers and Memory Budgets)
 
 - CG and Jacobi-PCG for sparse SPD systems. Results include the independently recomputed residual, solution, iteration count, and convergence reason.

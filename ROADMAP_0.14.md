@@ -2,7 +2,7 @@
 
 *Development codename: Moria*
 
-**Status** — Assembly, algebra, and solvers are implemented through 0.14.3. See the [foundations report](docs/MORIA_0.14.0.md) and the [current API and validation guide](docs/MORIA_0.14.3.md). The 0.14.4 release validation follows.
+**Status** — Assembly, algebra, and solvers are implemented through 0.14.3. See the [foundations report](docs/MORIA_0.14.0.md) and the [current API and validation guide](docs/MORIA_0.14.3.md). See the [0.14.4 release validation](docs/MORIA_0.14.4.md) for the completed gates and source-archive checks.
 
 CSR (Compressed Sparse Row) and CRS (Compressed Row Storage) are synonyms. Use `csr` as the primary API name and consider `crs` as an alias. COO (Coordinate format) is also a first-class format, not a temporary dense matrix.
 

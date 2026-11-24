@@ -4,7 +4,7 @@
 
 **Planungsstand:** 24. November 2026 · **Ausgangsversion:** 0.13.1 · **Ziel:** 1.0 · **Dokumentrevision:** 2.0 (konsolidiert)
 
-Dieses Dokument ist ein Entwicklungsplan, kein Bericht über bereits implementierte Features. Die Sparse-Meilensteine S0–S8 sind bis Arda 0.14.3 implementiert. Siehe [Sparse-Solver und Speicherbudgets in 0.14.3](docs/MORIA_0.14.3.md) für die aktuellen APIs und lokalen Messungen. Zahlen mit der Bezeichnung „Ziel“ oder „Modellrechnung“ sind keine Benchmarkergebnisse. Die bisherigen Ziele bleiben bestehen; Resource-Efficient Computing, maximale praktische Hardwareauslastung, Beyond-RAM Computing, mathematische Introspektion, überprüfbare Numerik und verteiltes HPC sind Querschnittsziele. Diese Revision ersetzt die frühere Planungsdatei, nicht deren Ziele. Die Quellcode-Version ist jetzt 0.14.3.
+Dieses Dokument ist ein Entwicklungsplan, kein Bericht über bereits implementierte Features. Die Sparse-Meilensteine S0–S8 sind bis Arda 0.14.3 implementiert. [Arda 0.14.4](docs/MORIA_0.14.4.md) schließt S9 ab. Siehe [Sparse-Solver und Speicherbudgets in 0.14.3](docs/MORIA_0.14.3.md) für die aktuellen APIs und lokalen Messungen. Zahlen mit der Bezeichnung „Ziel“ oder „Modellrechnung“ sind keine Benchmarkergebnisse. Die bisherigen Ziele bleiben bestehen; Resource-Efficient Computing, maximale praktische Hardwareauslastung, Beyond-RAM Computing, mathematische Introspektion, überprüfbare Numerik und verteiltes HPC sind Querschnittsziele. Diese Revision ersetzt die frühere Planungsdatei, nicht deren Ziele. Die Quellcode-Version ist jetzt 0.14.4.
 
 ## 1. Mission und Nicht-Ziele
 
@@ -169,6 +169,8 @@ Baseline reproduzieren. `O_SPARSE` oder zwei explizite Objekttypen, `src/sparse.
 #### Arda 0.14.4 — Sparse Computing Release Validation
 
 *Development codename: Moria*
+
+**Status** — Lokal validiert. [Messwerte und Reproduktion](docs/MORIA_0.14.4.md)
 
 Matrix Market, Dokumentation, ASan/UBSan/LSan, GC-Stress, automatisierte SciPy-Randomtests, Peak-RSS und Laufzeit für Builder, Conversion, SpMV und CG getrennt. Bestehende 126+8 Baseline-Tests weiterhin grün. Ziel: 1 Mio. Zeilen tridiagonal, 2.999.998 gespeicherte Werte, direkter CSR-Aufbau plus SpMV <256 MiB Peak RSS im definierten Linux-Test; COO-Build/Conversion separat messen und dokumentieren. SPD-Test A=tridiag(-1,4,-1) mit erzeugtem b=A*x_ref, relatives Residuum ≤1e-8 und normierter Lösungsfehler dokumentiert, Ziel <512 MiB. Keine Dense-Materialisierung; kein Anheben des alten Dense-Limits nur für Sparse.
 
@@ -430,7 +432,7 @@ Suggested lokale Validierung targets: `make test`, `make test-reference`, `make 
 | S8 | Operator contract, PCG and workspace | S7 |
 | S9 | SciPy comparisons, sanitizer, million-row benchmark, examples and release archive | S0–S8 |
 
-0.14.0 implements S0–S5. Milestones 0.14.1–0.14.3 implement S6–S8. The remaining 0.14.4 release gate is S9. Scope creep into full tensor rewrite, JIT or transformer engines is explicitly excluded. Update this roadmap and version-specific specs when evidence changes implementation choices.
+0.14.0 implements S0–S5. Milestones 0.14.1–0.14.3 implement S6–S8. Arda 0.14.4 completes S9. [Release validation](docs/MORIA_0.14.4.md) Scope creep into full tensor rewrite, JIT or transformer engines is explicitly excluded. Update this roadmap and version-specific specs when evidence changes implementation choices.
 
 ## 10. Zusätzliche Abnahmebenchmarks: AMDE, Numerik, HPC
 
