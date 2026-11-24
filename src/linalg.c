@@ -27,6 +27,11 @@ static const int arities[] = {1, 1, 1, 1, 2, 1, 1, 1, 1, 4, 4, 1, 1, 1, 1, 1, 1,
 _Static_assert(sizeof names / sizeof *names == sizeof arities / sizeof *arities,
                "linalg arity table");
 
+const char *linalg_name(int id) {
+    int op = id - LINALG_BASE;
+    return op >= 0 && (size_t) op < sizeof names / sizeof *names ? names[op] : NULL;
+}
+
 static size_t index_at(const Obj *o, int row, int col) {
     return (size_t) row * A(o).cols + col;
 }

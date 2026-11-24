@@ -69,7 +69,9 @@ Beyond-RAM execution is not a promise that an SSD performs like RAM. Disk-backed
 
 ## Mathematical documentation and introspection
 
-The planned **Arda Mathematical Documentation Engine (AMDE)**, development codename *Rúmil*, aims to make the mathematics behind a function available independently of its execution. For example, a simple energy function can be written today using existing language syntax:
+The **Arda Mathematical Documentation Engine (AMDE)**, development codename *Rúmil*, makes the mathematics behind a function available independently of its execution. The 0.15.4 development checkout documents selected native functions. `nc.solve.getTex(3)` shows the pivoted LU algorithm, and `nc.solve.getCost({"shape":[10,10]})` estimates arithmetic and buffer sizes from dimensions. [Current query contracts](research/implemented/mathdoc.md) · [Runnable example](examples/mathdoc_queries.arda)
+
+A simple energy function can be written today using existing language syntax:
 
 ```arda
 caro energy(m, v, h):
@@ -88,7 +90,7 @@ The intended levels range from a compact equation, through intermediate expressi
 
 The broader proposed introspection interface includes:
 
-| Planned API | Question it answers |
+| API | Question it answers |
 | --- | --- |
 | `getTex(level)` / `getMath()` | What mathematics does this function express? |
 | `getAlgorithm()` / `getAssumptions()` | Which mathematical method and prerequisites apply? |
@@ -97,7 +99,7 @@ The broader proposed introspection interface includes:
 | `verify()` | Does a computed result satisfy the relevant numerical criteria? |
 | `trace()` / `reproduce()` | What happened during a recorded run, and can it be repeated? |
 
-These APIs are proposals. Some require concrete inputs or actual computation; estimates must be distinguished from measurements. Native algorithm descriptions must match the implemented backend, and arbitrary dynamic code cannot always be converted into a closed-form expression.
+The linked contracts list the implemented queries. Other entries in the table describe future work, including methods that require a concrete numerical run. Native algorithm descriptions identify the applicable backend.
 
 A key architectural requirement is **zero-cost scientific introspection as a design goal**: optional tracing, symbolic analysis and documentation must not insert logging, allocations or additional checks into numerical hot loops when unused. Trace collection should have explicit limits on depth, event count and storage. Basic safety checks remain enabled in every execution mode.
 
@@ -417,7 +419,7 @@ make test-reference
 
 Read the [full master roadmap](ROADMAP.md) for detailed subversions, architecture, benchmark targets, research references, and development codenames.
 
-The planned mathematical introspection API includes `getTex()`, `getCost()`, `getPlan()`, `getAssumptions()`, `verify()` and bounded `trace()`. Formula export is intended to work without running the numerical calculation. Execution tracing and verification will be optional, with no per-element logging in the normal high-performance path. Planned memory and compute engines will combine sparse and structured representations, SIMD, parallel execution, memory mapping, streaming, quantization and optional MPI/GPU backends. These are goals, not present features. Full 70B-model training on ordinary laptops is not a project promise.
+Static mathematical queries in the 0.15.4 development checkout cover selected native functions. The roadmap also includes user-function extraction, `getPlan()`, `verify()` and bounded `trace()`. Execution tracing and verification will be optional, with no per-element logging in the normal high-performance path. Planned memory and compute engines will combine sparse and structured representations, SIMD, parallel execution, memory mapping, streaming, quantization and optional MPI/GPU backends. These are goals, not present features. Full 70B-model training on ordinary laptops is not a project promise.
 
 ## Limitations and safety
 

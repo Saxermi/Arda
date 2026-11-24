@@ -5,6 +5,10 @@ static const char *names[] = {
     "read_text", "write_text", "keys", "type", "int", "float", "abs", "sin", "cos", "floor", "ceil",
     "monotonic", "split", "join", "startswith", "endswith", "isinstance"
 };
+
+const char *native_builtin_name(int id) {
+    return id >= 0 && (size_t) id < sizeof names / sizeof *names ? names[id] : NULL;
+}
 void install_builtins(VM *v) {
     for (size_t i = 0; i < sizeof names / sizeof * names; i++) {
         Obj *o = newobj(v, O_NATIVE);
@@ -163,6 +167,8 @@ static void arity(VM *v, int id, int argc, int n) {
 }
 
 Val native_call(VM *v, int id, int argc, Val *a) {
+    if (id >= MATHDOC_BASE)
+        return mathdoc_call(v, id, argc, a);
     if (id >= LINOP_BASE)
         return linop_call(v, id, argc, a);
     if (id >= COMPLEX_BASE)
@@ -472,6 +478,8 @@ Obj *named_native_module(VM *v, const char *name, const char *const *names, size
 }
 
 Obj *native_module(VM *v, const char *name) {
+    if (!strcmp(name, "mathdoc"))
+        return mathdoc_module(v);
     if (!strcmp(name, "complex"))
         return complex_module(v);
     if (!strcmp(name, "linop"))

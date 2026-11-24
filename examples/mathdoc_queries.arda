@@ -1,0 +1,11 @@
+tol numc as nc
+tol sparse as sp
+tol mathdoc
+
+pedo(nc.solve.getTex(0))
+pedo(nc.solve.getTex(3))
+pedo(mathdoc.getAlgorithm(cos))
+
+# Evaluate the cost model using dimensions only.
+esta cost = sp.matvec.getCost({"shape":[1000000,1000000],"nnz":2999998,"format":"csr"})
+pedo(cost["flops"], cost["output_bytes"], cost["estimated"])

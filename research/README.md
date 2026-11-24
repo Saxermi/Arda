@@ -7,6 +7,7 @@ This directory records the mathematics behind Arda's scientific features and com
 | [Dense linear algebra and reductions](implemented/linear-algebra.md) | [Factorizations, statistics, quadrature and special functions](planned/numerical-libraries.md) |
 | [Random generation and statistics](implemented/random-and-statistics.md) | |
 | [Complex scalars, structured operators and randomized SVD](implemented/structured-computing.md) | |
+| [Static native mathematical documentation](implemented/mathdoc.md) | |
 | [Sparse storage, algebra, assembly and solvers](implemented/sparse-matrices.md) | [Krylov methods, preconditioning and verification](planned/sparse-solvers.md) |
 | [Integration and differential equations](implemented/integration-and-odes.md) | [Simulation, discretization and adjoints](planned/simulation.md) |
 | [Optimization and automatic differentiation](implemented/optimization-and-ad.md) | [Tensor compression, tensor AD and mathematical introspection](planned/tensors-and-symbolics.md) |
@@ -32,6 +33,6 @@ The initial review used publisher and Crossref records for DOI metadata, arXiv r
 
 ## Metadata for AMDE / Rúmil
 
-Development-time entries can inform future descriptors. Use independent fields for **mathematics**, **algorithm**, **backend**, **references**, **assumptions**, **complexity**, **limitations**, **validation**, and **provenance**. Where relevant, record a workspace estimate separately from measured peak RSS and identify the input and environment. Distinguish mathematical equivalence from floating-point equivalence, and static material from actual traces. Static documentation queries should never execute user code as part of describing it. The Markdown and BibTeX require zero runtime work. The proposed descriptor queries remain roadmap design. [AMDE roadmap](../ROADMAP.md#36-mathematical-introspection-und-provenance-amde--rúmil)
+Development-time entries can inform future descriptors. Use independent fields for **mathematics**, **algorithm**, **backend**, **references**, **assumptions**, **complexity**, **limitations**, **validation**, and **provenance**. Where relevant, record a workspace estimate separately from measured peak RSS and identify the input and environment. Distinguish mathematical equivalence from floating-point equivalence, and static material from actual traces. Static documentation queries should never execute user code as part of describing it. The Markdown and BibTeX require zero runtime work. The [native descriptor contracts](implemented/mathdoc.md) cover the initial queries. [AMDE roadmap](../ROADMAP.md#36-mathematical-introspection-und-provenance-amde--rúmil)
 
 Store bibliographic records and links only. For external code or backends, record the applicable revision, license and notices. See [third-party notices](../THIRD_PARTY_NOTICES.md).

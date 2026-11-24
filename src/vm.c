@@ -354,6 +354,9 @@ static Val attr(VM *v, Val x, const char *k) {
         if (e)
             return e->val;
     }
+    Val documentation = mathdoc_attribute(v, x, k);
+    if (documentation.t != V_NIL)
+        return documentation;
     vmerror(v, "no attribute '%s'", k);
     return nil();
 }
@@ -430,20 +433,27 @@ static void insert_self(VM *v, int base, int argc, Obj *fn, Val self) {
     v->sp++;
 }
 
+static void call_native(VM *v, Obj *function, int base, int argc) {
+    Val result = native_call(v, function->as.native.id, argc, &v->stack[base + 1]);
+    v->sp = base;
+    push(v, result);
+}
+
 static void call(VM *v, int argc) {
     int base = v->sp - argc - 1;
     Val callee = v->stack[base];
     if (isobj(callee, O_NATIVE)) {
-        Val r = native_call(v, callee.o->as.native.id, argc, &v->stack[base + 1]);
-        v->sp = base;
-        push(v, r);
+        call_native(v, callee.o, base, argc);
     } else if (isobj(callee, O_FUNC))
         enter_fn(v, callee.o, base, argc, nil());
     else if (isobj(callee, O_BOUND)) {
         Obj *f = callee.o->as.bound.fn;
         Val self = callee.o->as.bound.self;
         insert_self(v, base, argc, f, self);
-        enter_fn(v, f, base, argc + 1, nil());
+        if (f->type == O_NATIVE)
+            call_native(v, f, base, argc + 1);
+        else
+            enter_fn(v, f, base, argc + 1, nil());
     } else if (isobj(callee, O_CLASS)) {
         Obj *o = newobj(v, O_INSTANCE);
         o->as.inst.cls = callee.o;

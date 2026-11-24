@@ -173,6 +173,11 @@ enum {
     S_TRANSPOSE, S_SOLVE, S_SIN, S_COS, S_EXP, S_LOG, S_SQRT, S_NORM, S_MIN, S_MAX, S_GET, S_SET,
     S_BACKEND, S_BYTES
 };
+const char *scientific_name(int id) {
+    int op = id - SCI_BASE;
+    return op >= 0 && (size_t) op < sizeof names / sizeof *names ? names[op] : NULL;
+}
+
 Val scientific_call(VM *v, int id, int argc, Val *a) {
     int k = id - SCI_BASE;
     if (k < 0 || k > S_BYTES)

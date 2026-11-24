@@ -343,6 +343,7 @@ int vm_run(VM *v, Proto *p);
 void remember_proto(VM *v, Proto *p);
 void install_builtins(VM *v);
 Val native_call(VM *v, int id, int argc, Val *a);
+const char *native_builtin_name(int id);
 char *value_string(Val v);
 void printval(Val v);
 double asnum(VM *v, Val x);
@@ -356,6 +357,7 @@ Obj *native_module(VM *v, const char *name);
 #define SCI_BASE 100
 Obj *scientific_module(VM *v);
 Val scientific_call(VM *v, int id, int argc, Val *a);
+const char *scientific_name(int id);
 Val array_binary(VM *v, Op op, Val a, Val b);
 Val array_index(VM *v, Val a, Val b);
 void array_set_index(VM *v, Val a, Val b, Val x);
@@ -387,7 +389,9 @@ void install_tensor(VM *v, Obj *module);
 #define STATS_BASE 900
 #define COMPLEX_BASE 1000
 #define LINOP_BASE 1100
+#define MATHDOC_BASE 1200
 Val linalg_call(VM *v, int id, int argc, Val *a);
+const char *linalg_name(int id);
 Val linalg_eigh(VM *v, Val a);
 Obj *linalg_module(VM *v);
 Obj *named_native_module(VM *v, const char *name, const char *const *names, size_t count, int base);
@@ -403,8 +407,12 @@ Val complex_value(VM *v, double re, double im);
 Val complex_binary(VM *v, Op op, Val a, Val b);
 Obj *linop_module(VM *v);
 Val linop_call(VM *v, int id, int argc, Val *a);
+Obj *mathdoc_module(VM *v);
+Val mathdoc_call(VM *v, int id, int argc, Val *a);
+Val mathdoc_attribute(VM *v, Val target, const char *name);
 Obj *dense_lu_solve(VM *v, Obj *a, Obj *b);
 Val sparse_call(VM *v, int id, int argc, Val *a);
+const char *sparse_name(int id);
 Obj *sparse_module(VM *v);
 void sparse_abort(VM *v);
 void sparse_release_payload(Obj *o);

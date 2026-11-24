@@ -31,6 +31,11 @@ static const int nargs[] = {
 };
 _Static_assert(sizeof names / sizeof *names == sizeof nargs / sizeof *nargs, "sparse dispatch arity table");
 
+const char *sparse_name(int id) {
+    int op = id - SPARSE_BASE;
+    return op >= 0 && (size_t) op < sizeof names / sizeof *names ? names[op] : NULL;
+}
+
 /* New sparse buffers are owned by their objects immediately. Native calls
  * cannot interleave with GC, so an error can release unpublished payloads. */
 void sparse_release_payload(Obj *o) {

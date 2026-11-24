@@ -2,6 +2,10 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
+## Unreleased — 0.15.4
+
+- Added static native mathematical documentation through callable queries and the `mathdoc` module. Shape-based cost estimates cover dense solve, matrix multiply, dot product, and CSR matrix–vector multiply. [Contracts](research/implemented/mathdoc.md)
+
 ## 0.15.3 — Complex Scalars and Structured Operators
 
 - Added complex scalars with mixed real arithmetic, principal elementary functions and real and imaginary accessors.
