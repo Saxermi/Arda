@@ -256,7 +256,7 @@ static void identifier(Writer *w, const char *name) {
     put(w, "}");
 }
 
-static void number(Writer *w, const MathNode *n) {
+static void render_number(Writer *w, const MathNode *n) {
     char text[64];
     if (n->kind == MI_INT)
         snprintf(text, sizeof text, "%" PRId64, n->integer);
@@ -358,7 +358,7 @@ static void render(Writer *w, const MathIR *ir, int i, int expand, int minimum, 
         put(w, "\\left(");
     switch (n->kind) {
     case MI_INT: case MI_REAL:
-        number(w, n);
+        render_number(w, n);
         break;
     case MI_PARAM: case MI_EXTERNAL: case MI_LOCAL:
         identifier(w, n->name);
