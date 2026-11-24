@@ -78,6 +78,7 @@ typedef struct {
     int arg, line, aux;
 } Instr;
 typedef struct Proto Proto;
+typedef struct MathIR MathIR;
 typedef enum {
     K_NUM, K_STR, K_PROTO, K_INT
 } KType;
@@ -96,6 +97,7 @@ struct Proto {
     unsigned char marked;
     char *name, *path;
     char **params;
+    MathIR *mathir;
     int arity, required;
     Instr *code;
     int count, cap;
@@ -104,6 +106,12 @@ struct Proto {
 };
 Proto *compile(Node *root, const char *path);
 void freeproto(Proto *p);
+void mathir_set_enabled(int enabled);
+MathIR *mathir_extract(const Node *function);
+int mathir_tex(const Proto *p, int level, char *out, size_t size);
+const char *mathir_assumptions(const Proto *p);
+const char *mathir_algorithm(const Proto *p);
+#define MATHIR_TEX_LIMIT 8192
 int prepare_source(const char *src, const char *path, int tokens_only, Proto **out, char *error,
         size_t error_size);
 void disassemble(Proto *p, int depth);

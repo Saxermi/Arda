@@ -113,6 +113,7 @@ static void function(C *c, Node *n) {
     p->params = front_mem(sizeof(char * ) * (size_t) p->arity);
     for (int i = 0; i < p->arity; i++)
         p->params[i] = front_copystr(n->names[i]);
+    p->mathir = mathir_extract(n);
     C child = {
         .p = p, .isfn = 1
     };
@@ -502,6 +503,7 @@ void freeproto(Proto *p) {
     for (int i = 0; i < p->arity; i++)
         front_free(p->params[i]);
     front_free(p->params);
+    front_free(p->mathir);
     front_free(p->k);
     front_free(p->code);
     front_free(p->name);

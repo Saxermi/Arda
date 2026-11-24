@@ -124,3 +124,122 @@ class MathDocTests(unittest.TestCase):
         ]:
             with self.subTest(expression=expression):
                 self.run_code(imports + expression, error=error, stress=True)
+
+
+    def test_user_arithmetic_levels(self):
+        output = self.run_code("""
+        tol mathdoc
+        caro f(x):
+            esta y = x*x
+            nan y+2
+        pedo(f.getTex())
+        pedo(mathdoc.getTex(f,1))
+        pedo(f.getTex(2))
+        pedo(f.getTex(3))
+        pedo(f.getAssumptions())
+        pedo(f.getAlgorithm())
+        pedo(f.getComplexity(),f.getCost({}),f(3))
+        """, stress=True).splitlines()
+        self.assertEqual(output[0], r"f\left(x\right)=x\cdot x+2")
+        self.assertEqual(output[1], r"\begin{aligned}y&=x\cdot x\\f\left(x\right)&=y+2\end{aligned}")
+        self.assertIn("Numeric operands assumed", output[2])
+        self.assertIn(r"y&\gets ", output[3])
+        self.assertIn("not inferred", output[4])
+        self.assertIn("Straight-line", output[5])
+        self.assertEqual(output[6], "mun mun 11")
+
+    def test_precedence_and_names(self):
+        output = self.run_code("""
+        caro f(a,b,c):
+            nan (a+b)*(a-(b-c))/(a/(b+c))
+        caro my_fn(x_1):
+            nan -(-x_1)
+        caro unicode(α):
+            nan α+1
+        caro minimum():
+            nan -9223372036854775808
+        pedo(f.getTex())
+        pedo(my_fn.getTex())
+        pedo(unicode.getTex())
+        pedo(minimum.getTex())
+        """, stress=True).splitlines()
+        self.assertEqual(output[0], r"f\left(a,b,c\right)=\frac{\left(a+b\right)\cdot \left(a-\left(b-c\right)\right)}{\frac{a}{b+c}}")
+        self.assertIn(r"\mathrm{my\_fn}", output[1])
+        self.assertIn(r"-\left(-\mathrm{x\_1}\right)", output[1])
+        self.assertIn("[U+03B1]", output[2])
+        self.assertTrue(output[3].endswith("=-9223372036854775808"))
+
+    def test_call_provenance_and_no_execution(self):
+        output = self.run_code("""
+        tol math as m
+        esta calls = 0
+        caro effect(x):
+            calls = calls+1
+            nan x
+        caro f(x):
+            esta y = effect(x)
+            nan y+y+m.cos(x)
+        esta q = f.getTex
+        f = mun
+        collect()
+        pedo(q(0))
+        pedo(q(2))
+        pedo(calls)
+        """, stress=True).splitlines()
+        self.assertIn("Dynamic call targets unresolved", output[0])
+        self.assertIn("Dynamic call targets unresolved", output[1])
+        self.assertEqual(output[0].count(r"\mathrm{effect}"), 1)
+        self.assertEqual(output[2], "0")
+
+    def test_unsupported_and_closure(self):
+        output = self.run_code("""
+        caro outer(a):
+            caro inner(x):
+                nan a*x
+            nan inner
+        esta inner = outer(3)
+        esta q = inner.getTex
+        inner = mun
+        outer = mun
+        collect()
+        pedo(q(0))
+        caro loop(n):
+            esta s = 0
+            an i in range(n):
+                s = s+i
+            nan s
+        caro default(x=1):
+            nan x
+        caro reassign(x):
+            x = x+1
+            nan x
+        pedo(loop.getTex(),default.getTex(),reassign.getTex())
+        esta g = lambda x: x+1
+        pedo(g.getTex(),g(2))
+        """, stress=True).splitlines()
+        self.assertIn("External values unresolved", output[0])
+        self.assertEqual(output[1], "mun mun mun")
+        self.assertEqual(output[2], r"\lambda\left(x\right)=x+1 3")
+
+    def test_disabled_user_metadata_in_imports(self):
+        self.run_code("""
+        tol helper
+        caro f(x):
+            nan x+1
+        pedo(f.getTex(),helper.g.getTex(),cos.getTex(),f(2))
+        """, r"mun mun \cos(x) 3", flags=("--mathdoc=none",),
+                      files={"helper.arda": "caro g(x):\n    nan x*x\n"}, stress=True)
+
+    def test_metadata_bounds(self):
+        expression = "+".join(["x"] * 90)
+        self.run_code("caro f(x):\n    nan " + expression + "\npedo(f.getTex(),f(1))",
+                      "mun 90", stress=True)
+        # The expansion of these declarations is exponential, but the IR
+        # stays small and the renderer falls back to named relations.
+        declarations = ["    esta a0 = x+x"]
+        for i in range(1, 20):
+            declarations.append(f"    esta a{i} = a{i-1}+a{i-1}")
+        code = "caro f(x):\n" + "\n".join(declarations) + "\n    nan a19\npedo(f.getTex())"
+        output = self.run_code(code, stress=True)
+        self.assertIn(r"\mathrm{a19}", output)
+        self.assertLess(len(output), 8192)

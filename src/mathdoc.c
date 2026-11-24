@@ -243,6 +243,18 @@ Val mathdoc_call(VM *v, int id, int argc, Val *args) {
             vmerror(v, "static getTex level must be an integer from 0 to 3");
         level = (int) args[1].i;
     }
+    if (isobj(args[0], O_FUNC)) {
+        const Proto *p = args[0].o->as.func.p;
+        if (method == TEX) {
+            char tex[MATHIR_TEX_LIMIT];
+            return mathir_tex(p, level, tex, sizeof tex) ? text_or_nil(v, tex) : nil();
+        }
+        if (method == ALGORITHM)
+            return text_or_nil(v, mathir_algorithm(p));
+        if (method == ASSUMPTIONS)
+            return text_or_nil(v, mathir_assumptions(p));
+        return nil();
+    }
     const MathDescriptor *descriptor = descriptor_for(args[0]);
     if (!descriptor)
         return nil();

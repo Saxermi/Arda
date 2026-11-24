@@ -21,7 +21,7 @@ static int source(VM *v, const char *s, const char *path, int mode) {
 }
 
 static void help(void) {
-    puts("Arda " ARDA_VERSION " | C11 bytecode VM\nusage: arda [--tokens|--bytecode] [--gc-stress] [--gc-stats] file.arda\n       arda [--gc-stress] [--gc-stats]  # REPL; blank line executes a block; :quit exits\n       arda --version");
+    puts("Arda " ARDA_VERSION " | C11 bytecode VM\nusage: arda [--tokens|--bytecode] [--gc-stress] [--gc-stats] [--mathdoc=none|compact] file.arda\n       arda [--gc-stress] [--gc-stats] [--mathdoc=none|compact]  # REPL; blank line executes a block; :quit exits\n       arda --version");
 }
 
 int main(int argc, char **argv) {
@@ -44,6 +44,10 @@ int main(int argc, char **argv) {
             stress = 1;
         else if (!strcmp(argv[i], "--gc-stats"))
             stats = 1;
+        else if (!strcmp(argv[i], "--mathdoc=none"))
+            mathir_set_enabled(0);
+        else if (!strcmp(argv[i], "--mathdoc=compact"))
+            mathir_set_enabled(1);
         else if (!path && argv[i][0] != '-')
             path = argv[i];
         else {

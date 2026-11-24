@@ -69,7 +69,7 @@ Beyond-RAM execution is not a promise that an SSD performs like RAM. Disk-backed
 
 ## Mathematical documentation and introspection
 
-The **Arda Mathematical Documentation Engine (AMDE)**, development codename *Rúmil*, makes the mathematics behind a function available independently of its execution. The 0.15.4 development checkout documents selected native functions. `nc.solve.getTex(3)` shows the pivoted LU algorithm, and `nc.solve.getCost({"shape":[10,10]})` estimates arithmetic and buffer sizes from dimensions. [Current query contracts](research/implemented/mathdoc.md) · [Runnable example](examples/mathdoc_queries.arda)
+The **Arda Mathematical Documentation Engine (AMDE)**, development codename *Rúmil*, makes the mathematics behind a function available independently of its execution. The 0.15.4 development checkout documents selected native functions and supported straight-line user functions. `nc.solve.getTex(3)` shows the pivoted LU algorithm, and `nc.solve.getCost({"shape":[10,10]})` estimates arithmetic and buffer sizes from dimensions. [Current query contracts](research/implemented/mathdoc.md) · [Runnable example](examples/mathdoc_queries.arda)
 
 A simple energy function can be written today using existing language syntax:
 
@@ -80,11 +80,13 @@ caro energy(m, v, h):
     nan kinetic + potential
 ```
 
-A future call such as `energy.getTex(2)` could produce LaTeX representing:
+A query such as `energy.getTex(0)` describes the source expression as LaTeX. Its mathematical meaning (shown here in simplified notation) is:
 
 $$
 E(m,v,h)=\frac{1}{2}mv^2+9.81mh
 $$
+
+For supported user functions, levels 0–3 describe a compact expression, intermediate relations, known assumptions and source-level operations respectively. No dynamic call target is inferred. `--mathdoc=none` disables user-function metadata collection while retaining native descriptors. See the query contracts for limits and unsupported constructs.
 
 The intended levels range from a compact equation, through intermediate expressions and assumptions, to the mathematical algorithm used by a supported native function. An optional recorded run could also provide selected numerical intermediate results and convergence data. Static documentation must not execute the numerical function or pretend that an unexecuted calculation has converged.
 
@@ -419,7 +421,7 @@ make test-reference
 
 Read the [full master roadmap](ROADMAP.md) for detailed subversions, architecture, benchmark targets, research references, and development codenames.
 
-Static mathematical queries in the 0.15.4 development checkout cover selected native functions. The roadmap also includes user-function extraction, `getPlan()`, `verify()` and bounded `trace()`. Execution tracing and verification will be optional, with no per-element logging in the normal high-performance path. Planned memory and compute engines will combine sparse and structured representations, SIMD, parallel execution, memory mapping, streaming, quantization and optional MPI/GPU backends. These are goals, not present features. Full 70B-model training on ordinary laptops is not a project promise.
+Static mathematical queries in the 0.15.4 development checkout cover selected native functions and supported straight-line user functions. The roadmap also includes loop recognition, `getPlan()`, `verify()` and bounded `trace()`. Execution tracing and verification will be optional, with no per-element logging in the normal high-performance path. Planned memory and compute engines will combine sparse and structured representations, SIMD, parallel execution, memory mapping, streaming, quantization and optional MPI/GPU backends. These are goals, not present features. Full 70B-model training on ordinary laptops is not a project promise.
 
 ## Limitations and safety
 
