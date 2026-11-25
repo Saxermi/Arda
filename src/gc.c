@@ -239,6 +239,10 @@ static void trace(VM *v, Obj *o) {
         for (int i = 0; i < o->as.lowrank.rank; i++)
             markobj(v, o->as.lowrank.factor[i]);
         break;
+    case O_QUANTITY:
+        markval(v, o->as.quantity.value);
+        markobj(v, o->as.quantity.symbol);
+        break;
     case O_AD:
         markobj(v, o->as.ad.a);
         markobj(v, o->as.ad.b);

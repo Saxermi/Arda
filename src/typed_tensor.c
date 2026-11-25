@@ -480,16 +480,83 @@ static TensorScalar sum_axis(VM *v, const TypedTensor *t, int axis, ptrdiff_t ba
     return s;
 }
 
-static Val sum(VM *v, const TypedTensor *t, int axis) {
+Val typed_sum_axis(VM *v, const TypedTensor *t, int axis, bool legacy_float64) {
     DType dtype = accumulator(t->dtype);
     if (t->rank == 1)
         return dtype_value(v, sum_axis(v, t, axis, (ptrdiff_t)t->offset, dtype));
     TypedTensor layout = without_axis(*t, axis);
-    Obj *result = typed_new(v, dtype, layout.rank, layout.shape);
-    TypedTensor *dst = &result->as.tensor;
-    for (size_t i = 0; i < dst->n; i++)
-        store(v, dst, (ptrdiff_t)i, sum_axis(v, t, axis, typed_offset(&layout, i), dtype));
+    Obj *result = legacy_float64 ? tensor_new(v, layout.rank, layout.shape)
+                                 : typed_new(v, dtype, layout.rank, layout.shape);
+    TypedTensor dst = typed_tensor(v, objval(result));
+    for (size_t i = 0; i < dst.n; i++)
+        store(v, &dst, (ptrdiff_t)i, sum_axis(v, t, axis, typed_offset(&layout, i), dtype));
     return objval(result);
+}
+
+static const Obj *contract_dimensions(VM *v, Val shape, bool wildcard) {
+    const Obj *dims = list_input(v, shape);
+    if (dims->as.list.n < 1 || dims->as.list.n > 8)
+        vmerror(v, "tensor contract shape rank must be between 1 and 8");
+    for (int d = 0; d < dims->as.list.n; d++) {
+        Val length = dims->as.list.a[d];
+        if (!(wildcard && length.t == V_NIL) && (length.t != V_INT || length.i < 0))
+            vmerror(v, "tensor contract dimensions require nonnegative integers");
+    }
+    return dims;
+}
+
+static Val tensor_contract(VM *v, Val input, Val shape, Val type) {
+    const Obj *dims = contract_dimensions(v, shape, true);
+    TypedTensor t = {.dtype = DT_F64};
+    if (isobj(input, O_LOWRANK)) {
+        const LowRankTensor *lowrank = &input.o->as.lowrank;
+        t.rank = lowrank->rank;
+        memcpy(t.shape, lowrank->shape, (size_t)t.rank * sizeof *t.shape);
+    } else
+        t = typed_tensor(v, input);
+    if (dims->as.list.n != t.rank)
+        vmerror(v, "tensor contract rank mismatch");
+    if (type.t != V_NIL && dtype_parse(v, type) != t.dtype)
+        vmerror(v, "tensor contract dtype mismatch");
+    for (int d = 0; d < t.rank; d++)
+        if (dims->as.list.a[d].t != V_NIL && dims->as.list.a[d].i != t.shape[d])
+            vmerror(v, "tensor contract dimension mismatch at axis %d", d);
+    return input;
+}
+
+static Val tensor_spec(VM *v, Val shape, DType dtype) {
+    const Obj *dims = contract_dimensions(v, shape, false);
+    Obj *copy = list(v);
+    int64_t elements = 1;
+    size_t span = 1;
+    bool empty = false, overflow = false, materializable = true;
+    for (int d = 0; d < dims->as.list.n; d++) {
+        Val dim = dims->as.list.a[d];
+        int64_t length = dim.i ? dim.i : 1;
+        append(v, copy, dim);
+        empty |= dim.i == 0;
+        if (overflow || elements > INT64_MAX / length)
+            overflow = true;
+        else
+            elements *= length;
+        if (!materializable || (uint64_t)length > ARDA_MAX_ELEMENTS / span)
+            materializable = false;
+        else
+            span *= (size_t)length;
+    }
+    if (empty) {
+        elements = 0;
+        overflow = false;
+    }
+    int64_t size = (int64_t)dtype_info[dtype].size;
+    Obj *out = newobj(v, O_MAP);
+    tableset(v, out, &out->as.map.tab, "shape", objval(copy));
+    tableset(v, out, &out->as.map.tab, "dtype", objval(string(v, dtype_info[dtype].name)));
+    tableset(v, out, &out->as.map.tab, "elements", overflow ? nil() : integer(elements));
+    tableset(v, out, &out->as.map.tab, "bytes",
+             overflow || elements > INT64_MAX / size ? nil() : integer(elements * size));
+    tableset(v, out, &out->as.map.tab, "materializable", boolean(materializable));
+    return objval(out);
 }
 
 static size_t flat_index(VM *v, Val x, size_t length) {
@@ -588,23 +655,30 @@ enum {
     BLOCKS,
     CLOSE_BLOCKS,
     READ_TILE,
-    WRITE_TILE
+    WRITE_TILE,
+    CONTRACT,
+    SPEC
 };
 static const char *const names[] = {
-    "array",  "zeros",   "cast",         "dtype",     "shape",     "bytes",  "tolist", "at",
-    "put",    "view",    "permute",      "to_numc",   "readonly",  "matmul", "sum",    "tensordot",
-    "gather", "scatter", "mask",         "fft",       "ifft",      "einsum", "mmap",   "read_block",
-    "save",   "blocks",  "close_blocks", "read_tile", "write_tile"};
-static const int arities[] = {2, 2, 2, 1, 1, 1, 1, 2, 3, 4, 2, 1, 1, 2, 2,
-                              4, 2, 3, 2, 1, 1, 3, 1, 3, 2, 2, 1, 3, 3};
+    "array",      "zeros",     "cast",       "dtype",   "shape",   "bytes",        "tolist",
+    "at",         "put",       "view",       "permute", "to_numc", "readonly",     "matmul",
+    "sum",        "tensordot", "gather",     "scatter", "mask",    "fft",          "ifft",
+    "einsum",     "mmap",      "read_block", "save",    "blocks",  "close_blocks", "read_tile",
+    "write_tile", "contract",  "spec"};
+static const int arities[] = {2, 2, 2, 1, 1, 1, 1, 2, 3, 4, 2, 1, 1, 2, 2, 4,
+                              2, 3, 2, 1, 1, 3, 1, 3, 2, 2, 1, 3, 3, 2, 2};
 _Static_assert(sizeof names / sizeof *names == sizeof arities / sizeof *arities, "tensor arities");
 
 Val typed_tensor_call(VM *v, int id, int argc, Val *args) {
     int op = id - TYPED_TENSOR_BASE;
     if (op < 0 || (size_t)op >= sizeof names / sizeof *names ||
         (argc != arities[op] && !((op == ARRAY || op == SAVE) && argc == 3) &&
-         !(op == WRITE_TILE && argc == 4)))
+         !(op == WRITE_TILE && argc == 4) && !(op == CONTRACT && argc == 3)))
         vmerror(v, "invalid tensor API arity");
+    if (op == CONTRACT)
+        return tensor_contract(v, args[0], args[1], argc == 3 ? args[2] : nil());
+    if (op == SPEC)
+        return tensor_spec(v, args[0], dtype_parse(v, args[1]));
     if (op == MMAP)
         return tensor_mmap(v, args[0]);
     if (op == READ_BLOCK)
@@ -676,7 +750,7 @@ Val typed_tensor_call(VM *v, int id, int argc, Val *args) {
     case MATMUL:
         return objval(matmul(v, t, typed_tensor(v, args[1])));
     case SUM:
-        return sum(v, &t, indexnum(v, args[1], t.rank));
+        return typed_sum_axis(v, &t, indexnum(v, args[1], t.rank), false);
     case TENSORDOT: {
         TypedTensor rhs = typed_tensor(v, args[1]);
         return tensordot(v, t, rhs, indexnum(v, args[2], t.rank), indexnum(v, args[3], rhs.rank));

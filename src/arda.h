@@ -279,7 +279,8 @@ typedef enum {
     O_BUFFER,
     O_TYPED_TENSOR,
     O_TENSOR_BLOCKS,
-    O_LOWRANK
+    O_LOWRANK,
+    O_QUANTITY
 } OType;
 
 typedef struct {
@@ -325,6 +326,18 @@ typedef struct {
     int shape[8], rank;
     LowRankKind kind;
 } LowRankTensor;
+
+typedef struct {
+    double scale, offset;
+    int8_t dimension[7];
+    bool absolute;
+} Unit;
+
+typedef struct {
+    Val value;
+    Obj *symbol;
+    Unit unit;
+} Quantity;
 
 static inline int sparse_owns_payload(OType type) {
     return type == O_SPARSE || type == O_SPARSE_BUILDER || type == O_SPARSE_WORKSPACE;
@@ -414,6 +427,7 @@ struct Obj {
         Buffer buffer;
         TypedTensor tensor;
         LowRankTensor lowrank;
+        Quantity quantity;
         struct {
             double value, grad, da, db;
             Obj *a, *b;
@@ -564,6 +578,7 @@ Val array_index(VM *v, Val a, Val b);
 void array_set_index(VM *v, Val a, Val b, Val x);
 void array_print(Obj *o);
 Obj *array_new(VM *v, int rank, int rows, int cols);
+Obj *dense_matmul(VM *v, Obj *a, Obj *b);
 #define ARDA_MAX_ELEMENTS 16000000u
 Obj *buffer_new(VM *v, size_t bytes);
 size_t tensor_memory_available(VM *v);
@@ -605,6 +620,10 @@ void install_tensor(VM *v, Obj *module);
 #define TYPED_TENSOR_BASE 1400
 #define COMPUTE_BASE 1500
 #define LOWRANK_BASE 1600
+#define UNITS_BASE 1700
+Obj *units_module(VM *v);
+Val units_call(VM *v, int id, int argc, Val *args);
+Val units_binary(VM *v, Op op, Val a, Val b);
 Obj *lowrank_module(VM *v);
 Val lowrank_call(VM *v, int id, int argc, Val *args);
 Obj *compute_module(VM *v);

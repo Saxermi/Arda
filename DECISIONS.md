@@ -91,3 +91,9 @@ Publish tile changes as complete replacement files in 0.16.3. This preserves exi
 Plan for about 30 GB of free SSD space for the 20 GB benchmark alone, 100 GB for both read-only benchmarks run one dataset at a time, or 120 GB to retain both datasets. An optional atomic tile-write benchmark on the 80 GB file needs about 180 GB free before creating the dataset, since the original and full temporary replacement coexist. Allow about 200 GB if the 20 GB dataset is also retained. These estimates are in decimal GB and include working headroom.
 
 **Revisit** — Use fully allocated files and record throughput and peak RSS for cold and warm runs. Check output against an independent reference and measure tile writes separately from read-only reductions.
+
+## 2026-11-25 — Low-rank contractions and scientific types
+
+Use structured CP, Tucker and tensor train inner products and bounded direct evaluation when cancellation threatens the result on small shapes. Use deterministic LAPACK sweeps as the reference for TT approximation. Keep randomized rounding and TT-cross for later comparison. [Low-rank tensor contracts](research/implemented/low-rank-tensors.md)
+
+Represent scientific quantities with SI values and separate display-unit metadata. Check dimensions once per operation and reuse the Float64 kernels. Separate absolute temperatures from temperature differences. Keep 64-bit logical dimensions in specifications and assertions while retaining compact indices in live layouts. MathIR displays source subscripts with unresolved shapes and bounds. [Scientific type contracts](research/implemented/scientific-types.md)

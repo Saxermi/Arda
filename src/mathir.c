@@ -13,6 +13,7 @@ typedef enum {
     MI_EXTERNAL,
     MI_LOCAL,
     MI_INDEX,
+    MI_SUBSCRIPT,
     MI_STATE,
     MI_NEG,
     MI_ADD,
@@ -35,13 +36,13 @@ typedef struct {
     int index, accumulator, start, stop, step, update;
 } MathLoop;
 struct MathIR {
-    int count, result, has_calls, has_external;
+    int count, result, has_calls, has_external, has_subscript;
     const MathLoop *loop;
     MathNode nodes[];
 };
 typedef struct {
     MathNode nodes[MAX_NODES];
-    int count, has_calls, has_external;
+    int count, has_calls, has_external, has_subscript;
     const Node *fn;
     MathLoop loop;
 } Extract;
@@ -110,6 +111,15 @@ static int expression(Extract *e, const Node *n, int depth) {
             return -1;
         a = expression(e, n->a, depth + 1);
         return a < 0 ? -1 : add(e, MI_NEG, NULL, a, -1);
+    case N_INDEX:
+        if (e->loop.kind != NO_LOOP)
+            return -1;
+        a = expression(e, n->a, depth + 1);
+        if (a < 0)
+            return -1;
+        b = expression(e, n->b, depth + 1);
+        e->has_subscript = 1;
+        return b < 0 ? -1 : add(e, MI_SUBSCRIPT, NULL, a, b);
     case N_BINARY:
         switch (n->op) {
         case T_PLUS:
@@ -220,7 +230,8 @@ static int loop_expression(Extract *e, const Node *loop, const Node *ret) {
     int stop = expression(e, last, 0);
     int step = expression(e, stride, 0);
     int index = add(e, MI_INDEX, loop->str, -1, -1);
-    if (start < 0 || stop < 0 || step < 0 || index < 0 || e->has_calls || e->has_external)
+    if (start < 0 || stop < 0 || step < 0 || index < 0 || e->has_calls || e->has_external ||
+        e->has_subscript)
         return 0;
     e->loop = (MathLoop){.kind = RECURRENCE,
                          .index = index,
@@ -267,7 +278,7 @@ static MathIR *extract(const Node *fn) {
                 if (value < 0 || add(&e, MI_BIND, s->str, value, -1) < 0)
                     return NULL;
             } else if (s->t == N_FOR && i == body->count - 2 && body->items[i + 1]->t == N_RETURN) {
-                if (!loop_expression(&e, s, body->items[i + 1]->a))
+                if (e.has_subscript || !loop_expression(&e, s, body->items[i + 1]->a))
                     return NULL;
             } else if (s->t == N_RETURN && i == body->count - 1) {
                 // The return in a supported loop is the final accumulator.
@@ -295,6 +306,7 @@ static MathIR *extract(const Node *fn) {
     ir->result = result;
     ir->has_calls = e.has_calls;
     ir->has_external = e.has_external;
+    ir->has_subscript = e.has_subscript;
     memcpy(ir->nodes, e.nodes, (size_t)e.count * sizeof(MathNode));
     char *dst = (char *)ir + bytes;
     ir->loop = NULL;
@@ -505,6 +517,13 @@ static void render(Writer *w, const MathIR *ir, int i, int expand, int minimum, 
         if (expand < 0)
             put(w, "_{\\mathsf{k}}");
         break;
+    case MI_SUBSCRIPT:
+        put(w, "{");
+        render(w, ir, n->a, expand, 4, depth + 1);
+        put(w, "}_{");
+        render(w, ir, n->b, expand, 0, depth + 1);
+        put(w, "}");
+        break;
     case MI_NEG:
         put(w, "-");
         render(w, ir, n->a, expand, 4, depth + 1);
@@ -643,6 +662,9 @@ const char *mathir_assumptions(const Proto *p) {
                "and at most 1000000 iterations. Numeric scalar accumulator operations assumed. "
                "The half-open range can be empty. A mathematical sum or product may round "
                "differently from the ordered source updates.";
+    if (p->mathir->has_subscript)
+        return "Subscripts show source indices. Operand types, shapes, bounds and dynamic "
+               "call targets are unresolved. The function is never evaluated by this query.";
     return "Source-level mathematical notation conditional on numeric operands and compatible "
            "operations. "
            "Level 0 may use formal identities for ordinary finite scalar real arithmetic; "
@@ -681,8 +703,10 @@ int mathir_tex(const Proto *p, int level, char *out, size_t size) {
     }
     if (level == 2) {
         put(&w, "\\text{Numeric operands assumed; types, shapes and domains unknown.}");
-        if (!ir->has_calls && !ir->has_external)
+        if (!ir->has_calls && !ir->has_external && !ir->has_subscript)
             put(&w, "\\quad\\text{Level 0 may use formal finite scalar real identities.}");
+        if (ir->has_subscript)
+            put(&w, "\\quad\\text{Subscripts show source indices; bounds unknown.}");
         if (ir->has_external)
             put(&w, "\\quad\\text{External values unresolved.}");
         if (ir->has_calls)
@@ -691,7 +715,7 @@ int mathir_tex(const Proto *p, int level, char *out, size_t size) {
     }
     /* For calls and external dependencies keep declarations visible rather
      * than expanding a possibly effectful expression multiple times. */
-    if (level == 0 && !ir->has_calls && !ir->has_external) {
+    if (level == 0 && !ir->has_calls && !ir->has_external && !ir->has_subscript) {
         signature(&w, p);
         put(&w, "=");
         render(&w, ir, ir->result, 1, 0, 0);

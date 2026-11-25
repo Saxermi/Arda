@@ -1,12 +1,13 @@
 # Scientific research in Arda
 
-This directory records the mathematics behind Arda's scientific features and compares candidates for future milestones. The [roadmap](../ROADMAP.md) tracks scope and sequencing. The [decision log](../DECISIONS.md) records the outcome of project discussions. The source and tests establish implemented behavior. This inventory covers Arda through 0.16.4.
+This directory records the mathematics behind Arda's scientific features and compares candidates for future milestones. The [roadmap](../ROADMAP.md) tracks scope and sequencing. The [decision log](../DECISIONS.md) records the outcome of project discussions. The source and tests establish implemented behavior. This inventory covers Arda through 0.16.5.
 
 | Implemented | Planned or experimental candidates |
 | --- | --- |
 | [Dense linear algebra and reductions](implemented/linear-algebra.md) | [Factorizations, statistics, quadrature and special functions](planned/numerical-libraries.md) |
 | [Typed tensors, shared buffers and file storage](implemented/typed-tensors.md) | |
 | [Low-rank tensors](implemented/low-rank-tensors.md) | |
+| [Scientific quantities and shape contracts](implemented/scientific-types.md) | |
 | [Random generation and statistics](implemented/random-and-statistics.md) | |
 | [Complex scalars, structured operators and randomized SVD](implemented/structured-computing.md) | |
 | [Static mathematical documentation](implemented/mathdoc.md) | |

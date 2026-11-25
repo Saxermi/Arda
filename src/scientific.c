@@ -118,7 +118,7 @@ __attribute__((target("avx2"))) static void matmul_avx2(int m, int n, int k, con
                     }
 }
 #endif
-static Obj *multiply(VM *v, Obj *a, Obj *b) {
+Obj *dense_matmul(VM *v, Obj *a, Obj *b) {
     matrix(v, a);
     matrix(v, b);
     int m = A(a).rows, k = A(a).cols, n = A(b).cols;
@@ -297,7 +297,7 @@ Val scientific_call(VM *v, int id, int argc, Val *a) {
     }
     if (k == S_MATMUL) {
         Obj *y = asarray(v, a[1]);
-        return objval(multiply(v, x, tensor_contiguous(y) ? y : tensor_copy(v, y)));
+        return objval(dense_matmul(v, x, tensor_contiguous(y) ? y : tensor_copy(v, y)));
     }
     if (k == S_SOLVE) {
         Obj *y = asarray(v, a[1]);

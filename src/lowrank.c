@@ -220,6 +220,65 @@ static long double column_dot(const Obj *a, const Obj *b, int p, int q) {
     return sum;
 }
 
+static size_t entry_cost(const LowRankTensor *t) {
+    if (t->kind != LOWRANK_TT)
+        return A(t->coefficients).n * (size_t)t->rank;
+    size_t cost = 0;
+    for (int d = 0; d < t->rank; d++) {
+        const int *shape = A(t->factor[d]).shape;
+        cost += (size_t)shape[0] * shape[2];
+    }
+    return cost;
+}
+
+static long double verify_dot(VM *v, const LowRankTensor *a, const LowRankTensor *b,
+                              long double result, long double bound) {
+    if (isfinite(result) && (a != b || result >= 0) &&
+        (bound == 0 || fabsl(result) > 64 * LDBL_EPSILON * bound))
+        return result;
+
+    // Structured contractions can lose a tiny residual when large terms
+    // cancel. Re-evaluate small cases without storing the represented tensor.
+    size_t cost = entry_cost(a) + (a == b ? 0 : entry_cost(b)) + (size_t)a->rank;
+    size_t limit = 1000000u / cost, count = 1;
+    for (int d = 0; d < a->rank; d++) {
+        if (count > limit / (size_t)a->shape[d]) {
+            if (a != b || (isfinite(result) && result > 0))
+                return result;
+            vmerror(v, "low-rank squared norm is cancellation dominated and exceeds the direct "
+                       "evaluation limit");
+        }
+        count *= (size_t)a->shape[d];
+    }
+    size_t aw = a->kind == LOWRANK_TT ? tt_width(a) : 0;
+    size_t bw = a != b && b->kind == LOWRANK_TT ? tt_width(b) : 0;
+    long double local = 0;
+    long double *work = aw ? scratch(v, 2 * (aw + bw)) : &local;
+    long double sum = 0;
+    for (size_t i = 0; i < count; i++) {
+        int index[8];
+        coordinates(i, a->rank, a->shape, index);
+        long double x = at(a, index, work, aw);
+        sum += x * (a == b ? x : at(b, index, work + 2 * aw, bw));
+    }
+    if (aw)
+        tensor_workspace_release(v, (unsigned char *)work);
+    return sum;
+}
+
+// Product of component Frobenius norms bounds the represented Frobenius norm.
+static long double factor_bound(const LowRankTensor *t) {
+    long double bound = 1;
+    for (int d = t->coefficients ? -1 : 0; d < t->rank; d++) {
+        const Obj *factor = d < 0 ? t->coefficients : t->factor[d];
+        long double squares = 0;
+        for (size_t i = 0; i < A(factor).n; i++)
+            squares += (long double)A(factor).data[i] * A(factor).data[i];
+        bound *= sqrtl(squares);
+    }
+    return bound;
+}
+
 static long double cp_dot(VM *v, const LowRankTensor *a, const LowRankTensor *b) {
     long double sum = 0, magnitude = 0;
     int ra = A(a->coefficients).rows, rb = A(b->coefficients).rows;
@@ -233,25 +292,7 @@ static long double cp_dot(VM *v, const LowRankTensor *a, const LowRankTensor *b)
             magnitude += fabsl(value);
         }
     }
-    if (magnitude > 0 && fabsl(sum) <= 64 * LDBL_EPSILON * magnitude) {
-        // Gram contributions can lose small residuals of nearly identical
-        // components. For small problems re-evaluate entries without storing
-        // a dense tensor. Bound the fallback work before traversing the shape.
-        size_t limit = 1000000u / ((size_t)ra + rb), count = 1;
-        for (int d = 0; d < a->rank; d++) {
-            if (count > limit / (size_t)a->shape[d])
-                vmerror(v,
-                        "CP dot is cancellation dominated and exceeds the direct evaluation limit");
-            count *= (size_t)a->shape[d];
-        }
-        sum = 0;
-        for (size_t i = 0; i < count; i++) {
-            int index[8];
-            coordinates(i, a->rank, a->shape, index);
-            sum += at(a, index, NULL, 0) * at(b, index, NULL, 0);
-        }
-    }
-    return sum;
+    return verify_dot(v, a, b, sum, magnitude);
 }
 
 static long double tucker_dot(VM *v, const LowRankTensor *a, const LowRankTensor *b) {
@@ -360,15 +401,21 @@ static long double inner_product(VM *v, const LowRankTensor *a, const LowRankTen
     for (int d = 0; d < a->rank; d++)
         if (a->shape[d] == 0)
             return 0;
+    long double bound, result;
     switch (a->kind) {
     case LOWRANK_CP:
         return cp_dot(v, a, b);
     case LOWRANK_TUCKER:
-        return tucker_dot(v, a, b);
+        result = tucker_dot(v, a, b);
+        break;
     case LOWRANK_TT:
-        return tt_dot(v, a, b);
+        result = tt_dot(v, a, b);
+        break;
+    default:
+        vmerror(v, "unknown low-rank format");
     }
-    return 0;
+    bound = factor_bound(a);
+    return verify_dot(v, a, b, result, bound * (a == b ? bound : factor_bound(b)));
 }
 
 static long double vector_column(const Obj *factor, const Obj *vector, int col) {

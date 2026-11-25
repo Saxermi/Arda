@@ -2,6 +2,12 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
+## 0.16.5 — Scientific Types
+
+- Added SI quantities with dimension-checked arithmetic, explicit conversion, absolute and interval temperatures, and Float64 tensor products and sums.
+- Added metadata-only shape and dtype assertions, 64-bit logical shape specifications, and MathIR notation for straight-line subscripts.
+- Extended the bounded direct-evaluation check for near-cancelling inner products to CP, Tucker, and tensor trains. [Scientific type contracts](research/implemented/scientific-types.md) · [Low-rank tensor contracts](research/implemented/low-rank-tensors.md)
+
 ## 0.16.4 — Low-Rank Tensors
 
 - Added immutable CP, Tucker, and tensor train representations with element access, contraction, norms, same-format dot products, and explicit materialization.

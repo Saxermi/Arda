@@ -1,6 +1,6 @@
 # Static mathematical documentation
 
-**Status** — Arda 0.15.4 introduced static native and straight-line queries. Arda 0.15.5 adds a limited range-loop model. [Release validation](../../docs/RUMIL_0.15.5.md)
+**Status** — Arda 0.15.4 introduced static native and straight-line queries. Arda 0.15.5 adds a limited range-loop model. Arda 0.16.5 adds straight-line subscript notation. [Release validation](../../docs/RUMIL_0.15.5.md)
 
 ## Queries
 
@@ -39,6 +39,10 @@ For straight-line functions, level 0 expands local names within limits and falls
 The IR is one frontend allocation per supported prototype, including copied identifier strings. It has at most 128 nodes, 32 parameters, 128 bytes per identifier and 32 extraction levels. Rendering has a depth limit of 64 and an 8192-byte buffer including the terminator. Overflow returns `mun` or falls back to named steps at level 0. Underscores are escaped; non-ASCII identifier code points are rendered as explicit U+ tokens. The prototype owns the allocation and frees it with its compilation root, including frontend error cleanup. No VM object or AST pointer is retained. Ordinary numerical execution has no new instructions or per-element instrumentation.
 
 `--mathdoc=compact` (default) collects bounded metadata during compilation, including imported modules and REPL submissions. `--mathdoc=none` skips user-function extraction. Native descriptors remain queryable. [Implementation](../../src/mathir.c) · [Tests](../../tests/test_mathdoc.py)
+
+### Subscripts
+
+Straight-line bracket expressions such as `x[i + 1]` and `A[i][j]` display their source indices as LaTeX subscripts. The result preserves the original index expression. Indexed functions retain their named relations and source operations at all formula levels. The query explains that operand types, shapes and bounds are unresolved. Actual shape and dtype assertions are available at runtime through `tensor.contract`. [Scientific type contracts](scientific-types.md)
 
 ### Single range loops
 

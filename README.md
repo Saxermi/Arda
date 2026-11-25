@@ -8,11 +8,11 @@ Arda is an independent, open-source, research-driven scientific programming lang
 
 Its long-term goal is to combine scientifically validated numerical algorithms with adaptive execution, from ordinary laptops to distributed research clusters. The language brings native numerical data structures and algorithms to an indentation-based runtime for physics, engineering, and other computational research.
 
-**Current version** — Arda 0.16.4 — Low-Rank Tensors
+**Current version** — Arda 0.16.5 — Scientific Types
 
 *Development codename: Mithril*
 
-**Next milestone** — Arda 0.16.5 — Scientific Types
+**Next milestone** — Arda 0.17 — Memory-Efficient Differentiable Programming
 
 **Wiki** — [Quickstart, language and module guides, and AMDE examples](https://github.com/Saxermi/Arda/wiki)
 
@@ -39,7 +39,7 @@ Python, Julia, MATLAB, Mathematica, C++, Fortran and their ecosystems already of
 | **High-dimensional mathematics** | Exploit sparsity, matrix-free operators, low-rank factorizations and compressed tensors instead of blindly materializing enormous dense arrays. |
 | **Beyond-RAM computing** | Eventually process file-backed data and models in bounded chunks, with controlled I/O, prefetching and offloading. |
 | **Mathematical transparency** | Eventually describe equations, assumptions, algorithms and costs directly from functions without requiring a numerical run. |
-| **Numerical reliability** | Independent reference tests today; planned verification, uncertainty propagation, units and reproducible experiment records. |
+| **Numerical reliability** | Independent reference tests and SI quantities today, with uncertainty propagation and reproducible experiment records planned. |
 | **Scalable execution** | Preserve efficient local CPU execution while developing optional GPU, NUMA and MPI support for larger systems. |
 | **Accessibility** | A compact standalone runtime with approachable syntax and a portable baseline, suitable for education, research and embedded numerical applications. |
 
@@ -71,7 +71,7 @@ Beyond-RAM execution is not a promise that an SSD performs like RAM. Disk-backed
 
 ## Mathematical documentation and introspection
 
-The **Arda Mathematical Documentation Engine (AMDE)**, development codename *Rúmil*, documents selected native functions, straight-line user functions and supported single range loops. `nc.solve.getTex(3)` shows pivoted LU, and `nc.solve.getCost({"shape":[10,10]})` estimates arithmetic and buffer sizes from dimensions. [Query contracts](research/implemented/mathdoc.md) · [Runnable example](examples/mathdoc_queries.arda)
+The **Arda Mathematical Documentation Engine (AMDE)**, development codename *Rúmil*, documents selected native functions, straight-line user functions with bracket subscripts, and supported single range loops. `nc.solve.getTex(3)` shows pivoted LU, and `nc.solve.getCost({"shape":[10,10]})` estimates arithmetic and buffer sizes from dimensions. [Query contracts](research/implemented/mathdoc.md) · [Runnable example](examples/mathdoc_queries.arda)
 
 A simple energy function can be written today using existing language syntax:
 
@@ -233,6 +233,8 @@ COO allows duplicates and explicit zeros; CSR uses strictly sorted columns withi
 ## Numerical standard library
 
 The `lowrank` module builds CP, Tucker, and tensor trains from factors or cores. It supports direct element access, contractions, and norms. Optional LAPACK provides TT-SVD and controlled tensor train rounding. [Low-rank tensor contracts](research/implemented/low-rank-tensors.md)
+
+The `units` module handles SI quantities, temperature scales, and dimensional compatibility for scalar and Float64 tensor arithmetic. Use `tensor.contract` to check a live tensor's shape and dtype and `tensor.spec` to describe logical dimensions with 64-bit integers. [Scientific type contracts](research/implemented/scientific-types.md) · [Runnable example](examples/scientific_types.arda)
 
 The `tensor` module supports typed CPU arrays, read-only mapping, bounded blocks and rectangular tiles. Use `tensor.array(values,dtype[,shape])` for flat input, `tensor.cast` for explicit conversion, and `tensor.to_numc` to materialize a Float64 array for the existing kernels. The `compute` module reports buffer and workspace usage and runs budgeted mean and variance directly on tensor files. [Typed tensor and file contracts](research/implemented/typed-tensors.md) · [Memory budgets and streaming](research/implemented/typed-tensors.md#memory-budgets-and-streaming)
 

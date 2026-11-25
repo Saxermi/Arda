@@ -186,6 +186,8 @@ static Val binary(VM *v, Op op, Val a, Val b) {
         return ad_binary(v, op, a, b);
     if (op == OP_EQ || op == OP_NE)
         return boolean(eq(a, b) ^ (op == OP_NE));
+    if (isobj(a, O_QUANTITY) || isobj(b, O_QUANTITY))
+        return units_binary(v, op, a, b);
     if (isobj(a, O_TYPED_TENSOR) || isobj(b, O_TYPED_TENSOR))
         return typed_tensor_binary(v, op, a, b);
     if (isobj(a, O_ARRAY) || isobj(b, O_ARRAY))
