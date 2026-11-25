@@ -638,6 +638,13 @@ static int singular_value_rank(const Obj *values, double rcond) {
     return rank;
 }
 
+void linalg_reduced_svd(VM *v, Obj *input, Obj **u, Obj **s, Obj **vt) {
+    Svd result = singular_value_decomposition(v, input, 1);
+    *u = result.u;
+    *s = result.s;
+    *vt = result.vt;
+}
+
 static Obj *pseudoinverse(VM *v, Svd svd, int rank) {
     int m = A(svd.u).rows, n = A(svd.vt).cols;
     Obj *out = array_new(v, 2, n, m);

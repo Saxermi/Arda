@@ -278,7 +278,8 @@ typedef enum {
     O_LINOP,
     O_BUFFER,
     O_TYPED_TENSOR,
-    O_TENSOR_BLOCKS
+    O_TENSOR_BLOCKS,
+    O_LOWRANK
 } OType;
 
 typedef struct {
@@ -317,6 +318,13 @@ typedef struct {
     DType dtype;
     bool readonly;
 } TypedTensor;
+
+typedef enum { LOWRANK_CP, LOWRANK_TUCKER, LOWRANK_TT } LowRankKind;
+typedef struct {
+    Obj *factor[8], *coefficients;
+    int shape[8], rank;
+    LowRankKind kind;
+} LowRankTensor;
 
 static inline int sparse_owns_payload(OType type) {
     return type == O_SPARSE || type == O_SPARSE_BUILDER || type == O_SPARSE_WORKSPACE;
@@ -405,6 +413,7 @@ struct Obj {
         } array;
         Buffer buffer;
         TypedTensor tensor;
+        LowRankTensor lowrank;
         struct {
             double value, grad, da, db;
             Obj *a, *b;
@@ -595,6 +604,9 @@ void install_tensor(VM *v, Obj *module);
 #define SPECIAL_BASE 1300
 #define TYPED_TENSOR_BASE 1400
 #define COMPUTE_BASE 1500
+#define LOWRANK_BASE 1600
+Obj *lowrank_module(VM *v);
+Val lowrank_call(VM *v, int id, int argc, Val *args);
 Obj *compute_module(VM *v);
 Val compute_call(VM *v, int id, int argc, Val *args);
 Obj *typed_tensor_module(VM *v);
@@ -602,6 +614,9 @@ Val typed_tensor_call(VM *v, int id, int argc, Val *a);
 Val typed_tensor_binary(VM *v, Op op, Val a, Val b);
 int64_t checked_arith(VM *v, Op op, int64_t x, int64_t y);
 Val linalg_call(VM *v, int id, int argc, Val *a);
+#ifdef ARDA_LAPACK
+void linalg_reduced_svd(VM *v, Obj *input, Obj **u, Obj **s, Obj **vt);
+#endif
 const char *linalg_name(int id);
 Val linalg_eigh(VM *v, Val a);
 Obj *linalg_module(VM *v);

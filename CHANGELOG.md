@@ -2,6 +2,11 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
+## 0.16.4 — Low-Rank Tensors
+
+- Added immutable CP, Tucker, and tensor train representations with element access, contraction, norms, same-format dot products, and explicit materialization.
+- Added optional LAPACK TT-SVD and controlled tensor train rounding with a discarded-tail estimate. [Low-rank tensor contracts](research/implemented/low-rank-tensors.md)
+
 ## 0.16.3 — Tensor Memory Budgets and Tiled I/O
 
 - Added per-VM tensor buffer budgets, byte counters and a reusable workspace buffer.

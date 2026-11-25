@@ -31,11 +31,11 @@ static const char *typename(Val v) {
         return "bool";
     case V_OBJ: {
         static const char *n[] = {
-            "string",           "list",   "map",       "scope",        "function",
-            "native",           "class",  "instance",  "method",       "module",
-            "iterator",         "array",  "ad",        "sparse",       "sparse_builder",
-            "sparse_workspace", "factor", "generator", "moments",      "complex",
-            "linear_operator",  "buffer", "tensor",    "tensor_blocks"};
+            "string",           "list",   "map",       "scope",         "function",
+            "native",           "class",  "instance",  "method",        "module",
+            "iterator",         "array",  "ad",        "sparse",        "sparse_builder",
+            "sparse_workspace", "factor", "generator", "moments",       "complex",
+            "linear_operator",  "buffer", "tensor",    "tensor_blocks", "lowrank"};
         return n[v.o->type];
     }
     }
@@ -169,6 +169,8 @@ static void arity(VM *v, int id, int argc, int n) {
 }
 
 Val native_call(VM *v, int id, int argc, Val *a) {
+    if (id >= LOWRANK_BASE)
+        return lowrank_call(v, id, argc, a);
     if (id >= COMPUTE_BASE)
         return compute_call(v, id, argc, a);
     if (id >= TYPED_TENSOR_BASE)
@@ -475,6 +477,8 @@ Obj *named_native_module(VM *v, const char *name, const char *const *names, size
 }
 
 Obj *native_module(VM *v, const char *name) {
+    if (!strcmp(name, "lowrank"))
+        return lowrank_module(v);
     if (!strcmp(name, "compute"))
         return compute_module(v);
     if (!strcmp(name, "tensor"))

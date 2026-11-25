@@ -8,11 +8,11 @@ Arda is an independent, open-source, research-driven scientific programming lang
 
 Its long-term goal is to combine scientifically validated numerical algorithms with adaptive execution, from ordinary laptops to distributed research clusters. The language brings native numerical data structures and algorithms to an indentation-based runtime for physics, engineering, and other computational research.
 
-**Current version** — Arda 0.16.3 — Tensor Memory Budgets and Tiled I/O
+**Current version** — Arda 0.16.4 — Low-Rank Tensors
 
 *Development codename: Mithril*
 
-**Next milestone** — Arda 0.16.4 — Low-Rank Tensor Formats
+**Next milestone** — Arda 0.16.5 — Scientific Types
 
 **Wiki** — [Quickstart, language and module guides, and AMDE examples](https://github.com/Saxermi/Arda/wiki)
 
@@ -231,6 +231,8 @@ Expected CSR components: `[[0, 2, 2, 4], [1, 3, 0, 3], [5, -1, 4, 7]]`.
 COO allows duplicates and explicit zeros; CSR uses strictly sorted columns within each row, combines duplicates in input order, and omits exact zeros. No dense intermediate is required. Explicit `sp.todense` and `sp.from_dense` bridges are available, along with shape, nnz, bytes, format, checked get, copied components, and static `sp.describe` conversion metadata. See the [0.14.3 sparse computing guide](docs/MORIA_0.14.3.md) for assembly, algebra, solver and budget contracts, plus local validation and benchmarks. The [0.14.0 report](docs/MORIA_0.14.0.md) covers the original storage layout and conversion measurements.
 
 ## Numerical standard library
+
+The `lowrank` module builds CP, Tucker, and tensor trains from factors or cores. It supports direct element access, contractions, and norms. Optional LAPACK provides TT-SVD and controlled tensor train rounding. [Low-rank tensor contracts](research/implemented/low-rank-tensors.md)
 
 The `tensor` module supports typed CPU arrays, read-only mapping, bounded blocks and rectangular tiles. Use `tensor.array(values,dtype[,shape])` for flat input, `tensor.cast` for explicit conversion, and `tensor.to_numc` to materialize a Float64 array for the existing kernels. The `compute` module reports buffer and workspace usage and runs budgeted mean and variance directly on tensor files. [Typed tensor and file contracts](research/implemented/typed-tensors.md) · [Memory budgets and streaming](research/implemented/typed-tensors.md#memory-budgets-and-streaming)
 

@@ -234,6 +234,11 @@ static void trace(VM *v, Obj *o) {
     case O_TYPED_TENSOR:
         markobj(v, o->as.tensor.buffer);
         break;
+    case O_LOWRANK:
+        markobj(v, o->as.lowrank.coefficients);
+        for (int i = 0; i < o->as.lowrank.rank; i++)
+            markobj(v, o->as.lowrank.factor[i]);
+        break;
     case O_AD:
         markobj(v, o->as.ad.a);
         markobj(v, o->as.ad.b);
