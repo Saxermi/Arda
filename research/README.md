@@ -1,6 +1,6 @@
 # Scientific research in Arda
 
-This directory records the mathematics behind Arda's scientific features and compares candidates for future milestones. The [roadmap](../ROADMAP.md) tracks scope and sequencing. The [decision log](../DECISIONS.md) records the outcome of project discussions. The source and tests establish implemented behavior. This inventory covers Arda through 0.16.2.
+This directory records the mathematics behind Arda's scientific features and compares candidates for future milestones. The [roadmap](../ROADMAP.md) tracks scope and sequencing. The [decision log](../DECISIONS.md) records the outcome of project discussions. The source and tests establish implemented behavior. This inventory covers Arda through 0.16.3.
 
 | Implemented | Planned or experimental candidates |
 | --- | --- |

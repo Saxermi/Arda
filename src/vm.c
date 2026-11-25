@@ -399,6 +399,7 @@ void vm_init(VM *v, int stress) {
     v->stress = stress;
     v->next_gc = 65536;
     v->sparse_limit = SIZE_MAX;
+    v->tensor_memory.limit = tensor_memory_unlimited();
     v->builtins = environment(v, NULL);
     v->global = environment(v, v->builtins);
     install_builtins(v);
@@ -406,6 +407,7 @@ void vm_init(VM *v, int stress) {
 
 void vm_destroy(VM *v) {
     destroy_objects(v);
+    tensor_pool_trim(v);
     for (int i = 0; i < v->np; i++)
         freeproto(v->programs[i]);
     free(v->programs);
@@ -810,8 +812,9 @@ static void dispatch(VM *v) {
                         append(v, l, objval(string(v, t->a[i].key)));
                 x = objval(l);
             }
-            if (!isobj(x, O_LIST) && !isobj(x, O_STRING) && !isobj(x, O_ARRAY))
-                vmerror(v, "for expects list, string, map or array");
+            if (!isobj(x, O_LIST) && !isobj(x, O_STRING) && !isobj(x, O_ARRAY) &&
+                !isobj(x, O_TENSOR_BLOCKS))
+                vmerror(v, "for expects list, string, map, array or tensor blocks");
             Obj *it = newobj(v, O_ITER);
             it->as.iter.source = x;
             push(v, objval(it));
@@ -820,23 +823,29 @@ static void dispatch(VM *v) {
         case OP_NEXT: {
             Obj *it = top(v).o;
             Val x = it->as.iter.source;
-            int i = it->as.iter.index;
-            if (isobj(x, O_LIST)) {
-                if (i >= x.o->as.list.n)
+            size_t i = it->as.iter.index;
+            if (isobj(x, O_TENSOR_BLOCKS)) {
+                Val block = tensor_block_next(v, x.o, &it->as.iter.index);
+                if (block.t == V_NIL)
+                    f->ip = a;
+                else
+                    push(v, block);
+            } else if (isobj(x, O_LIST)) {
+                if (i >= (size_t)x.o->as.list.n)
                     f->ip = a;
                 else {
                     it->as.iter.index++;
                     push(v, x.o->as.list.a[i]);
                 }
             } else if (isobj(x, O_ARRAY)) {
-                if (i >= x.o->as.array.rows)
+                if (i >= (size_t)x.o->as.array.rows)
                     f->ip = a;
                 else {
                     it->as.iter.index++;
-                    push(v, array_index(v, x, integer(i)));
+                    push(v, array_index(v, x, integer((int64_t)i)));
                 }
             } else {
-                if ((size_t)i >= x.o->as.str.len)
+                if (i >= x.o->as.str.len)
                     f->ip = a;
                 else {
                     const char *p = x.o->as.str.s + i;

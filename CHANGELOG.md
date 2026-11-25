@@ -2,6 +2,12 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
+## 0.16.3 — Tensor Memory Budgets and Tiled I/O
+
+- Added per-VM tensor buffer budgets, byte counters and a reusable workspace buffer.
+- Added explicit block iteration and tile reads and atomic tile writes for tensor files.
+- Added workspace planning and streaming mean and population variance. [Memory budgets and streaming](research/implemented/typed-tensors.md#memory-budgets-and-streaming)
+
 ## 0.16.2 — Tensor File Storage
 
 - Added read-only memory mapping, bounded block reads and atomic tensor file creation with a per-file byte budget. [Tensor contracts and validation](research/implemented/typed-tensors.md)

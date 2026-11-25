@@ -216,6 +216,7 @@ static void trace(VM *v, Obj *o) {
     case O_MOMENTS:
     case O_COMPLEX:
     case O_BUFFER:
+    case O_TENSOR_BLOCKS:
     case O_SPARSE:
     case O_SPARSE_BUILDER:
     case O_SPARSE_WORKSPACE:
@@ -295,7 +296,7 @@ static void roots(VM *v) {
         markobj(v, v->handlers[i].env);
 }
 
-static void release(Obj *o) {
+static void release(VM *v, Obj *o) {
     switch (o->type) {
     case O_STRING:
         free(o->as.str.s);
@@ -306,7 +307,10 @@ static void release(Obj *o) {
         sparse_release_payload(o);
         break;
     case O_BUFFER:
-        o->as.buffer.release(o->as.buffer.allocation, o->as.buffer.allocation_bytes);
+        tensor_buffer_release(v, &o->as.buffer);
+        break;
+    case O_TENSOR_BLOCKS:
+        tensor_blocks_close(o);
         break;
     case O_LIST:
         free(o->as.list.a);
@@ -361,7 +365,7 @@ void gcstep(VM *v, int force) {
                 v->sparse_bytes -= o->bytes - sizeof *o;
             v->bytes -= o->bytes;
             v->live--;
-            release(o);
+            release(v, o);
         }
     }
     /* Sweep code after objects: live closures, parameter environments and
@@ -389,7 +393,7 @@ void destroy_objects(VM *v) {
     Obj *o = v->objects;
     while (o) {
         Obj *next = o->next;
-        release(o);
+        release(v, o);
         o = next;
     }
     free(v->intern);

@@ -1,0 +1,89 @@
+#include "typed_tensor.h"
+
+static Val budget_value(const TensorMemory *m) {
+    return m->limited ? integer((int64_t)m->limit) : nil();
+}
+
+static Val memory_budget(VM *v, int argc, Val *args) {
+    TensorMemory *m = &v->tensor_memory;
+    if (!argc)
+        return budget_value(m);
+    Val value = args[0];
+    size_t limit = tensor_memory_unlimited();
+    if (value.t != V_NIL) {
+        if (value.t != V_INT || value.i < 0 || (uint64_t)value.i > SIZE_MAX)
+            vmerror(v, "tensor memory budget must be a nonnegative byte count or mun");
+        limit = (size_t)value.i;
+    }
+    if (limit < m->heap + m->reserved)
+        vmerror(v, "tensor memory budget is below live buffers and reservations");
+    if (m->cached > limit - m->heap - m->reserved)
+        tensor_pool_trim(v);
+    m->limit = limit;
+    m->limited = value.t != V_NIL;
+    return budget_value(m);
+}
+
+static void field(VM *v, Obj *map, const char *key, Val value) {
+    tableset(v, map, &map->as.map.tab, key, value);
+}
+
+static Val memory_stats(VM *v, int argc, Val *args) {
+    TypedTensor t = {0};
+    if (argc)
+        t = typed_tensor(v, args[0]);
+    size_t vm_bytes = v->bytes;
+    const TensorMemory *m = &v->tensor_memory;
+    Obj *map = newobj(v, O_MAP);
+    field(v, map, "vm_heap_bytes", integer((int64_t)vm_bytes));
+    field(v, map, "tensor_heap_bytes", integer((int64_t)m->heap));
+    field(v, map, "mapped_bytes", integer((int64_t)m->mapped));
+    field(v, map, "workspace_reserved_bytes", integer((int64_t)m->reserved));
+    field(v, map, "workspace_cached_bytes", integer((int64_t)m->cached));
+    field(v, map, "peak_budgeted_bytes", integer((int64_t)m->peak));
+    field(v, map, "budget_bytes", budget_value(m));
+    if (argc) {
+        const Buffer *buffer = &t.buffer->as.buffer;
+        field(v, map, "logical_bytes", integer((int64_t)(t.n * dtype_info[t.dtype].size)));
+        field(v, map, "backing_bytes", integer((int64_t)buffer->bytes));
+        field(v, map, "storage", objval(string(v, buffer->mapped ? "mapped" : "heap")));
+    }
+    return objval(map);
+}
+
+enum { MEMORY_STATS, MEMORY_BUDGET, TRIM_POOL, PLAN, STREAM_STATS };
+static const char *const names[] = {"memory_stats", "memory_budget", "trim_pool", "plan",
+                                    "stream_stats"};
+
+Obj *compute_module(VM *v) {
+    return named_native_module(v, "compute", names, sizeof names / sizeof *names, COMPUTE_BASE);
+}
+
+Val compute_call(VM *v, int id, int argc, Val *args) {
+    switch (id - COMPUTE_BASE) {
+    case MEMORY_STATS:
+        if (argc <= 1)
+            return memory_stats(v, argc, args);
+        break;
+    case MEMORY_BUDGET:
+        if (argc <= 1)
+            return memory_budget(v, argc, args);
+        break;
+    case TRIM_POOL:
+        if (!argc)
+            return integer((int64_t)tensor_pool_trim(v));
+        break;
+    case PLAN:
+        if (argc == 2 || argc == 3) {
+            if (strcmp(asstr(v, args[0]), "stream_stats"))
+                vmerror(v, "compute.plan currently supports stream_stats");
+            return tensor_stream_stats(v, args[1], argc == 3 ? args[2] : nil(), true);
+        }
+        break;
+    case STREAM_STATS:
+        if (argc == 1 || argc == 2)
+            return tensor_stream_stats(v, args[0], argc == 2 ? args[1] : nil(), false);
+        break;
+    }
+    vmerror(v, "invalid compute API arity");
+}

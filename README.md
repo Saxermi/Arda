@@ -8,15 +8,15 @@ Arda is an independent, open-source, research-driven scientific programming lang
 
 Its long-term goal is to combine scientifically validated numerical algorithms with adaptive execution, from ordinary laptops to distributed research clusters. The language brings native numerical data structures and algorithms to an indentation-based runtime for physics, engineering, and other computational research.
 
-**Current version** — Arda 0.16.2 — Typed Tensors and File Storage
+**Current version** — Arda 0.16.3 — Tensor Memory Budgets and Tiled I/O
 
 *Development codename: Mithril*
 
-**Next milestone** — Arda 0.16.3 — Buffer Pools, Workspace Reservations, and Memory Budgets
+**Next milestone** — Arda 0.16.4 — Low-Rank Tensor Formats
 
 **Wiki** — [Quickstart, language and module guides, and AMDE examples](https://github.com/Saxermi/Arda/wiki)
 
-Arda supports typed tensors, read-only tensor file mapping, static mathematical queries, numerical solvers, and compact matrix operators. The optional LAPACK build adds randomized SVD for dense, sparse, and structured operators. [Tensor API and validation](research/implemented/typed-tensors.md)
+Arda supports typed tensors, budgeted tile I/O, streaming statistics, static mathematical queries, numerical solvers, and compact matrix operators. The optional LAPACK build adds randomized SVD for dense, sparse, and structured operators. [Tensor API and validation](research/implemented/typed-tensors.md)
 
 > **Development status:** Arda is an early-stage scientific language with dense and sparse tensors, bounded tensor-file reads, selected optimized CPU kernels, and scalar automatic differentiation. Automatic out-of-core planning, general mathematical introspection, and distributed HPC are roadmap goals.
 
@@ -232,7 +232,7 @@ COO allows duplicates and explicit zeros; CSR uses strictly sorted columns withi
 
 ## Numerical standard library
 
-The `tensor` module supports typed CPU arrays and file-backed storage. Use `tensor.array(values,dtype[,shape])` for flat input, `tensor.cast` for explicit conversion, and `tensor.to_numc` to materialize a Float64 array for the existing kernels. Use `tensor.mmap` for read-only views or `tensor.read_block` for bounded reads that handle truncated files with an error. [Typed tensor and file contracts](research/implemented/typed-tensors.md)
+The `tensor` module supports typed CPU arrays, read-only mapping, bounded blocks and rectangular tiles. Use `tensor.array(values,dtype[,shape])` for flat input, `tensor.cast` for explicit conversion, and `tensor.to_numc` to materialize a Float64 array for the existing kernels. The `compute` module reports buffer and workspace usage and runs budgeted mean and variance directly on tensor files. [Typed tensor and file contracts](research/implemented/typed-tensors.md) · [Memory budgets and streaming](research/implemented/typed-tensors.md#memory-budgets-and-streaming)
 
 ### `numc`: dense arrays and linear algebra
 

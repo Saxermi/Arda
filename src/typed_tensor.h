@@ -28,6 +28,8 @@ TensorScalar dtype_binary(VM *v, Op op, DType type, TensorScalar a, TensorScalar
 TypedTensor typed_tensor(VM *v, Val value);
 bool typed_layout_checked(DType dtype, int rank, const int *shape, TypedTensor *result);
 TypedTensor typed_layout(VM *v, DType dtype, int rank, const int *shape);
+bool typed_materializable(const TypedTensor *t);
+int typed_dimensions(VM *v, Val value, int *shape);
 Obj *typed_new(VM *v, DType dtype, int rank, const int *shape);
 Obj *typed_wrap(VM *v, TypedTensor layout);
 bool typed_contiguous(const TypedTensor *t);
@@ -36,5 +38,9 @@ unsigned char *typed_element(const TypedTensor *t, ptrdiff_t pos);
 Val tensor_mmap(VM *v, Val path);
 Val tensor_read_block(VM *v, Val path, Val start, Val count);
 Val tensor_save(VM *v, Val path, Val input, Val budget);
+Val tensor_blocks(VM *v, Val path, Val block);
+Val tensor_read_tile(VM *v, Val path, Val origin, Val shape);
+Val tensor_write_tile(VM *v, Val path, Val origin, Val tile, Val budget);
+Val tensor_stream_stats(VM *v, Val path, Val block, bool plan_only);
 
 #endif

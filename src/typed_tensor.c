@@ -51,14 +51,20 @@ TypedTensor typed_layout(VM *v, DType dtype, int rank, const int *shape) {
     return result;
 }
 
-static void materializable(VM *v, const TypedTensor *t) {
+bool typed_materializable(const TypedTensor *t) {
     size_t span = 1;
     for (int i = 0; i < t->rank; i++) {
         size_t length = t->shape[i] ? (size_t)t->shape[i] : 1;
         if (span > ARDA_MAX_ELEMENTS / length)
-            vmerror(v, "tensor allocation limit: 16000000 elements; use block access");
+            return false;
         span *= length;
     }
+    return true;
+}
+
+static void require_materializable(VM *v, const TypedTensor *t) {
+    if (!typed_materializable(t))
+        vmerror(v, "tensor allocation limit: 16000000 elements; use block access");
 }
 
 Obj *typed_wrap(VM *v, TypedTensor layout) {
@@ -70,7 +76,7 @@ Obj *typed_wrap(VM *v, TypedTensor layout) {
 
 Obj *typed_new(VM *v, DType dtype, int rank, const int *shape) {
     TypedTensor t = typed_layout(v, dtype, rank, shape);
-    materializable(v, &t);
+    require_materializable(v, &t);
     t.buffer = buffer_new(v, t.n * dtype_info[dtype].size);
     return typed_wrap(v, t);
 }
@@ -115,7 +121,7 @@ static const Obj *list_input(VM *v, Val x) {
     return x.o;
 }
 
-static int get_shape(VM *v, Val x, int *shape) {
+int typed_dimensions(VM *v, Val x, int *shape) {
     const Obj *obj = list_input(v, x);
     int rank = obj->as.list.n;
     if (rank < 1 || rank > 8)
@@ -179,7 +185,7 @@ static Val tolist(VM *v, const TypedTensor *t, int axis, ptrdiff_t pos) {
 
 static TypedTensor strided_view(VM *v, const TypedTensor *src, Val shape, Val strides, Val offset) {
     int dims[8];
-    int rank = get_shape(v, shape, dims);
+    int rank = typed_dimensions(v, shape, dims);
     const Obj *steps = list_input(v, strides);
     if (!typed_contiguous(src) || steps->as.list.n != rank || offset.t != V_INT || offset.i < 0 ||
         (uint64_t)offset.i > src->n)
@@ -518,7 +524,7 @@ static Obj *mask(VM *v, const TypedTensor *t, const TypedTensor *flags) {
     if (flags->dtype != DT_BOOL || flags->rank != t->rank ||
         memcmp(t->shape, flags->shape, (size_t)t->rank * sizeof(*t->shape)))
         vmerror(v, "tensor mask requires a bool tensor with the same shape");
-    materializable(v, t);
+    require_materializable(v, t);
     int selected = 0;
     for (size_t i = 0; i < t->n; i++)
         selected += element(flags, typed_offset(flags, i)).i != 0;
@@ -578,21 +584,26 @@ enum {
     EINSUM,
     MMAP,
     READ_BLOCK,
-    SAVE
+    SAVE,
+    BLOCKS,
+    CLOSE_BLOCKS,
+    READ_TILE,
+    WRITE_TILE
 };
-static const char *const names[] = {"array",     "zeros",   "cast",     "dtype",      "shape",
-                                    "bytes",     "tolist",  "at",       "put",        "view",
-                                    "permute",   "to_numc", "readonly", "matmul",     "sum",
-                                    "tensordot", "gather",  "scatter",  "mask",       "fft",
-                                    "ifft",      "einsum",  "mmap",     "read_block", "save"};
-static const int arities[] = {2, 2, 2, 1, 1, 1, 1, 2, 3, 4, 2, 1, 1,
-                              2, 2, 4, 2, 3, 2, 1, 1, 3, 1, 3, 2};
+static const char *const names[] = {
+    "array",  "zeros",   "cast",         "dtype",     "shape",     "bytes",  "tolist", "at",
+    "put",    "view",    "permute",      "to_numc",   "readonly",  "matmul", "sum",    "tensordot",
+    "gather", "scatter", "mask",         "fft",       "ifft",      "einsum", "mmap",   "read_block",
+    "save",   "blocks",  "close_blocks", "read_tile", "write_tile"};
+static const int arities[] = {2, 2, 2, 1, 1, 1, 1, 2, 3, 4, 2, 1, 1, 2, 2,
+                              4, 2, 3, 2, 1, 1, 3, 1, 3, 2, 2, 1, 3, 3};
 _Static_assert(sizeof names / sizeof *names == sizeof arities / sizeof *arities, "tensor arities");
 
 Val typed_tensor_call(VM *v, int id, int argc, Val *args) {
     int op = id - TYPED_TENSOR_BASE;
     if (op < 0 || (size_t)op >= sizeof names / sizeof *names ||
-        (argc != arities[op] && !((op == ARRAY || op == SAVE) && argc == 3)))
+        (argc != arities[op] && !((op == ARRAY || op == SAVE) && argc == 3) &&
+         !(op == WRITE_TILE && argc == 4)))
         vmerror(v, "invalid tensor API arity");
     if (op == MMAP)
         return tensor_mmap(v, args[0]);
@@ -600,18 +611,30 @@ Val typed_tensor_call(VM *v, int id, int argc, Val *args) {
         return tensor_read_block(v, args[0], args[1], args[2]);
     if (op == SAVE)
         return tensor_save(v, args[0], args[1], argc == 3 ? args[2] : nil());
+    if (op == BLOCKS)
+        return tensor_blocks(v, args[0], args[1]);
+    if (op == CLOSE_BLOCKS) {
+        if (!isobj(args[0], O_TENSOR_BLOCKS))
+            vmerror(v, "expected tensor blocks");
+        tensor_blocks_close(args[0].o);
+        return nil();
+    }
+    if (op == READ_TILE)
+        return tensor_read_tile(v, args[0], args[1], args[2]);
+    if (op == WRITE_TILE)
+        return tensor_write_tile(v, args[0], args[1], args[2], argc == 4 ? args[3] : nil());
     if (op == EINSUM)
         return einsum(v, asstr(v, args[0]), typed_tensor(v, args[1]), typed_tensor(v, args[2]));
     if (op == ARRAY || op == ZEROS) {
         int dims[8], rank;
         DType dtype = dtype_parse(v, args[1]);
         if (op == ZEROS) {
-            rank = get_shape(v, args[0], dims);
+            rank = typed_dimensions(v, args[0], dims);
             return objval(typed_new(v, dtype, rank, dims));
         }
         const Obj *values = list_input(v, args[0]);
         dims[0] = values->as.list.n;
-        rank = argc == 3 ? get_shape(v, args[2], dims) : 1;
+        rank = argc == 3 ? typed_dimensions(v, args[2], dims) : 1;
         TypedTensor layout = typed_layout(v, dtype, rank, dims);
         if (layout.n != (size_t)values->as.list.n)
             vmerror(v, "tensor flat data length and shape differ");
@@ -632,7 +655,7 @@ Val typed_tensor_call(VM *v, int id, int argc, Val *args) {
     case BYTES:
         return integer((int64_t)(t.n * dtype_info[t.dtype].size));
     case TOLIST:
-        materializable(v, &t);
+        require_materializable(v, &t);
         return tolist(v, &t, 0, (ptrdiff_t)t.offset);
     case AT:
         return dtype_value(v, element(&t, index_offset(v, &t, args[1])));

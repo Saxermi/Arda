@@ -77,3 +77,9 @@ AMDE models one source loop with a local accumulator and a literal nonzero step.
 Share one GC-traced buffer across views. Keep the existing Float64 kernels on the legacy array interface and expose explicit materialization from the typed tensor API. Arbitrary strided views are read-only so overlapping coordinates have unambiguous mutation behavior.
 
 Keep the first disk format contiguous. Map stable files read-only or read explicit flat blocks with `pread` when truncation must be recoverable. Publish complete replacement files by same-directory rename after flushing the file. This allows existing mappings to retain their old inode. [Tensor and storage contracts](research/implemented/typed-tensors.md)
+
+## 2026-11-25 — Budgeted tensor workspace and tile writes
+
+Charge heap-backed tensor payloads and native workspace to one per-VM budget. Report mappings separately so logical file size can grow without changing the heap limit. Keep one idle scratch allocation for equal-size reuse under the budget. Streaming mean and population variance use a single reservation and a shifted Welford accumulator.
+
+Publish tile changes as complete replacement files in 0.16.3. This preserves existing read-only maps and file iterators and keeps the original file available if publication fails. Each edit takes a full file copy and bounded scratch. [Memory and tile contracts](research/implemented/typed-tensors.md#memory-budgets-and-streaming)

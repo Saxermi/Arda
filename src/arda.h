@@ -277,7 +277,8 @@ typedef enum {
     O_COMPLEX,
     O_LINOP,
     O_BUFFER,
-    O_TYPED_TENSOR
+    O_TYPED_TENSOR,
+    O_TENSOR_BLOCKS
 } OType;
 
 typedef struct {
@@ -285,8 +286,14 @@ typedef struct {
     void *allocation;
     size_t bytes, allocation_bytes, alignment;
     void (*release)(void *, size_t);
-    bool readonly;
+    bool readonly, mapped;
 } Buffer;
+
+typedef struct {
+    size_t limit, heap, mapped, reserved, cached, peak;
+    unsigned char *pool;
+    bool limited;
+} TensorMemory;
 
 typedef enum {
     DT_BOOL,
@@ -379,8 +386,13 @@ struct Obj {
         } mod;
         struct {
             Val source;
-            int index;
+            size_t index;
         } iter;
+        struct {
+            int fd, block;
+            size_t elements;
+            DType dtype;
+        } tensor_blocks;
         struct {
             double *data;
             int rank, rows, cols;
@@ -444,6 +456,7 @@ typedef struct VM {
     size_t ng, gcap, live, bytes, next_gc, cycles;
     int marking, stress;
     size_t sparse_bytes, sparse_limit;
+    TensorMemory tensor_memory;
     Obj *sparse_checkpoint;
     FILE *sparse_file;
     int sparse_active;
@@ -544,6 +557,14 @@ void array_print(Obj *o);
 Obj *array_new(VM *v, int rank, int rows, int cols);
 #define ARDA_MAX_ELEMENTS 16000000u
 Obj *buffer_new(VM *v, size_t bytes);
+size_t tensor_memory_available(VM *v);
+size_t tensor_pool_trim(VM *v);
+unsigned char *tensor_workspace_acquire(VM *v, size_t bytes);
+void tensor_workspace_release(VM *v, unsigned char *memory);
+size_t tensor_memory_unlimited(void);
+void tensor_buffer_release(VM *v, Buffer *buffer);
+Val tensor_block_next(VM *v, Obj *blocks, size_t *cursor);
+void tensor_blocks_close(Obj *blocks);
 void tensor_require_writable(VM *v, Obj *x);
 Obj *tensor_new(VM *v, int rank, const int *shape);
 Obj *tensor_copy(VM *v, Obj *x);
@@ -573,6 +594,9 @@ void install_tensor(VM *v, Obj *module);
 #define MATHDOC_BASE 1200
 #define SPECIAL_BASE 1300
 #define TYPED_TENSOR_BASE 1400
+#define COMPUTE_BASE 1500
+Obj *compute_module(VM *v);
+Val compute_call(VM *v, int id, int argc, Val *args);
 Obj *typed_tensor_module(VM *v);
 Val typed_tensor_call(VM *v, int id, int argc, Val *a);
 Val typed_tensor_binary(VM *v, Op op, Val a, Val b);
