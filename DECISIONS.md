@@ -83,3 +83,11 @@ Keep the first disk format contiguous. Map stable files read-only or read explic
 Charge heap-backed tensor payloads and native workspace to one per-VM budget. Report mappings separately so logical file size can grow without changing the heap limit. Keep one idle scratch allocation for equal-size reuse under the budget. Streaming mean and population variance use a single reservation and a shifted Welford accumulator.
 
 Publish tile changes as complete replacement files in 0.16.3. This preserves existing read-only maps and file iterators and keeps the original file available if publication fails. Each edit takes a full file copy and bounded scratch. [Memory and tile contracts](research/implemented/typed-tensors.md#memory-budgets-and-streaming)
+
+## 2026-11-25 — Defer large-file performance benchmarks
+
+**Status** — Deferred until a test machine with suitable SSD space is available. Small automated fixtures cover correctness and budget enforcement. Throughput and peak RSS remain unmeasured for the 20 GB streaming-statistics and 80 GB file-backed reduction targets. [Roadmap validation targets](ROADMAP.md#arda-016--virtual-tensors-and-memory-management-ame-v1)
+
+Plan for about 30 GB of free SSD space for the 20 GB benchmark alone, 100 GB for both read-only benchmarks run one dataset at a time, or 120 GB to retain both datasets. An optional atomic tile-write benchmark on the 80 GB file needs about 180 GB free before creating the dataset, since the original and full temporary replacement coexist. Allow about 200 GB if the 20 GB dataset is also retained. These estimates are in decimal GB and include working headroom.
+
+**Revisit** — Use fully allocated files and record throughput and peak RSS for cold and warm runs. Check output against an independent reference and measure tile writes separately from read-only reductions.
