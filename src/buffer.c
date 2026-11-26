@@ -61,12 +61,22 @@ void tensor_workspace_release(VM *v, unsigned char *memory) {
 }
 
 void tensor_buffer_release(VM *v, Buffer *buffer) {
+    if (!buffer->release)
+        return;
     TensorMemory *m = &v->tensor_memory;
     if (buffer->mapped)
         m->mapped -= buffer->allocation_bytes;
     else
         m->heap -= buffer->bytes;
     buffer->release(buffer->allocation, buffer->allocation_bytes);
+    buffer->release = NULL;
+}
+
+/* The caller owns a private heap buffer that no live tensor will read again. */
+void tensor_buffer_discard(VM *v, Obj *object) {
+    Buffer *buffer = &object->as.buffer;
+    account(v, object, buffer->bytes, 0);
+    tensor_buffer_release(v, buffer);
 }
 
 void tensor_bump_version(VM *v, Obj *buffer) {

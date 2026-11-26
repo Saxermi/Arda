@@ -49,6 +49,8 @@ static unsigned saved_values(ADOperation op, bool left, bool right) {
     case AD_MATMUL:
     case AD_SPARSE_MATVEC:
         return (left ? 2u : 0u) | (right ? 1u : 0u);
+    case AD_CHECKPOINT:
+        return 7;
     case AD_DIV:
         return (left ? 2u : 0u) | (right ? 6u : 0u);
     case AD_SIN:
@@ -88,8 +90,7 @@ Val ad_record(VM *v, ADOperation op, Val value, Val left, Val right, int axis, c
         memcpy(node->axes, axes, sizeof node->axes);
     Val versions[] = {node->left, node->right, node->value};
     for (unsigned i = 0; i < 3; i++)
-        if (node->saved & (1u << i))
-            node->versions[i] = version(v, versions[i]);
+        node->versions[i] = version(v, versions[i]);
     barrier(v, out, value);
     barrier(v, out, left);
     barrier(v, out, right);
@@ -212,7 +213,7 @@ Val ad_unary(VM *v, ADOperation op, Val input, Val exponent) {
     return tracked ? ad_record(v, op, result, input, exponent, 0, NULL) : result;
 }
 
-static Obj *topology(VM *v, Obj *root, Obj *stop) {
+static Obj *topology(VM *v, Obj *root, Obj *stop, Obj *other) {
     Obj *stack = list(v), *order = list(v);
     append(v, stack, objval(root));
     while (stack->as.list.n) {
@@ -220,7 +221,7 @@ static Obj *topology(VM *v, Obj *root, Obj *stop) {
         TensorAD *n = o->as.ad;
         if (!n->visit) {
             n->visit = 1;
-            if (o != stop)
+            if (o != stop && o != other)
                 for (int i = 1; i >= 0; i--)
                     if (n->parents[i] && !n->parents[i]->as.ad->visit)
                         append(v, stack, objval(n->parents[i]));
@@ -331,6 +332,223 @@ static double slope_change(ADOperation op, double x, double z, double power, dou
     default:
         return 0;
     }
+}
+
+static bool connected(const Obj *order, const Obj *node);
+
+typedef struct {
+    ADOperation op;
+    int input[2];
+    Val constant[2];
+    uint64_t version[2];
+} ReplayStep;
+
+struct ADCheckpoint {
+    int count;
+    ReplayStep steps[];
+};
+
+void ad_trace_checkpoint(VM *v, const TensorAD *node) {
+    const ADCheckpoint *c = node->checkpoint;
+    if (c)
+        for (int i = 0; i < c->count; i++)
+            for (int j = 0; j < 2; j++)
+                markval(v, c->steps[i].constant[j]);
+}
+
+static size_t recipe_bytes(const ADCheckpoint *c) {
+    return sizeof *c + (size_t)c->count * sizeof *c->steps;
+}
+
+static void checkpoint_versions(VM *v, const ADCheckpoint *c) {
+    for (int i = 0; i < c->count; i++)
+        for (int j = 0; j < 2; j++)
+            if (version(v, c->steps[i].constant[j]) != c->steps[i].version[j])
+                vmerror_kind(v, "mutation", "a checkpoint constant changed after recording");
+}
+
+static void checkpoint_shape(VM *v, const TypedTensor *result, Val x) {
+    TypedTensor t = layout(v, x);
+    if (t.rank && (t.rank != result->rank ||
+                   memcmp(t.shape, result->shape, (size_t)t.rank * sizeof *t.shape)))
+        vmerror_kind(v, "shape", "checkpoint tensors must have the output shape or be scalars");
+}
+
+/* Copy the operation recipe. Internal nodes stay on the original tape until
+ * callers drop their references, while the new node keeps only boundaries. */
+static Val checkpoint(VM *v, Obj *root, Val input, Val other) {
+    if (!isobj(input, O_AD) || (other.t != V_NIL && !isobj(other, O_AD)))
+        vmerror_kind(v, "type", "checkpoint boundaries must be autodiff nodes");
+    if (root == input.o && other.t == V_NIL)
+        return input;
+    Obj *second = other.t == V_NIL ? NULL : other.o;
+    if (input.o == second)
+        vmerror_kind(v, "autodiff", "checkpoint boundaries must be distinct");
+    Obj *order = topology(v, root, input.o, second);
+    if (!connected(order, input.o) || (second && !connected(order, second)))
+        vmerror_kind(v, "autodiff", "checkpoint boundaries must contribute to the output");
+    int count = order->as.list.n;
+    if (count > INT_MAX - 2 ||
+        (size_t)count > (SIZE_MAX - sizeof(ADCheckpoint)) / sizeof(ReplayStep))
+        vmerror_kind(v, "memory_budget", "checkpoint recipe is too large");
+    Val value = root->as.ad->value;
+    TypedTensor result = layout(v, value);
+    Val out = ad_record(v, AD_CHECKPOINT, value, input, other, 0, NULL);
+    size_t bytes = sizeof(ADCheckpoint) + (size_t)count * sizeof(ReplayStep);
+    ADCheckpoint *recipe = mem(bytes);
+    recipe->count = count;
+    out.o->as.ad->checkpoint = recipe;
+    account(v, out.o, 0, bytes);
+    for (int i = 0; i < count; i++) {
+        Obj *obj = order->as.list.a[i].o;
+        const TensorAD *n = obj->as.ad;
+        checkpoint_shape(v, &result, n->value);
+        if (obj == input.o || obj == second)
+            continue;
+        if (n->operation < AD_ADD || n->operation > AD_POW)
+            vmerror_kind(v, "autodiff",
+                         "checkpoint requires pure elementwise operations between its boundaries");
+        ReplayStep *step = &recipe->steps[i];
+        step->op = n->operation;
+        Val args[] = {n->left, n->right, n->value};
+        for (int j = 0; j < 3; j++)
+            if (version(v, args[j]) != n->versions[j])
+                vmerror_kind(v, "mutation", "a checkpoint operand changed after recording");
+        for (int j = 0; j < 2; j++) {
+            checkpoint_shape(v, &result, args[j]);
+            Obj *parent = n->parents[j];
+            if (parent)
+                step->input[j] = parent == input.o  ? 0
+                                 : parent == second ? 1
+                                                    : parent->as.ad->slot + 2;
+            else {
+                step->input[j] = -1;
+                step->constant[j] = args[j];
+                step->version[j] = n->versions[j];
+                barrier(v, out.o, args[j]);
+            }
+        }
+    }
+    return out;
+}
+
+typedef struct {
+    double value, tangent;
+    double derivative[2], change[2];
+} ReplayValue;
+
+typedef struct {
+    ReplayValue state;
+    TypedTensor constants[2];
+} ReplayWork;
+
+static size_t replay_bytes(VM *v, const ADCheckpoint *c) {
+    size_t steps = (size_t)c->count + 2;
+    if (steps > PTRDIFF_MAX / sizeof(ReplayWork))
+        vmerror_kind(v, "memory_budget", "checkpoint workspace exceeds addressable storage");
+    return steps * sizeof(ReplayWork);
+}
+
+/* A zero direction contributes zero even when an unused local slope overflows. */
+static double directional(double slope, double input) {
+    return input == 0 ? 0 : slope * input;
+}
+
+static ReplayValue replay_step(VM *v, ADOperation op, ReplayValue a, ReplayValue b, bool second) {
+    double x = a.value, y = b.value, slope[2] = {0, 0}, change[2] = {0, 0};
+    ReplayValue out = {0};
+    switch (op) {
+    case AD_ADD:
+    case AD_SUB:
+        slope[0] = 1;
+        slope[1] = op == AD_ADD ? 1 : -1;
+        out.value = op == AD_ADD ? x + y : x - y;
+        break;
+    case AD_MUL:
+        out.value = x * y;
+        slope[0] = y;
+        slope[1] = x;
+        change[0] = b.tangent;
+        change[1] = a.tangent;
+        break;
+    case AD_DIV:
+        out.value = x / y;
+        slope[0] = 1 / y;
+        slope[1] = -out.value / y;
+        if (second) {
+            double tangent = directional(slope[0], a.tangent) + directional(slope[1], b.tangent);
+            change[0] = -(b.tangent / y) / y;
+            change[1] = (out.value * (b.tangent / y) - tangent) / y;
+        }
+        break;
+    default:
+        out.value = unary(v, op, x, y, false);
+        slope[0] = unary_derivative(op, x, out.value, y);
+        if (second)
+            change[0] =
+                slope_change(op, x, out.value, y, a.tangent, directional(slope[0], a.tangent));
+        break;
+    }
+    if (second)
+        out.tangent = directional(slope[0], a.tangent) + directional(slope[1], b.tangent);
+    for (int i = 0; i < 2; i++) {
+        out.derivative[i] =
+            directional(slope[0], a.derivative[i]) + directional(slope[1], b.derivative[i]);
+        if (second)
+            out.change[i] =
+                directional(slope[0], a.change[i]) + directional(slope[1], b.change[i]) +
+                directional(change[0], a.derivative[i]) + directional(change[1], b.derivative[i]);
+    }
+    return out;
+}
+
+static void replay_edges(const Sweep *s, const TypedTensor *x, const TypedTensor *y,
+                         const TypedTensor *z) {
+    const ADCheckpoint *c = s->node->checkpoint;
+    if (!z->n)
+        return;
+    size_t bytes = replay_bytes(s->vm, c);
+    if (bytes > tensor_memory_available(s->vm)) {
+        gcfull(s->vm);
+        vmerror_kind(s->vm, "memory_budget",
+                     "checkpoint workspace exceeds the tensor memory budget");
+    }
+    Obj *buffer = buffer_new(s->vm, bytes);
+    ReplayWork *work = (ReplayWork *)buffer->as.buffer.data;
+    for (int i = 0; i < c->count; i++) {
+        const ReplayStep *step = &c->steps[i];
+        if (step->op != AD_LEAF)
+            for (int j = 0; j < 2; j++)
+                work[i + 2].constants[j] = layout(s->vm, step->constant[j]);
+    }
+    for (size_t i = 0; i < z->n; i++) {
+        size_t xi = x->rank ? i : 0, yi = y->rank ? i : 0;
+        work[0].state = (ReplayValue){.value = read_value(s->vm, x, s->node->left, xi),
+                                      .tangent = tangent_at(s->tangents[0], xi),
+                                      .derivative = {s->parents[0] != NULL, 0}};
+        work[1].state = (ReplayValue){
+            .value = s->node->right.t == V_NIL ? 0 : read_value(s->vm, y, s->node->right, yi),
+            .tangent = tangent_at(s->tangents[1], yi),
+            .derivative = {0, s->parents[1] != NULL}};
+        for (int j = 0; j < c->count; j++) {
+            const ReplayStep *step = &c->steps[j];
+            if (step->op == AD_LEAF)
+                continue;
+            ReplayValue args[2] = {0};
+            for (int k = 0; k < 2; k++) {
+                if (step->input[k] >= 0)
+                    args[k] = work[step->input[k]].state;
+                else if (step->constant[k].t != V_NIL)
+                    args[k].value =
+                        read_value(s->vm, &work[j + 2].constants[k], step->constant[k], i);
+            }
+            work[j + 2].state = replay_step(s->vm, step->op, args[0], args[1], s->adjoint != NULL);
+        }
+        const ReplayValue *result = &work[c->count + 1].state;
+        edge(s, 0, xi, i, result->derivative[0], result->change[0]);
+        edge(s, 1, yi, i, result->derivative[1], result->change[1]);
+    }
+    tensor_buffer_discard(s->vm, buffer);
 }
 
 static void elementwise(const Sweep *s, const TypedTensor *x, const TypedTensor *y,
@@ -498,6 +716,9 @@ static void visit_node(VM *v, TensorAD *n, Obj *stop, Val *work, bool forward, V
     case AD_SPARSE_MATVEC:
         sparse_edges(&s, &x, &y);
         break;
+    case AD_CHECKPOINT:
+        replay_edges(&s, &x, &y, &z);
+        break;
     default:
         elementwise(&s, &x, &y, &z);
         break;
@@ -510,14 +731,16 @@ static bool connected(const Obj *order, const Obj *node) {
 }
 
 static Obj *prepare(VM *v, Obj *root, Obj *stop, size_t buffers, size_t output_bytes) {
-    size_t available = tensor_memory_available(v);
+    size_t available = tensor_memory_available(v), checkpoint_space = 0;
     if (output_bytes > available)
         vmerror_kind(v, "memory_budget", "autodiff result exceeds the tensor memory budget");
     available -= output_bytes;
-    Obj *order = topology(v, root, stop);
+    Obj *order = topology(v, root, stop, NULL);
     for (int i = 0; i < order->as.list.n; i++) {
         Obj *object = order->as.list.a[i].o;
         TensorAD *n = object->as.ad;
+        if (object != stop && n->operation == AD_CONSUMED)
+            vmerror_kind(v, "autodiff", "backward tape was already consumed");
         bool left = object != stop && n->parents[0] && n->parents[0]->as.ad->active;
         bool right = object != stop && n->parents[1] && n->parents[1]->as.ad->active;
         n->active = !stop || object == stop || left || right;
@@ -530,7 +753,15 @@ static Obj *prepare(VM *v, Obj *root, Obj *stop, size_t buffers, size_t output_b
                 vmerror_kind(v, "mutation",
                              "tensor saved for differentiation was modified through an alias");
         TypedTensor t = layout(v, n->value);
-        if (t.rank) {
+        if (object != stop && n->checkpoint) {
+            checkpoint_versions(v, n->checkpoint);
+            if (t.n) {
+                size_t bytes = replay_bytes(v, n->checkpoint);
+                if (bytes > checkpoint_space)
+                    checkpoint_space = bytes;
+            }
+        }
+        if (t.rank && buffers) {
             size_t per_entry = buffers * sizeof(double);
             if (t.n > available / per_entry)
                 vmerror_kind(v, "memory_budget",
@@ -538,6 +769,8 @@ static Obj *prepare(VM *v, Obj *root, Obj *stop, size_t buffers, size_t output_b
             available -= t.n * per_entry;
         }
     }
+    if (checkpoint_space > available)
+        vmerror_kind(v, "memory_budget", "checkpoint workspace exceeds the tensor memory budget");
     return order;
 }
 
@@ -619,8 +852,173 @@ static Val single_sweep(VM *v, Obj *root, Obj *input, Val seed, bool forward) {
     for (int i = 0; i < order->as.list.n; i++) {
         Obj *node = order->as.list.a[i].o;
         node->as.ad->grad = work[i];
+        node->as.ad->batch_examples = 0;
         barrier(v, node, work[i]);
     }
+    return nil();
+}
+
+static void discard_cached(VM *v, Obj **cache) {
+    if (*cache) {
+        tensor_buffer_discard(v, *cache);
+        *cache = NULL;
+    }
+}
+
+static Val live_gradient(VM *v, Val primal, Obj **cache) {
+    TypedTensor source = layout(v, primal);
+    if (!source.rank)
+        return number(0);
+    size_t bytes = source.n * sizeof(double);
+    if (*cache && (*cache)->as.buffer.bytes == bytes) {
+        TypedTensor out = typed_layout(v, DT_F64, source.rank, source.shape);
+        out.buffer = *cache;
+        *cache = NULL;
+        memset(out.buffer->as.buffer.data, 0, bytes);
+        return objval(typed_wrap(v, out));
+    }
+    if (bytes > tensor_memory_available(v))
+        discard_cached(v, cache);
+    if (bytes > tensor_memory_available(v)) {
+        gcfull(v);
+        vmerror_kind(v, "memory_budget", "live gradients exceed the tensor memory budget");
+    }
+    return zero(v, &source);
+}
+
+typedef struct {
+    const Obj *retain;
+    uint64_t samples;
+    bool consume;
+} BackwardOptions;
+
+static BackwardOptions backward_options(VM *v, Val value) {
+    if (!isobj(value, O_MAP))
+        vmerror_kind(v, "type", "backward options must be a map");
+    const Table *t = &value.o->as.map.tab;
+    BackwardOptions options = {0};
+    for (int i = 0; i < t->cap; i++) {
+        const Entry *e = &t->a[i];
+        if (!e->key)
+            continue;
+        if (!strcmp(e->key, "retain")) {
+            if (!isobj(e->val, O_LIST) || !e->val.o->as.list.n)
+                vmerror_kind(v, "type", "backward retain must be a nonempty list of tracked nodes");
+            options.retain = e->val.o;
+        } else if (!strcmp(e->key, "samples")) {
+            if (e->val.t != V_INT || e->val.i <= 0)
+                vmerror_kind(v, "shape", "backward samples must be a positive integer");
+            options.samples = (uint64_t)e->val.i;
+        } else if (!strcmp(e->key, "consume")) {
+            if (e->val.t != V_BOOL)
+                vmerror_kind(v, "type", "backward consume must be a boolean");
+            options.consume = e->val.n != 0;
+        } else
+            vmerror_kind(v, "type", "unknown backward option '%s'", e->key);
+    }
+    if (!options.retain)
+        vmerror_kind(v, "type", "backward options require a retain list");
+    return options;
+}
+
+static void check_retained(VM *v, Obj *order, BackwardOptions options) {
+    for (int i = 0; i < order->as.list.n; i++)
+        order->as.list.a[i].o->as.ad->retain = false;
+    for (int i = 0; i < options.retain->as.list.n; i++) {
+        Val x = options.retain->as.list.a[i];
+        if (!isobj(x, O_AD) || !connected(order, x.o))
+            vmerror_kind(v, "autodiff", "retained node must be connected to the backward output");
+        TensorAD *node = x.o->as.ad;
+        if (node->retain)
+            vmerror_kind(v, "autodiff", "backward retain contains a duplicate node");
+        node->retain = true;
+        if (options.samples && node->grad.t != V_NIL && !node->batch_examples)
+            vmerror_kind(v, "autodiff",
+                         "clear the unweighted gradient before accumulating batches");
+        if (node->batch_examples > (uint64_t)INT64_MAX - options.samples)
+            vmerror_kind(v, "overflow", "accumulated sample count exceeds Int64");
+    }
+}
+
+static void blend_batch(VM *v, Val *work, const TensorAD *n, uint64_t samples) {
+    if (!samples || !n->batch_examples)
+        return;
+    long double count = (long double)(n->batch_examples + samples);
+    long double old_weight = n->batch_examples / count, new_weight = samples / count;
+    if (work->t == V_OBJ) {
+        double *dst = data(work->o);
+        const double *old = data(n->grad.o);
+        for (size_t i = 0; i < work->o->as.tensor.n; i++)
+            dst[i] = checked(v, (double)(old_weight * old[i] + new_weight * dst[i]));
+    } else
+        work->n = checked(v, (double)(old_weight * n->grad.n + new_weight * work->n));
+}
+
+/* Release the output's ownership of history after gradients are published.
+ * Other owners, including shared paths and retained nodes, stay live. */
+static void consume_output(VM *v, Obj *root) {
+    TensorAD *n = root->as.ad;
+    if (n->operation == AD_LEAF)
+        return;
+    if (n->checkpoint) {
+        account(v, root, recipe_bytes(n->checkpoint), 0);
+        free(n->checkpoint);
+        n->checkpoint = NULL;
+    }
+    n->operation = AD_CONSUMED;
+    n->left = n->right = nil();
+    n->parents[0] = n->parents[1] = n->pattern = NULL;
+    gcfull(v);
+}
+
+static Val retained_backward(VM *v, Obj *root, Val seed, Val options_value) {
+    BackwardOptions options = backward_options(v, options_value);
+    TypedTensor target = layout(v, root->as.ad->value);
+    TypedTensor seed_shape = validate_seed(v, &target, seed, "backward", true);
+    Obj *order = prepare(v, root, NULL, 0, 0);
+    check_retained(v, order, options);
+    Obj *storage = list(v);
+    for (int i = 0; i < order->as.list.n; i++)
+        append(v, storage, nil());
+    Val *work = storage->as.list.a;
+    Obj *cache = NULL;
+    int slot = root->as.ad->slot;
+    work[slot] = live_gradient(v, root->as.ad->value, &cache);
+    assign_seed(v, &work[slot], seed, &seed_shape);
+    for (int i = order->as.list.n - 1; i >= 0; i--) {
+        TensorAD *node = order->as.list.a[i].o->as.ad;
+        for (int j = 0; j < 2; j++) {
+            Obj *parent = node->parents[j];
+            if (parent && work[parent->as.ad->slot].t == V_NIL)
+                work[parent->as.ad->slot] = live_gradient(v, parent->as.ad->value, &cache);
+        }
+        if (node->checkpoint && layout(v, node->value).n &&
+            replay_bytes(v, node->checkpoint) > tensor_memory_available(v))
+            discard_cached(v, &cache);
+        visit_node(v, node, NULL, work, false, NULL, NULL);
+        // All contributions from downstream nodes have reached this slot.
+        if (node->retain)
+            blend_batch(v, &work[i], node, options.samples);
+        else {
+            if (work[i].t == V_OBJ) {
+                discard_cached(v, &cache);
+                cache = work[i].o->as.tensor.buffer;
+            }
+            work[i] = nil();
+        }
+    }
+    discard_cached(v, &cache);
+    for (int i = 0; i < order->as.list.n; i++) {
+        Obj *owner = order->as.list.a[i].o;
+        TensorAD *node = owner->as.ad;
+        if (node->retain) {
+            node->grad = work[i];
+            node->batch_examples = options.samples ? node->batch_examples + options.samples : 0;
+            barrier(v, owner, work[i]);
+        }
+    }
+    if (options.consume)
+        consume_output(v, root);
     return nil();
 }
 
@@ -703,19 +1101,22 @@ enum {
     VJP,
     JVP,
     JACOBIAN,
-    HESSIAN
+    HESSIAN,
+    CHECKPOINT
 };
-static const char *const names[] = {
-    "variable", "value", "grad",      "backward", "sin",     "cos", "exp", "log",      "sqrt",
-    "tanh",     "pow",   "zero_grad", "detach",   "no_grad", "vjp", "jvp", "jacobian", "hessian"};
-static const int arities[] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 2, 3, 2, 2};
+static const char *const names[] = {"variable", "value",     "grad",    "backward",  "sin",
+                                    "cos",      "exp",       "log",     "sqrt",      "tanh",
+                                    "pow",      "zero_grad", "detach",  "no_grad",   "vjp",
+                                    "jvp",      "jacobian",  "hessian", "checkpoint"};
+static const int arities[] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 2, 3, 2, 2, 2};
 _Static_assert(sizeof names / sizeof *names == sizeof arities / sizeof *arities, "ad arities");
 _Static_assert(AD_BASE + NO_GRAD == AD_NO_GRAD_ID, "no_grad native ID");
 
 Val ad_call(VM *v, int id, int argc, Val *args) {
     int op = id - AD_BASE;
     if (op < 0 || (size_t)op >= sizeof names / sizeof *names ||
-        (argc != arities[op] && !(op == BACKWARD && argc == 2) && !(op == VJP && argc == 3)))
+        (argc != arities[op] && !(op == BACKWARD && (argc == 2 || argc == 3)) &&
+         !((op == VJP || op == CHECKPOINT) && argc == 3)))
         vmerror(v, "invalid autodiff function arity");
     if (op == VARIABLE) {
         if (ad_disabled(v))
@@ -737,8 +1138,12 @@ Val ad_call(VM *v, int id, int argc, Val *args) {
     if (!isobj(args[0], O_AD) || (op >= VJP && !isobj(args[1], O_AD)))
         vmerror(v, "expected autodiff node");
     Obj *root = args[0].o;
+    if (op == CHECKPOINT)
+        return ad_disabled(v) ? root->as.ad->value
+                              : checkpoint(v, root, args[1], argc == 3 ? args[2] : nil());
     if (op == ZERO_GRAD) {
         root->as.ad->grad = nil();
+        root->as.ad->batch_examples = 0;
         return nil();
     }
     if (op == GRAD) {
@@ -750,8 +1155,11 @@ Val ad_call(VM *v, int id, int argc, Val *args) {
         }
         return result;
     }
-    if (op == BACKWARD)
+    if (op == BACKWARD) {
+        if (argc == 3)
+            return retained_backward(v, root, args[1], args[2]);
         return single_sweep(v, root, NULL, argc == 2 ? args[1] : nil(), false);
+    }
     if (op == VJP || op == JVP)
         return single_sweep(v, root, args[1].o, argc == 3 ? args[2] : nil(), op == JVP);
     return derivative_matrix(v, root, args[1].o, op == HESSIAN);

@@ -281,3 +281,137 @@ class VilyaRuntimeTests(unittest.TestCase):
             print(issue["code"],t.tolist(ad.grad(x)))
         """, "[4, 0, 15] [2, 2, 3] [2, 5]\n[4, 0, 18]\n[3, 3]\n[2, 0, 13]\n"
              "[2, 2, 3]\nmutation [2, 5]", stress=True)
+
+    def test_retained_backward_reuses_buffers_and_consumes_only_on_success(self):
+        self.run_code("""
+        import ad
+        import tensor as t
+        import compute as c
+        let x = ad.variable(t.zeros([1000],"float64"))
+        let y = x + 1
+        for i in range(11):
+            y = y + 1
+        let loss = t.sum(y)
+        collect()
+        let base = c.memory_stats()["tensor_heap_bytes"]
+        c.memory_budget(base + 16000)
+        try:
+            ad.backward(loss)
+        catch issue:
+            print(issue["code"])
+        ad.backward(loss,mun,{"retain":[x]})
+        print(t.at(ad.grad(x),[0]), ad.grad(y))
+        collect()
+        let snapshot = ad.grad(x)
+        let before = c.memory_stats()["tensor_heap_bytes"]
+        c.memory_budget(before + 8000)
+        try:
+            ad.backward(loss,mun,{"retain":[x],"consume":true})
+        catch issue:
+            print(issue["code"],c.memory_stats()["tensor_heap_bytes"] == before)
+        c.memory_budget(mun)
+        y = mun
+        ad.backward(loss,mun,{"retain":[x],"consume":true})
+        print(t.at(ad.grad(x),[0]),t.at(snapshot,[999]),ad.value(loss))
+        print(c.memory_stats()["tensor_heap_bytes"] < before)
+        try:
+            ad.backward(loss)
+        catch issue:
+            print(issue["message"])
+        """, "memory_budget\n1 mun\nmemory_budget nae\n1 1 12000\nnae\n"
+             "backward tape was already consumed", stress=True)
+
+    def test_batch_means_use_their_sample_counts_and_publish_atomically(self):
+        self.run_code("""
+        tol ad
+        import tensor as t
+        let w = ad.variable(t.array([1,2],"float64"))
+        let d = ad.variable(2)
+        let l = t.sum(w*4)+d*7
+        ad.backward(l)
+        try:
+            ad.backward(l,mun,{"retain":[w,d],"samples":2})
+        catch issue:
+            print(issue["message"])
+        ad.zero_grad(w)
+        ad.zero_grad(d)
+        ad.backward(l,mun,{"retain":[w,d],"samples":2})
+        let original = ad.grad(w)
+        ad.backward(t.sum(w*8)+d,mun,{"retain":[w,d],"samples":6})
+        print(t.tolist(ad.grad(w)),ad.grad(d),t.tolist(original))
+        try:
+            ad.backward(l,mun,{"retain":[w,d],"samples":9223372036854775807})
+        catch issue:
+            print(issue["code"],t.tolist(ad.grad(w)),ad.grad(d))
+        ad.zero_grad(w)
+        ad.backward(t.sum(w*5),mun,{"retain":[w],"samples":10})
+        print(t.tolist(ad.grad(w)))
+        """, "clear the unweighted gradient before accumulating batches\n[7, 7] 2.5 [4, 4]\n"
+             "overflow [7, 7] 2.5\n[5, 5]", stress=True)
+
+    def test_checkpoint_replays_only_math_and_keeps_rng_draws(self):
+        self.run_code("""
+        import ad
+        import tensor as t
+        import random as r
+        let rng = r.generator(7)
+        let reference = r.generator(7)
+        let ignored = r.normal(reference,0,1,3)
+        let calls = 0
+        def forward(x):
+            calls = calls + 1
+            let draw = r.normal(rng,0,1,3)
+            return x*x + x*draw
+        let x = ad.variable(t.array([1,2,3],"float64"))
+        let ordinary = forward(x)
+        let packed = ad.checkpoint(ordinary,x)
+        let old = ad.vjp(t.sum(ordinary),x)
+        ordinary = mun
+        collect()
+        let got = ad.vjp(t.sum(packed),x)
+        print(t.sum((old-got)*(old-got)) < 1e-26,calls,r.uint32(rng)==r.uint32(reference))
+        """, "nae 1 nae", stress=True)
+
+    def test_checkpoint_validates_mutations_boundaries_and_operation_set(self):
+        self.run_code("""
+        import ad
+        tol tensor as t
+        let raw = t.array([1,2],"float64")
+        let x = ad.variable(raw)
+        let c = t.array([2,3],"float64")
+        let y = x*c
+        let packed = ad.checkpoint(y,x)
+        ad.backward(t.sum(packed))
+        t.put(c,[0],4)
+        try:
+            ad.backward(t.sum(packed))
+        catch issue:
+            print(issue["code"],t.tolist(ad.grad(x)))
+        try:
+            ad.checkpoint(y,x)
+        catch issue:
+            print(issue["code"])
+        try:
+            ad.checkpoint(t.sum(x),x)
+        catch issue:
+            print(issue["code"])
+        let z = ad.variable(4)
+        try:
+            ad.checkpoint(x*z,x)
+        catch issue:
+            print(issue["code"])
+        """, "mutation [2, 3]\nmutation\nshape\nautodiff", stress=True)
+
+    def test_empty_checkpoint_fits_zero_tensor_budget(self):
+        self.run_code("""
+        import ad
+        import compute as c
+        import tensor as t
+        c.memory_budget(0)
+        let x = ad.variable(t.zeros([0,2],"float64"))
+        let packed = ad.checkpoint(x*x+x,x)
+        let loss = t.sum(packed)
+        ad.backward(loss,mun,{"retain":[x]})
+        print(t.shape(ad.grad(x)),type(ad.no_grad(ad.checkpoint,packed,x)))
+        print(c.memory_stats()["tensor_heap_bytes"])
+        """, "[0, 2] tensor\n0", stress=True)

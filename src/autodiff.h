@@ -25,15 +25,20 @@ typedef enum {
     AD_SLICE,
     AD_AT,
     AD_MATMUL,
-    AD_SPARSE_MATVEC
+    AD_SPARSE_MATVEC,
+    AD_CHECKPOINT,
+    AD_CONSUMED
 } ADOperation;
+
+typedef struct ADCheckpoint ADCheckpoint;
 
 typedef struct TensorAD {
     Val value, grad, left, right;
     Obj *parents[2], *pattern;
-    uint64_t versions[3];
+    uint64_t versions[3], batch_examples;
+    ADCheckpoint *checkpoint;
     unsigned saved, visit;
-    bool active;
+    bool active, retain;
     int slot, axis, axes[8];
     ADOperation operation;
 } TensorAD;
@@ -44,6 +49,8 @@ typedef struct TensorAD {
 static inline bool ad_disabled(const VM *v) {
     return v->nf && v->frames[v->nf - 1].no_grad;
 }
+
+void ad_trace_checkpoint(VM *v, const TensorAD *node);
 
 Val ad_sparse_matvec(VM *v, Obj *pattern, Val values, Val input);
 Val ad_primal(Val value);

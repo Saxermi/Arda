@@ -115,3 +115,13 @@ Represent scientific quantities with SI values and separate display-unit metadat
 Use the executed tape for seeded VJPs and JVPs. Treat the selected node as independent for partial derivatives. Queries leave published gradients intact. Compute a full Jacobian along the smaller basis and a scalar-output Hessian by differentiating reverse accumulation. Reuse scratch buffers between basis sweeps. Dense results follow the existing rank and heap limits.
 
 Let `zero_grad` release the stored gradient and `detach` expose a shared primal without graph edges. Scope `no_grad` to a callable and restore the caller's recording state after errors. Keep CSR offsets and columns immutable. Differentiate an explicit vector of stored coefficients in CSR order, including a coefficient whose current value is zero. [API and evidence](docs/VILYA_RUNTIME.md#gradient-queries-and-sparse-matvec)
+
+## 2026-11-26 — Retained gradients and elementwise checkpoint replay
+
+**Status** — Adopted for the 0.17.2 development implementation and open to owner revision
+
+Use selected-gradient backward as an opt-in mode. Reuse one private gradient buffer when the byte count matches. Allow explicit consumption of the output's history after publishing successfully. This preserves existing callers and makes release visible. It requires a retain list and can leave shared history owned by other nodes. An automatic policy could require fewer flags and release more memory. It would change immediate access to intermediate gradients or repeated backward behavior and needs owner approval.
+
+Interpret `samples` as the weight of a batch-mean gradient. The published result is the full weighted mean, including unequal batch sizes. Callers must know the sample count and clear an unweighted gradient before mixing conventions. Accumulating raw sums would support custom normalization and weighting, with additional bookkeeping and a separate division step for callers.
+
+Pack pure dense elementwise operations between one or two explicit boundary nodes. Replay their numerical recipe while retaining the already sampled random values. This makes side effects and generator state independent of recomputation. It limits checkpoint coverage to supported operations and adds compute time. Callback replay would cover more workloads and could save and restore RNG state, with stronger requirements for effect tracking, generator ownership and error recovery. Broader replay needs owner approval. [Contracts and measurements](docs/VILYA_RUNTIME.md#memory-efficient-backward-and-checkpoints)

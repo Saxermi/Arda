@@ -58,3 +58,15 @@ For derivative queries, `output` and `input` are tracked nodes. An intermediate 
 `sparse.matvec(A,x)` differentiates a tracked dense Float64 vector with a fixed sparse matrix. `sparse.matvec(A,values,x)` accepts replacement Float64 values in canonical CSR storage order. It can differentiate the values, the dense vector, or both. CSR offsets and column indices remain fixed. A supplied zero retains its structural position and its gradient. The operation traverses CSR rows and keeps the matrix compressed.
 
 [Runnable 0.17.1 example](../examples/gradient_queries.arda) · [Numerical validation](../research/implemented/optimization-and-ad.md#derivative-queries)
+
+## Memory-efficient backward and checkpoints
+
+`ad.backward(output, seed, options)` takes a map with a nonempty `retain` list of connected tracked nodes. Use `mun` for the seed of a scalar loss. The sweep allocates adjoints when needed and retires temporary adjoints after their last use. One private buffer can be reused for another adjoint of the same size. Published gradients for the listed nodes change only after success. Existing gradients of other nodes keep their previous values.
+
+Set `consume: true` in the options map to release the output's ownership of its tape after a successful backward pass. Arda collects history that no other node owns. The output primal and published gradients remain accessible. Later differentiation through that consumed output raises an error. Leave the flag unset for repeated backward passes over the same graph.
+
+Set `samples: count` for the gradient of a batch **mean**. Each selected node publishes the running sample-weighted mean. For example, gradients from batches of sizes two and six contribute one quarter and three quarters of the result. `ad.zero_grad` clears the stored gradient and its count. Clear an existing unweighted gradient before beginning weighted accumulation.
+
+`ad.checkpoint(output, input[, second_input])` packs the pure elementwise tape segment between the specified tracked boundaries and its result. Tensors in the segment have the output shape, with broadcasting allowed for scalars. The resulting node supports backward, JVP, VJP and dense derivative queries. Use ordinary tape operations at segment boundaries for reductions, matrix products and views. Release references to the unpacked segment so its intermediate tensors can be collected.
+
+The checkpoint retains ordinary input constants and already computed random samples. Replay runs only the packed numerical operations. It leaves callbacks, I/O and generator state outside replay. Saved constants and boundaries still use shared-buffer version checks. Replay requires scratch proportional to the number of recorded operations and spends extra CPU time to avoid holding intermediate tensor payloads. [Runnable example](../examples/checkpoint_training.arda) · [Algorithm and validation](../research/implemented/optimization-and-ad.md#checkpointing-and-gradient-liveness)

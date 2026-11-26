@@ -252,6 +252,7 @@ static void trace(VM *v, Obj *o) {
         markobj(v, o->as.ad->parents[0]);
         markobj(v, o->as.ad->parents[1]);
         markobj(v, o->as.ad->pattern);
+        ad_trace_checkpoint(v, o->as.ad);
         break;
     case O_LIST:
         for (int i = 0; i < o->as.list.n; i++)
@@ -323,6 +324,7 @@ static void release(VM *v, Obj *o) {
         sparse_release_payload(o);
         break;
     case O_AD:
+        free(o->as.ad->checkpoint);
         free(o->as.ad);
         break;
     case O_BUFFER:

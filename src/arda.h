@@ -582,6 +582,7 @@ unsigned char *tensor_workspace_acquire(VM *v, size_t bytes);
 void tensor_workspace_release(VM *v, unsigned char *memory);
 size_t tensor_memory_unlimited(void);
 void tensor_buffer_release(VM *v, Buffer *buffer);
+void tensor_buffer_discard(VM *v, Obj *buffer);
 Val tensor_block_next(VM *v, Obj *blocks, size_t *cursor);
 void tensor_blocks_close(Obj *blocks);
 void tensor_require_writable(VM *v, Obj *x);

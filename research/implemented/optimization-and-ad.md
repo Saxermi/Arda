@@ -31,3 +31,23 @@ For a scalar loss, differentiate the reverse recurrence in a chosen direction to
 For a CSR entry $a_k$ at row $r$ and column $c$, matvec adds $a_kx_c$ to $y_r$. The adjoints add $x_c\bar y_r$ to $\bar a_k$ and $a_k\bar y_r$ to $\bar x_c$. The pattern remains immutable, and explicit values can be zero. Derivative products use $O(\mathrm{nnz})$ edge work and ordinary dense derivative vectors. The implementation keeps the CSR pattern compressed throughout. [JAX BCOO reference](https://docs.jax.dev/en/latest/_autosummary/jax.experimental.sparse.BCOO.html)
 
 Local validation uses JAX 0.6.2 on CPU with Float64 enabled. Tests compare backward on a batched matrix product, seeded JVP and VJP, a Jacobian through a signed-stride view, a nonlinear dense Hessian, and derivative results of a fixed sparse pattern against JAX BCOO. The default runtime and test dependencies remain portable. The optional reference tests run when JAX is installed. [JAX suite](../../tests/reference_vilya_jax.py) · [Runtime regressions](../../tests/test_vilya_runtime.py)
+
+## Checkpointing and gradient liveness
+
+The selected-gradient sweep traverses the graph from the output in reverse topological order. After a node propagates its adjoint to its parents, its scratch can be released or reused at that slot's last use. The selected results are staged until success. An optional output-tape release clears the root's references and collects unreachable history. The collector keeps history that other outputs and intermediate nodes still own.
+
+For batch means, Arda combines the existing mean gradient $g$ from $n$ samples with the new mean gradient $h$ from $m$ samples as $(n/(n+m))g+(m/(n+m))h$. Weighting each mean equally would change the objective when batch sizes differ. The running sample count and published gradient update together.
+
+An elementwise checkpoint stores operation recipes and their shape-compatible boundaries, plus references to the recorded constants and random sample values. Replay evaluates each output coordinate through the recipe. It derives local first-order slopes and, for Hessians, the directional changes of those slopes. For a segment of $L$ operations on $N$ entries, replay takes $O(LN)$ work and $O(L)$ private replay storage, in addition to retained tensors and adjoints. It leaves application code and random generators outside replay. [Checkpointing baseline for deeper graphs](https://arxiv.org/abs/1604.06174) · [JAX rematerialization](https://docs.jax.dev/en/latest/301/remat.html) · [PyTorch RNG replay tradeoffs](https://docs.pytorch.org/docs/stable/checkpoint.html)
+
+### Local memory and timing check
+
+A Float64 vector of 16,384 entries started at 0.2. The program applied `sin(state*0.97 + 0.02)` 48 times and differentiated the sum of the final state. The checkpoint mode packed blocks of eight steps and collected the unpacked segment after each block. All modes agreed within a relative tolerance of 2 × 10⁻¹³. The median of five fresh single-core runs on an Intel Xeon Platinum 8573C used GCC 14.2, the default `-O2` portable build and one thread.
+
+| Mode | Budgeted tensor peak | Live tensor memory after backward and collection | Median backward |
+| --- | ---: | ---: | ---: |
+| Standard backward | 36.25 MiB | 36.25 MiB | 32.3 ms |
+| Retain input gradient and consume output tape | 18.38 MiB | 0.25 MiB | 21.9 ms |
+| Checkpoint every eight steps with retained backward | 3.75 MiB | 0.25 MiB | 52.2 ms |
+
+The peak is Arda's tensor budget counter across forward and backward. Timing starts after forward and includes work done inside backward, including consumption. The final column excludes collection called separately after backward. [JAX checkpoint comparison](../../tests/reference_vilya_jax.py) · [Failure and memory-budget regressions](../../tests/test_vilya_runtime.py)

@@ -2,6 +2,12 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
+## 0.17.2 — Memory-Efficient Backward and Checkpoints
+
+- Added selected-gradient backward with last-use scratch recycling and explicit release of the output's tape after a successful sweep.
+- Added sample-weighted accumulation of batch-mean gradients.
+- Added deterministic checkpoint replay for dense elementwise tape segments. Replay preserves captured random samples and the gradient contracts. [Vilya runtime contracts](docs/VILYA_RUNTIME.md#memory-efficient-backward-and-checkpoints)
+
 ## 0.17.1 — Gradient Controls and Derivative Queries
 
 - Added explicit gradient clearing, zero-copy detachment, and a dynamically scoped no-grad call.

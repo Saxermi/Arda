@@ -128,3 +128,38 @@ class JaxAutodiffTests(unittest.TestCase):
         np.testing.assert_allclose(inputs, ex, rtol=1e-13, atol=1e-14)
         np.testing.assert_allclose(hessian, jax.hessian(loss, argnums=0)(point, x),
                                    rtol=1e-13, atol=1e-14)
+
+    def test_checkpoint_composition_matches_cpu_jax(self):
+        source = """
+        import ad
+        import tensor as t
+        let x = ad.variable(t.array([0.3,0.8,1.2],"float64"))
+        let bias = ad.variable(0.37)
+        let state = x
+        for i in range(4):
+            let step = t.sin(state*state + bias) / (state + 2) + bias * state
+            state = ad.checkpoint(step,state,bias)
+            collect()
+        let loss = t.sum(state)
+        print(t.tolist(ad.vjp(loss,x)))
+        print(ad.vjp(loss,bias))
+        print(t.tolist(ad.hessian(loss,x)))
+        print(ad.hessian(loss,bias))
+        print(ad.jvp(loss,x,t.array([1,2,-1],"float64")))
+        """
+        g, b, h, h_bias, jvp = map(ast.literal_eval, self.run_code(source, stress=True).splitlines())
+        x, bias = jnp.array([0.3, 0.8, 1.2]), 0.37
+
+        def loss(state, b):
+            for _ in range(4):
+                state = jnp.sin(state*state + b) / (state + 2) + b * state
+            return state.sum()
+
+        dx, db = jax.grad(loss, argnums=(0, 1))(x, bias)
+        np.testing.assert_allclose(g, dx, rtol=3e-13, atol=3e-14)
+        np.testing.assert_allclose(b, db, rtol=3e-13, atol=3e-14)
+        np.testing.assert_allclose(h, jax.hessian(loss, argnums=0)(x, bias),
+                                   rtol=3e-13, atol=3e-14)
+        np.testing.assert_allclose(h_bias, jax.hessian(loss, argnums=1)(x, bias),
+                                   rtol=3e-13, atol=3e-14)
+        np.testing.assert_allclose(jvp, dx @ jnp.array([1, 2, -1]), rtol=3e-13, atol=3e-14)
