@@ -1,4 +1,4 @@
-#include "compute_ops.h"
+#include "compute_plan.h"
 #include "cpu_kernels.h"
 
 static Val budget_value(const TensorMemory *m) {
@@ -127,12 +127,15 @@ enum {
     MUL_ADD,
     FUSED_PRODUCTS,
     MAP_REDUCE,
+    EXPLAIN,
+    EXECUTE,
+    LAST_RUN,
     COMPUTE_COUNT
 };
 static const char *const names[] = {
-    "memory_stats", "memory_budget", "trim_pool",      "plan",      "stream_stats",
-    "cpu",          "matmul_kernel", "vector_math",    "threads",   "tiled_matmul",
-    "axpy",         "mul_add",       "fused_products", "map_reduce"};
+    "memory_stats",   "memory_budget", "trim_pool", "plan",         "stream_stats", "cpu",
+    "matmul_kernel",  "vector_math",   "threads",   "tiled_matmul", "axpy",         "mul_add",
+    "fused_products", "map_reduce",    "explain",   "execute",      "last_run"};
 _Static_assert(sizeof names / sizeof *names == COMPUTE_COUNT, "compute names");
 
 Obj *compute_module(VM *v) {
@@ -186,11 +189,26 @@ Val compute_call(VM *v, int id, int argc, Val *args) {
         break;
     case PLAN:
         if (argc >= 2 && argc <= 4) {
-            if (strcmp(asstr(v, args[0]), "stream_stats"))
-                vmerror(v, "compute.plan currently supports stream_stats");
-            return tensor_stream_stats(v, args[1], argc >= 3 ? args[2] : nil(), true,
-                                       prefetch_option(v, argc == 4 ? args[3] : nil()));
+            const char *operation = asstr(v, args[0]);
+            if (!strcmp(operation, "matmul") && argc >= 3)
+                return compute_plan(v, args[1], args[2], argc == 4 ? args[3] : nil());
+            if (!strcmp(operation, "stream_stats"))
+                return tensor_stream_stats(v, args[1], argc >= 3 ? args[2] : nil(), true,
+                                           prefetch_option(v, argc == 4 ? args[3] : nil()));
+            vmerror(v, "compute.plan supports matmul and stream_stats");
         }
+        break;
+    case EXPLAIN:
+        if (argc == 1)
+            return compute_explain(v, args[0]);
+        break;
+    case EXECUTE:
+        if (argc == 3)
+            return compute_execute(v, args[0], args[1], args[2]);
+        break;
+    case LAST_RUN:
+        if (!argc)
+            return compute_last_run(v);
         break;
     case STREAM_STATS:
         if (argc >= 1 && argc <= 3)

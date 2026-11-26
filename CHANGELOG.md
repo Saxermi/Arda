@@ -2,6 +2,11 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
+## 0.18.5 — Explainable CPU Execution Plans
+
+- Added reusable Float64 GEMM/GEMV plans, workspace estimates, explicit backend overrides and execution reports.
+- Added a calibrated lower-bound model and bounded, opt-in thread-locality-sensitive kernel tuning with a per-VM cache. [Plan contracts](research/implemented/cpu-compute.md#0185-ace-v1-plans)
+
 ## 0.18.4 — Tiled and Fused Float64 Kernels
 
 - Added tiled GEMM/GEMV for ordinary Float64 tensors, including strided views with bounded panel scratch.

@@ -27,6 +27,12 @@ const char *cpu_architecture(void);
 int cpu_matmul_choice(const VM *v, const char *name);
 const char *cpu_matmul_name(const VM *v);
 const char *cpu_matmul_auto(const VM *v);
+int cpu_matmul_resolve(const VM *v, int kernel, int m, int n);
+const char *cpu_matmul_kernel_name(int kernel);
+int cpu_matmul_block(int kernel);
+int cpu_matmul_team(int threads, int m, int k, int n);
+int cpu_matmul_run(const VM *v, int kernel, int threads, int m, int k, int n, const double *a,
+                   const double *b, double *c);
 bool cpu_parallel_available(void);
 int cpu_team_size(int requested, int partitions);
 static inline int cpu_parallel_team(const VM *v, int partitions) {

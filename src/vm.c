@@ -479,6 +479,7 @@ void vm_init(VM *v, int stress) {
 void vm_destroy(VM *v) {
     destroy_objects(v);
     tensor_pool_trim(v);
+    free(v->compute_state);
     for (int i = 0; i < v->np; i++)
         freeproto(v->programs[i]);
     free(v->programs);

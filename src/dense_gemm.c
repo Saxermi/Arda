@@ -234,44 +234,90 @@ static void gemm_rows(unsigned features, int kernel, int m, int k, int n, const 
 }
 #endif
 
-void dense_matmul_into(VM *v, int m, int k, int n, const double *a, const double *b, double *c) {
-    v->last_matmul_threads = 1;
-    if (!m || !k || !n)
-        return;
+int cpu_matmul_resolve(const VM *v, int kernel, int m, int n) {
 #ifdef ARDA_BLAS
-    cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, m, n, k, 1, a, k, b, n, 0, c, n);
+    (void)v;
+    (void)kernel;
+    (void)m;
+    (void)n;
+    return GEMM_AUTO;
 #else
-    int kernel = v->matmul_kernel;
-    if (kernel == GEMM_AUTO) {
-        kernel = auto_kernel(v);
-        if (m < 4 || n < kernels[kernel].width)
-            kernel = GEMM_REFERENCE;
-    }
+    if (kernel != GEMM_AUTO)
+        return kernel;
+    kernel = auto_kernel(v);
+    return m < 4 || n < kernels[kernel].width ? GEMM_REFERENCE : kernel;
+#endif
+}
+
+const char *cpu_matmul_kernel_name(int kernel) {
+#ifdef ARDA_BLAS
+    (void)kernel;
+    return "cblas";
+#else
+    return kernels[kernel].name;
+#endif
+}
+
+int cpu_matmul_block(int kernel) {
+#ifdef ARDA_BLAS
+    (void)kernel;
+    return 0;
+#else
+    return kernel == GEMM_REFERENCE ? 0 : 64;
+#endif
+}
+
+int cpu_matmul_team(int threads, int m, int k, int n) {
+#ifdef ARDA_BLAS
+    (void)threads;
+    return m && k && n ? 0 : 1;
+#else
+    return (uint64_t)m * k * n < UINT64_C(8000000) ? 1 : cpu_team_size(threads, m / GEMM_ROWS);
+#endif
+}
+
+int cpu_matmul_run(const VM *v, int kernel, int threads, int m, int k, int n, const double *a,
+                   const double *b, double *c) {
+    if (!m || !k || !n)
+        return 1;
+#ifdef ARDA_BLAS
+    (void)v;
+    (void)kernel;
+    (void)threads;
+    cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, m, n, k, 1, a, k, b, n, 0, c, n);
+    return 0;
+#else
     unsigned features = v->cpu_features;
 #if defined(_OPENMP)
-    if ((uint64_t)m * k * n >= UINT64_C(8000000)) {
-        int team = cpu_parallel_team(v, m / GEMM_ROWS);
-        if (team > 1) {
-            // Whole row tiles belong to one worker. No VM state is shared with the workers.
-            int blocks = (m + GEMM_ROWS - 1) / GEMM_ROWS, actual = 1;
+    int team = cpu_matmul_team(threads, m, k, n);
+    if (team > 1) {
+        // Whole row tiles belong to one worker. No VM state is shared with the workers.
+        int blocks = (m + GEMM_ROWS - 1) / GEMM_ROWS, actual = 1;
 #pragma omp parallel num_threads(team) default(none) shared(actual)                                \
     firstprivate(blocks, features, kernel, m, k, n, a, b, c)
-            {
-                int rank = omp_get_thread_num(), size = omp_get_num_threads();
-                if (!rank)
-                    actual = size;
-                int first = (int)((size_t)blocks * rank / size) * GEMM_ROWS;
-                int last = (int)((size_t)blocks * (rank + 1) / size) * GEMM_ROWS;
-                if (last > m)
-                    last = m;
-                gemm_rows(features, kernel, last - first, k, n, a + (size_t)first * k, b,
-                          c + (size_t)first * n);
-            }
-            v->last_matmul_threads = actual;
-            return;
+        {
+            int rank = omp_get_thread_num(), size = omp_get_num_threads();
+            if (!rank)
+                actual = size;
+            int first = (int)((size_t)blocks * rank / size) * GEMM_ROWS;
+            int last = (int)((size_t)blocks * (rank + 1) / size) * GEMM_ROWS;
+            if (last > m)
+                last = m;
+            gemm_rows(features, kernel, last - first, k, n, a + (size_t)first * k, b,
+                      c + (size_t)first * n);
         }
+        return actual;
     }
+#else
+    (void)threads;
 #endif
     gemm_rows(features, kernel, m, k, n, a, b, c);
+    return 1;
 #endif
+}
+
+void dense_matmul_into(VM *v, int m, int k, int n, const double *a, const double *b, double *c) {
+    int kernel = cpu_matmul_resolve(v, v->matmul_kernel, m, n);
+    int threads = cpu_matmul_run(v, kernel, v->native_threads, m, k, n, a, b, c);
+    v->last_matmul_threads = threads ? threads : 1;
 }

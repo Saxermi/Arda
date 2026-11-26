@@ -31,14 +31,37 @@ static const char *typename(Val v) {
     case V_BOOL:
         return "bool";
     case V_OBJ: {
-        static const char *n[] = {
-            "string",           "list",   "map",          "scope",           "function",
-            "native",           "class",  "instance",     "method",          "module",
-            "iterator",         "array",  "ad",           "sparse",          "sparse_builder",
-            "sparse_workspace", "factor", "generator",    "moments",         "complex",
-            "linear_operator",  "buffer", "tensor",       "tensor_blocks",   "lowrank",
-            "quantity",         "range",  "offload_plan", "quantized_matrix"};
-        _Static_assert(sizeof n / sizeof *n == O_QUANTIZED + 1, "object type names");
+        static const char *n[] = {"string",
+                                  "list",
+                                  "map",
+                                  "scope",
+                                  "function",
+                                  "native",
+                                  "class",
+                                  "instance",
+                                  "method",
+                                  "module",
+                                  "iterator",
+                                  "array",
+                                  "ad",
+                                  "sparse",
+                                  "sparse_builder",
+                                  "sparse_workspace",
+                                  "factor",
+                                  "generator",
+                                  "moments",
+                                  "complex",
+                                  "linear_operator",
+                                  "buffer",
+                                  "tensor",
+                                  "tensor_blocks",
+                                  "lowrank",
+                                  "quantity",
+                                  "range",
+                                  "offload_plan",
+                                  "quantized_matrix",
+                                  "compute_plan"};
+        _Static_assert(sizeof n / sizeof *n == O_COMPUTE_PLAN + 1, "object type names");
         return n[v.o->type];
     }
     }

@@ -283,7 +283,8 @@ typedef enum {
     O_QUANTITY,
     O_RANGE,
     O_OFFLOAD_PLAN,
-    O_QUANTIZED
+    O_QUANTIZED,
+    O_COMPUTE_PLAN
 } OType;
 
 typedef struct {
@@ -501,6 +502,7 @@ typedef struct VM {
     bool vector_math;
     size_t sparse_bytes, sparse_limit;
     TensorMemory tensor_memory;
+    struct ComputeState *compute_state;
     Obj *sensitivity_entry;
     struct ADReadCache *ad_read_cache;
     unsigned char *ad_read_memory;

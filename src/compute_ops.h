@@ -13,7 +13,7 @@ typedef enum { FUSE_AXPY, FUSE_MUL_ADD, FUSE_PRODUCTS } Fusion;
 MatmulProblem compute_matmul_problem(VM *v, Val a, Val b);
 int compute_tile_size(VM *v, Val value);
 size_t compute_tiled_workspace(const MatmulProblem *p, int block);
-int compute_tiled_team(const MatmulProblem *p, int block, int threads, bool pack);
+int compute_tiled_team(int rows, int rank, uint64_t terms, int block, int threads, bool pack);
 int compute_tiled_into(const MatmulProblem *p, int block, int threads, double *out,
                        double *workspace);
 Val compute_tiled(VM *v, Val a, Val b, int block);

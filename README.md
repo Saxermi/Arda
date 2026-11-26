@@ -12,7 +12,7 @@ Its long-term goal is to combine scientifically validated numerical algorithms w
 
 *Development codename: Mithril*
 
-**Development version** — Arda 0.18.4 — High-Performance CPU Execution and Adaptive Planning
+**Development version** — Arda 0.18.5 — High-Performance CPU Execution and Adaptive Planning
 
 Use `compute.cpu()` to inspect CPU features. An `OPENMP=1` build can use `compute.threads(2)` for large native Float64 matrix products and AXPY. The normal build and default runtime setting run these kernels serially. [Kernel controls, benchmark results, and build options](research/implemented/transforms-and-kernels.md#0182-controlled-cpu-parallelism)
 

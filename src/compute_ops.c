@@ -111,12 +111,8 @@ static void tiled_rows(const MatmulProblem *p, double *out, int block, double *p
     }
 }
 
-int compute_tiled_team(const MatmulProblem *p, int block, int threads, bool pack) {
-    if (pack || !p->output.n || !p->a.shape[1])
-        return 1;
-    uint64_t terms = (uint64_t)p->output.n * (unsigned)p->a.shape[1];
-    int rows = p->a.shape[0];
-    if (terms < (p->b.rank == 1 ? UINT64_C(1048576) : UINT64_C(8000000)))
+int compute_tiled_team(int rows, int rank, uint64_t terms, int block, int threads, bool pack) {
+    if (pack || terms < (rank == 1 ? UINT64_C(1048576) : UINT64_C(8000000)))
         return 1;
     return cpu_team_size(threads, rows / block);
 }
@@ -127,7 +123,8 @@ int compute_tiled_into(const MatmulProblem *p, int block, int threads, double *o
         return 1;
     int rows = p->a.shape[0];
 #if defined(_OPENMP) && !defined(ARDA_BLAS)
-    int team = compute_tiled_team(p, block, threads, workspace != NULL);
+    uint64_t terms = (uint64_t)p->output.n * (unsigned)p->a.shape[1];
+    int team = compute_tiled_team(rows, p->b.rank, terms, block, threads, workspace != NULL);
     if (team > 1) {
         int actual = 1, blocks = (rows + block - 1) / block;
 #pragma omp parallel num_threads(team) default(none) shared(actual)                                \
