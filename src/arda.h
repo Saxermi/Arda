@@ -488,7 +488,7 @@ typedef struct VM {
     size_t ng, gcap, live, bytes, next_gc, cycles;
     int marking, stress;
     unsigned cpu_features;
-    int matmul_kernel;
+    int matmul_kernel, native_threads, last_matmul_threads;
     bool vector_math;
     size_t sparse_bytes, sparse_limit;
     TensorMemory tensor_memory;

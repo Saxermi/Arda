@@ -1,6 +1,10 @@
 #include "arda.h"
 #include "cpu_kernels.h"
 
+#if defined(_OPENMP) && !defined(ARDA_BLAS)
+#include <omp.h>
+#endif
+
 #ifdef ARDA_BLAS
 #include <cblas.h>
 #endif
@@ -43,13 +47,13 @@ __attribute__((target("avx2"))) static void matmul_avx2(int m, int n, int k, con
                     }
 }
 #endif
-static void reference_matmul(const VM *v, int m, int k, int n, const double *x, const double *y,
-                             double *z) {
-    (void)v;
+static void reference_matmul(unsigned features, int m, int k, int n, const double *x,
+                             const double *y, double *z) {
+    (void)features;
     /* Blocked row-major multiplication; innermost loop is contiguous. */
     const int block = 32;
 #if ARDA_X86_KERNELS
-    if (v->cpu_features & CPU_AVX2) {
+    if (features & CPU_AVX2) {
         matmul_avx2(m, n, k, x, y, z);
         return;
     }
@@ -220,11 +224,21 @@ const char *cpu_matmul_auto(const VM *v) {
 #endif
 }
 
+#ifndef ARDA_BLAS
+static void gemm_rows(unsigned features, int kernel, int m, int k, int n, const double *a,
+                      const double *b, double *c) {
+    if (kernel == GEMM_REFERENCE)
+        reference_matmul(features, m, k, n, a, b, c);
+    else
+        tiled_gemm(m, k, n, a, b, c, kernel);
+}
+#endif
+
 void dense_matmul_into(VM *v, int m, int k, int n, const double *a, const double *b, double *c) {
+    v->last_matmul_threads = 1;
     if (!m || !k || !n)
         return;
 #ifdef ARDA_BLAS
-    (void)v;
     cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, m, n, k, 1, a, k, b, n, 0, c, n);
 #else
     int kernel = v->matmul_kernel;
@@ -233,9 +247,31 @@ void dense_matmul_into(VM *v, int m, int k, int n, const double *a, const double
         if (m < 4 || n < kernels[kernel].width)
             kernel = GEMM_REFERENCE;
     }
-    if (kernel == GEMM_REFERENCE)
-        reference_matmul(v, m, k, n, a, b, c);
-    else
-        tiled_gemm(m, k, n, a, b, c, kernel);
+    unsigned features = v->cpu_features;
+#if defined(_OPENMP)
+    if ((uint64_t)m * k * n >= UINT64_C(8000000)) {
+        int team = cpu_parallel_team(v, m / GEMM_ROWS);
+        if (team > 1) {
+            // Whole row tiles belong to one worker. No VM state is shared with the workers.
+            int blocks = (m + GEMM_ROWS - 1) / GEMM_ROWS, actual = 1;
+#pragma omp parallel num_threads(team) default(none) shared(actual)                                \
+    firstprivate(blocks, features, kernel, m, k, n, a, b, c)
+            {
+                int rank = omp_get_thread_num(), size = omp_get_num_threads();
+                if (!rank)
+                    actual = size;
+                int first = (int)((size_t)blocks * rank / size) * GEMM_ROWS;
+                int last = (int)((size_t)blocks * (rank + 1) / size) * GEMM_ROWS;
+                if (last > m)
+                    last = m;
+                gemm_rows(features, kernel, last - first, k, n, a + (size_t)first * k, b,
+                          c + (size_t)first * n);
+            }
+            v->last_matmul_threads = actual;
+            return;
+        }
+    }
+#endif
+    gemm_rows(features, kernel, m, k, n, a, b, c);
 #endif
 }

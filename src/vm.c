@@ -467,6 +467,7 @@ void remember_proto(VM *v, Proto *p) {
 void vm_init(VM *v, int stress) {
     v->stress = stress;
     v->cpu_features = cpu_detect();
+    v->native_threads = v->last_matmul_threads = 1;
     v->next_gc = 65536;
     v->sparse_limit = SIZE_MAX;
     v->tensor_memory.limit = tensor_memory_unlimited();

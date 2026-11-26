@@ -14,6 +14,8 @@ The Makefile links libraries installed in the build environment. For a package t
 
 The optional `VECMATH=1` build links the system GNU C Library vector math library. Arda calls its x86-64 vector ABI through original adapters. Provider versions and redistribution terms follow the installed GNU C Library. [GNU C Library licensing](https://www.gnu.org/software/libc/)
 
+The optional `OPENMP=1` build uses the compiler-supplied OpenMP runtime. The GCC build links GNU libgomp. Its runtime terms include the GCC Runtime Library Exception. [GNU libgomp](https://gcc.gnu.org/projects/gomp/) · [GCC Runtime Library Exception](https://www.gnu.org/licenses/gcc-exception-3.1.html)
+
 ## Local development and comparison tools
 
 | Component | Use | License source |

@@ -155,3 +155,11 @@ Use stable logical parameter IDs and aggregate local gradient sums with exact sa
 Use register tiles over the existing row-major Float64 inputs. This reuses right-hand values across rows without an additional packed matrix or tensor workspace. Keeping each dot product's order and leaving contraction disabled preserves the default rounding behavior. Packing panels would improve locality for more shapes and give larger microkernels predictable access. Packing also needs extra storage, data movement and budget checks.
 
 Expose AVX2 FMA and GNU libmvec as explicit choices. They can improve throughput, and vector providers and fused arithmetic can differ in the last bits. Selecting them automatically would broaden their speed benefits and change the default numerical behavior. [Kernel contracts](research/implemented/transforms-and-kernels.md#0181-register-blocked-matrix-multiplication)
+
+## 2026-11-26 — Optional OpenMP for coarse native CPU work
+
+**Status** — Implemented for 0.18.2 and open to owner revision
+
+Use compiler-managed OpenMP teams for large packed GEMM and AXPY. A per-VM setting defaults to one thread. Static output partitions preserve per-element arithmetic order and keep VM state and error handling on the caller thread. The runtime can reuse workers, and the implementation stays small. OpenMP adds a build dependency and leaves worker placement and some scheduling behavior to its provider.
+
+A native pool could give Arda direct control of worker lifetime, CPU placement and shutdown. It would require new synchronization, lifecycle management and error tests. Use the linked provider's threading for CBLAS builds to avoid nested Arda and BLAS teams. [Thread controls and measurements](research/implemented/transforms-and-kernels.md#0182-controlled-cpu-parallelism)

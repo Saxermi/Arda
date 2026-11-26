@@ -62,6 +62,8 @@ static Val cpu_info(VM *v) {
     field(v, map, "matmul_kernel", objval(string(v, cpu_matmul_name(v))));
     field(v, map, "auto_matmul", objval(string(v, cpu_matmul_auto(v))));
     field(v, map, "vector_math_available", boolean(cpu_vector_math_available(v)));
+    field(v, map, "native_threads_available", boolean(cpu_parallel_available()));
+    field(v, map, "last_packed_matmul_threads", integer(v->last_matmul_threads));
     return objval(map);
 }
 
@@ -86,6 +88,17 @@ static Val vector_math(VM *v, int argc, Val *args) {
     return boolean(v->vector_math);
 }
 
+static Val native_threads(VM *v, int argc, Val *args) {
+    if (argc) {
+        if (args[0].t != V_INT || args[0].i < 1 || args[0].i > 256)
+            vmerror_kind(v, "domain", "compute.threads expects an integer from 1 to 256");
+        if (args[0].i != 1 && !cpu_parallel_available())
+            vmerror_kind(v, "backend", "native parallel kernels require OPENMP=1 without BLAS");
+        v->native_threads = (int)args[0].i;
+    }
+    return integer(v->native_threads);
+}
+
 enum {
     MEMORY_STATS,
     MEMORY_BUDGET,
@@ -95,11 +108,12 @@ enum {
     CPU_INFO,
     MATMUL_KERNEL,
     VECTOR_MATH,
+    THREADS,
     COMPUTE_COUNT
 };
 static const char *const names[] = {"memory_stats",  "memory_budget", "trim_pool",
                                     "plan",          "stream_stats",  "cpu",
-                                    "matmul_kernel", "vector_math"};
+                                    "matmul_kernel", "vector_math",   "threads"};
 _Static_assert(sizeof names / sizeof *names == COMPUTE_COUNT, "compute names");
 
 Obj *compute_module(VM *v) {
@@ -108,6 +122,10 @@ Obj *compute_module(VM *v) {
 
 Val compute_call(VM *v, int id, int argc, Val *args) {
     switch (id - COMPUTE_BASE) {
+    case THREADS:
+        if (argc <= 1)
+            return native_threads(v, argc, args);
+        break;
     case MATMUL_KERNEL:
         if (argc <= 1)
             return matmul_kernel(v, argc, args);

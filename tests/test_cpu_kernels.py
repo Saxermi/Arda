@@ -66,3 +66,37 @@ class CpuKernelTests(unittest.TestCase):
             catch issue:
                 print(issue["code"]=="backend",c.vector_math()==false,true)
         """, "nae nae nae", stress=True)
+
+    def test_opt_in_threads_preserve_results_and_keep_small_calls_serial(self):
+        self.run_code("""
+        import tensor as t
+        import numc as nc
+        import high
+        import compute as c
+        let initial = c.threads()
+        try:
+            c.threads(0)
+        catch issue:
+            print(issue["code"],c.threads()==initial)
+        if c.cpu()["native_threads_available"]:
+            let a = t.zeros([259,257],"float64") + 0.25
+            let b = t.zeros([257,261],"float64") - 0.5
+            let expected = t.matmul(a,b)
+            let left = nc.ones(262147)
+            let right = nc.ones(262147)
+            let axpy = high.axpy(left,right,0.25)
+            c.threads(2)
+            let actual = t.matmul(a,b)
+            let team = c.cpu()["last_packed_matmul_threads"]
+            let error = actual-expected
+            let diff = high.axpy(left,right,0.25)-axpy
+            let small = t.matmul(t.zeros([2,2],"float64"),t.zeros([2,2],"float64"))
+            print(t.sum(error*error)==0,nc.sum(diff*diff)==0,team>=1 and team<=2,c.cpu()["last_packed_matmul_threads"]==1)
+            print(c.threads(1)==initial)
+        else:
+            try:
+                c.threads(2)
+            catch issue:
+                print(issue["code"]=="backend",c.threads()==initial,true,true)
+            print(c.threads(1)==initial)
+        """, "domain nae\nnae nae nae nae\nnae", stress=True)

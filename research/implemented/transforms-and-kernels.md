@@ -31,7 +31,7 @@ python3 benchmarks/cpu_baseline.py --arda portable=build/blas0-lapack0-sanitize0
 
 The harness uses identical row-major Float64 inputs from a fixed seed, with integer entries divided by 128. Every result matches an independent Int64 product at 289 coordinates and the full NumPy output exactly. Products and partial sums are exactly representable for these fixtures. Each process warms up once at each size and reports seven batches of timed operations including output allocation. The time excludes input generation, process startup and output validation. Reported dispersion is median absolute deviation (MAD).
 
-One pinned CPU on an Intel Xeon Platinum 8573C under Linux 6.18.57 used GCC 14.2 (`-O2`) for Arda, GCC 14.2 (`-O3 -march=native`) for Eigen 3.4.0, Debian OpenBLAS 0.3.29 for Arda and NumPy 2.3.5's bundled OpenBLAS. The harness requests one thread in every provider. The reported machine had 48 KiB L1 data and 2 MiB L2 per core and a reported 260 MiB shared L3. Add `--perf` on an installation with Linux `perf stat` and access to hardware counters. Those counters cover the external processes, including startup. The current environment has no installed `perf`; the copy figures below measure logical read and write bandwidth, including allocation, in a cache-sized workload.
+One pinned CPU on an Intel Xeon Platinum 8573C under Linux 6.18.57 used GCC 14.2 (`-O2`) for Arda, GCC 14.2 (`-O3 -march=native`) for Eigen 3.4.0, Debian OpenBLAS 0.3.29 for Arda and NumPy 2.3.5's bundled OpenBLAS 0.3.30. The harness requests one thread in every provider. The reported machine had 48 KiB L1 data and 2 MiB L2 per core and a reported 260 MiB shared L3. Add `--perf` on an installation with Linux `perf stat` and access to hardware counters. Those counters cover the external processes, including startup. Linux denied access to the hardware cycles event in the current environment. The copy figures below measure logical read and write bandwidth, including allocation, in a cache-sized workload.
 
 | Size | Arda portable (ms) | Arda OpenBLAS (ms) | Eigen (ms) | NumPy (ms) |
 | ---: | ---: | ---: | ---: | ---: |
@@ -49,14 +49,35 @@ Optional LTO uses `make LTO=1 CC=gcc` or `make LTO=1 CC=clang` with the correspo
 
 `compute.matmul_kernel()` reports the requested packed rank-two Float64 policy. Use `compute.matmul_kernel("reference")` for the original kernel, or request `"sse2"`, `"avx2"`, `"avx2-fma"` or `"neon"` when supported by the build and CPU. `"auto"` restores selection based on CPU capability and shape. An unavailable choice raises `backend`. With BLAS enabled, the packed Float64 path uses the linked CBLAS and reports `"cblas"`. The existing typed paths cover strided, batched, mixed-type and complex cases.
 
+The kernel uses original C intrinsics. Goto and van de Geijn and BLIS document packing and register-blocking methods. Arda applies register blocking directly to existing row-major buffers. Recent matrix-instruction work studies additional acceleration across the inner dimension and improvements for skinny shapes. Those methods require different instruction support and numerical validation. [BLIS microkernel architecture](https://doi.org/10.1145/2764454) · [Matrix tile instruction research](https://arxiv.org/abs/2507.03522)
+
 The default portable kernel keeps separate multiplication and addition in increasing inner-index order. Explicit `"avx2-fma"` uses fused rounding for complete tiles and scalar tails. Optional Linux x86-64 `make VECMATH=1` and `compute.vector_math(true)` enable libmvec for ordinary contiguous Float64 `sin`, `cos` and `exp` with at least 16 elements. Tracked tensor operations, ordinary scalar operations and vector tails use the scalar routines. Accuracy and special values depend on the system libmvec provider. The opt-in is scoped to the VM.
 
 Timings use the same machine, compiler settings, matrices and harness as the 0.18.0 baseline. Both binaries were run in the same comparison. Exact sampled checks and full output agreement passed. The lowest observed baseline sample exceeded the highest measured tiled sample at all three sizes.
 
 | Size | Reference median ± MAD (ms) | 0.18.1 auto median ± MAD (ms) | Speedup |
 | ---: | ---: | ---: | ---: |
-| 128 | 0.5014 ± 0.0068 | 0.1785 ± 0.0261 | 2.81× |
-| 512 | 22.9536 ± 0.7016 | 9.0492 ± 0.3408 | 2.54× |
-| 1024 | 201.8388 ± 6.3935 | 77.5752 ± 1.8144 | 2.60× |
+| 128 | 0.3622 ± 0.0109 | 0.1185 ± 0.0051 | 3.06× |
+| 512 | 22.6425 ± 0.0260 | 9.2191 ± 0.1862 | 2.46× |
+| 1024 | 197.3242 ± 2.7990 | 79.2300 ± 0.5116 | 2.49× |
 
 On the constant 65,536-element fixture, opt-in libmvec took 0.0721 ms for sine, 0.0667 ms for cosine and 0.0691 ms for exponential. Scalar mode in the same binary took 0.5820, 0.4938 and 0.4757 ms. This input exercises contiguous access and moderate arguments. [Numerical tests](../../tests/reference_cpu_kernels.py) · [Dispatch, tail and FMA tests](../../tests/test_cpu_kernels.py)
+
+## 0.18.2 controlled CPU parallelism
+
+Build with `make OPENMP=1` using a compiler and installed OpenMP runtime. `compute.threads()` returns the per-VM requested native thread count, and `compute.threads(n)` sets a positive integer from 1 to 256. One is the initial value. The runtime caps a team by the available processors, its thread limit and the number of independent partitions. `compute.cpu()["native_threads_available"]` shows whether Arda can form teams in this build. `compute.cpu()["last_packed_matmul_threads"]` reports the actual team size for the most recent packed rank-two Float64 product. A serial or empty call reports one.
+
+Packed GEMM considers a team at eight million scalar multiply-add terms with at least two 32-row blocks. Workers each own a contiguous set of row blocks. `high.axpy` considers a team at 262,144 elements and splits the output into contiguous spans. These kernels keep their ordinary accumulation order and hold no extra tensor workspace. Small calls take the serial path before entering OpenMP. The calling thread owns the VM, allocation and garbage collection. Nested native regions are suppressed. CBLAS builds leave provider threads to settings such as `OPENBLAS_NUM_THREADS`. They reject `compute.threads(n)` above one even if built with `OPENMP=1`, which avoids layering Arda teams over provider work. [OpenMP specification](https://www.openmp.org/spec-html/6.0/openmp.html)
+
+Use `--cpus` to supply an explicit Linux affinity mask to the benchmark runner when studying scaling. The reported two-core case used the same host and GCC `-O2` compiler as 0.18.1. Each mode used the same binary, seven timed batches, the same inputs and the same mask on CPUs 0 and 2. Bindings were `OMP_PROC_BIND=spread OMP_PLACES=cores` with dynamic teams disabled. All matrices matched the reference exactly, including the 128 case which remained serial. The observed team size for an eligible GEMM under this mask was two.
+
+| Workload | One thread median ± MAD (ms) | Two requested median ± MAD (ms) | Speedup |
+| --- | ---: | ---: | ---: |
+| GEMM 128 | 0.1242 ± 0.0022 | 0.1119 ± 0.0027 | Serial in both runs |
+| GEMM 512 | 9.1323 ± 0.3046 | 4.4950 ± 0.1641 | 2.03× |
+| GEMM 1024 | 82.7055 ± 1.7428 | 40.3130 ± 2.2563 | 2.05× |
+| AXPY, 1,048,576 elements | 0.9795 | 0.6628 | 1.48× |
+
+An earlier run on CPUs 0 and 1 saw little speedup even though the runtime formed two workers. Affinity is optional and these speedups apply to the measured placement. The host has no exposed laptop power or temperature telemetry, and Linux denied the hardware performance event probe. Laptop energy and thermal profiles remain open. [Benchmark harness](../../benchmarks/cpu_baseline.py)
+
+The portable, OpenMP plus libmvec, and OpenBLAS/LAPACK plus OpenMP configurations passed 239 runtime tests each, with and without ASan/UBSan. Both LAPACK builds passed all 66 reference tests, and the other builds passed 57 with nine LAPACK tests skipped. GCC 14.2 and Clang 19.1.7 both completed LTO with profile generation and profile use, and passed the kernel regressions. An AArch64 GCC cross-build selected NEON under QEMU and passed the four kernel regressions plus the extended-precision GEMM comparison. Timing data above comes from the native x86-64 host.

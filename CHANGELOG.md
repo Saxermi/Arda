@@ -2,6 +2,11 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
+## 0.18.2 — Controlled CPU Parallelism
+
+- Added optional OpenMP teams for large packed Float64 matrix products and AXPY. Per-VM thread settings default to one, and small operations stay serial.
+- Added native thread availability and last packed GEMM team size to `compute.cpu()`. CBLAS thread settings remain provider-owned. [Thread controls and measurements](research/implemented/transforms-and-kernels.md#0182-controlled-cpu-parallelism)
+
 ## 0.18.1 — CPU Kernel Dispatch and Register Blocking
 
 - Added runtime-selected register-blocked Float64 matrix multiplication for x86 SSE2/AVX2 and AArch64 NEON. The previous kernel remains selectable.

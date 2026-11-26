@@ -5,6 +5,7 @@ LAPACK ?= 0
 SANITIZE ?= 0
 LTO ?= 0
 VECMATH ?= 0
+OPENMP ?= 0
 override CPPFLAGS += -D_XOPEN_SOURCE=700
 CFLAGS ?= -std=c11 -O2 -g -Wall -Wextra -Wpedantic
 override LDLIBS += -lm
@@ -15,6 +16,10 @@ endif
 ifeq ($(LAPACK),1)
 override CPPFLAGS += -DARDA_LAPACK
 override LDLIBS += -llapack -lblas
+endif
+ifeq ($(OPENMP),1)
+override CFLAGS += -fopenmp
+override LDFLAGS += -fopenmp
 endif
 ifeq ($(VECMATH),1)
 override CPPFLAGS += -DARDA_VECMATH
@@ -29,7 +34,7 @@ override CFLAGS += -O1 -fsanitize=address,undefined -fno-omit-frame-pointer -fno
 override LDFLAGS += -fsanitize=address,undefined -no-pie
 endif
 
-BUILD := build/blas$(BLAS)-lapack$(LAPACK)-sanitize$(SANITIZE)$(if $(filter 1,$(LTO)),-lto)$(if $(filter 1,$(VECMATH)),-vecmath)
+BUILD := build/blas$(BLAS)-lapack$(LAPACK)-sanitize$(SANITIZE)$(if $(filter 1,$(LTO)),-lto)$(if $(filter 1,$(VECMATH)),-vecmath)$(if $(filter 1,$(OPENMP)),-openmp)
 SRC := $(wildcard src/*.c)
 OBJ := $(patsubst src/%.c,$(BUILD)/%.o,$(SRC))
 BIN := $(BUILD)/arda

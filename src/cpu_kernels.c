@@ -1,5 +1,9 @@
 #include "cpu_kernels.h"
 
+#if defined(_OPENMP) && !defined(ARDA_BLAS)
+#include <omp.h>
+#endif
+
 #if defined(__aarch64__) && defined(__linux__)
 #include <asm/hwcap.h>
 #include <sys/auxv.h>
@@ -114,5 +118,31 @@ bool cpu_vector_unary(const VM *v, VectorMath op, size_t count, const double *in
     (void)in;
     (void)out;
     return false;
+#endif
+}
+
+bool cpu_parallel_available(void) {
+#if defined(_OPENMP) && !defined(ARDA_BLAS)
+    return true;
+#else
+    return false;
+#endif
+}
+
+int cpu_parallel_team(const VM *v, int partitions) {
+#if defined(_OPENMP) && !defined(ARDA_BLAS)
+    if (v->native_threads < 2 || partitions < 2 || omp_in_parallel())
+        return 1;
+    int maximum = omp_get_num_procs();
+    int limit = omp_get_thread_limit();
+    if (limit < maximum)
+        maximum = limit;
+    if (partitions < maximum)
+        maximum = partitions;
+    return v->native_threads < maximum ? v->native_threads : maximum;
+#else
+    (void)v;
+    (void)partitions;
+    return 1;
 #endif
 }

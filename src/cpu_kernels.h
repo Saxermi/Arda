@@ -20,6 +20,8 @@ const char *cpu_architecture(void);
 int cpu_matmul_choice(const VM *v, const char *name);
 const char *cpu_matmul_name(const VM *v);
 const char *cpu_matmul_auto(const VM *v);
+bool cpu_parallel_available(void);
+int cpu_parallel_team(const VM *v, int partitions);
 bool cpu_vector_math_available(const VM *v);
 bool cpu_vector_unary(const VM *v, VectorMath op, size_t count, const double *in, double *out);
 

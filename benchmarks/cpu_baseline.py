@@ -112,18 +112,18 @@ def matrix_bench(np, args, root, eigen):
 
 
 MICRO_OPERATIONS = {
-    "GEMV": ("t.matmul(a,v)", 12),
-    "SpMV": ("sp.matvec(csr,x)", 12),
-    "AXPY": ("high.axpy(x,y,0.25)", 12),
-    "reduction": ("t.sum(u)", 12),
-    "sin": ("t.sin(u)", 8),
-    "cos": ("t.cos(u)", 8),
-    "exp": ("t.exp(u)", 8),
-    "packed_copy": ('t.cast(a,"float64")', 12),
-    "strided_copy": ('t.cast(view,"float64")', 12),
-    "VM_loop": ("vm_loop()", 15),
+    "GEMV": ("t.matmul(a,v)", 12, "t.at(result,[255,0]) == 32"),
+    "SpMV": ("sp.matvec(csr,x)", 12, "nc.sum(result) == 131074"),
+    "AXPY": ("high.axpy(x,y,0.25)", 12, "nc.sum(result) == 81920"),
+    "AXPY_large": ("high.axpy(w,w,0.25)", 12, "nc.sum(result) == 1310720"),
+    "reduction": ("t.sum(u)", 12, "result == 16384"),
+    "sin": ("t.sin(u)", 8, "abs(t.at(result,[65535])-0.24740395925452294) < 2e-15"),
+    "cos": ("t.cos(u)", 8, "abs(t.at(result,[65535])-0.9689124217106447) < 2e-15"),
+    "exp": ("t.exp(u)", 8, "abs(t.at(result,[65535])-1.2840254166877414) < 2e-15"),
+    "packed_copy": ('t.cast(a,"float64")', 12, "t.at(result,[255,255]) == 0.25"),
+    "strided_copy": ('t.cast(view,"float64")', 12, "t.at(result,[255,255]) == 0.25"),
+    "VM_loop": ("vm_loop()", 15, "result == 199990000"),
 }
-
 
 def micro_bench(args, root):
     program = root / "micro.arda"
@@ -146,8 +146,11 @@ def vm_loop():
         sum = sum+i
     return sum
 """
-    for label, (operation, repeat) in MICRO_OPERATIONS.items():
-        program.write_text(preamble + args.setup + f"""
+    for label, (operation, repeat, check) in MICRO_OPERATIONS.items():
+        setup = args.setup
+        if label == "AXPY_large":
+            setup += "\nlet w = nc.ones(1048576)"
+        program.write_text(preamble + setup + f"""
 let result = {operation}
 for round in range({args.rounds}):
     let elapsed = 0.0
@@ -157,6 +160,8 @@ for round in range({args.rounds}):
         result = {operation}
         elapsed = elapsed + (monotonic()-start)
     print(elapsed/{repeat})
+if not ({check}):
+    throw {{"code":"benchmark","message":"{label} produced an unexpected result"}}
 """, encoding="utf-8")
         for name, binary in args.arda:
             samples = arda_times([binary, program], root, args.perf)
@@ -179,7 +184,9 @@ def main():
     parser.add_argument("--arda", type=read_arda, action="append", required=True)
     parser.add_argument("--eigen-include", type=Path)
     parser.add_argument("--cxx", default=os.environ.get("CXX", "g++"))
-    parser.add_argument("--cpu", type=int, default=min(os.sched_getaffinity(0)))
+    affinity = parser.add_mutually_exclusive_group()
+    affinity.add_argument("--cpu", type=int)
+    affinity.add_argument("--cpus", type=int, nargs="+")
     parser.add_argument("--sizes", type=int, choices=list(SIZES), nargs="+", default=list(SIZES))
     parser.add_argument("--rounds", type=int, default=7)
     parser.add_argument("--micro", action="store_true")
@@ -191,11 +198,12 @@ def main():
         parser.error("rounds must be positive")
     if args.perf and not shutil.which("perf"):
         parser.error("--perf requires Linux perf")
-    os.sched_setaffinity(0, {args.cpu})
+    cpus = args.cpus or [args.cpu if args.cpu is not None else min(os.sched_getaffinity(0))]
+    os.sched_setaffinity(0, set(cpus))
     os.environ.update(THREAD_ENV)
     import numpy as np
 
-    print(platform.platform(), "CPU", args.cpu, "NumPy", np.__version__, flush=True)
+    print(platform.platform(), "CPUs", cpus, "NumPy", np.__version__, flush=True)
     np.show_config()
     for name, binary in args.arda:
         print(name, subprocess.check_output([binary, "--version"], text=True).strip(), binary)
