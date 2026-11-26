@@ -251,6 +251,7 @@ static void trace(VM *v, Obj *o) {
         markval(v, o->as.ad->right);
         markobj(v, o->as.ad->parents[0]);
         markobj(v, o->as.ad->parents[1]);
+        markobj(v, o->as.ad->pattern);
         break;
     case O_LIST:
         for (int i = 0; i < o->as.list.n; i++)

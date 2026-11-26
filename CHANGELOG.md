@@ -2,6 +2,12 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
+## 0.17.1 — Gradient Controls and Derivative Queries
+
+- Added explicit gradient clearing, zero-copy detachment, and a dynamically scoped no-grad call.
+- Added VJP, JVP, dense Jacobian and scalar-output Hessian queries over recorded operations.
+- Added CSR matrix-vector differentiation for the dense input and separately supplied values in fixed structural order. [Vilya runtime contracts](docs/VILYA_RUNTIME.md#gradient-queries-and-sparse-matvec)
+
 ## 0.17.0 — Vilya runtime and tensor autodiff
 
 - Extended reverse-mode autodiff to dense Float64 tensors. Backward checks saved tensor versions and publishes gradients after a successful sweep.

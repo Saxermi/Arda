@@ -40,3 +40,21 @@ Use `at(x,[i,j])` and `put(x,[i,j],value)` for dense element access. Use `tensor
 ## Dense Float64 autodiff
 
 Follow [the runnable example](../examples/tensor_autodiff.arda) and [the mathematical and memory contracts](../research/implemented/optimization-and-ad.md#reverse-mode-autodiff).
+
+## Gradient queries and sparse matvec
+
+| Call | Behavior |
+| --- | --- |
+| `ad.zero_grad(node)` | Clear its published gradient. The next `ad.grad(node)` returns `mun`. |
+| `ad.detach(node)` | Return its ordinary primal by alias. Mutating the alias still changes the shared buffer version. |
+| `ad.no_grad(callable, ...)` | Run the callable and its nested calls with recording disabled. The caller's mode survives exceptions. Returning an existing node directly preserves that node. |
+| `ad.vjp(output,input[,cotangent])` | Return `Jᵀ·cotangent` with the input shape. A scalar output defaults to cotangent one. |
+| `ad.jvp(output,input,tangent)` | Return `J·tangent` with the output shape. |
+| `ad.jacobian(output,input)` | Return a dense Jacobian with output axes followed by input axes. |
+| `ad.hessian(loss,input)` | Return a scalar-loss Hessian with two copies of the input axes. |
+
+For derivative queries, `output` and `input` are tracked nodes. An intermediate input is treated as independent from its ancestors. A disconnected tracked input has zero derivative. Supply finite, exact-shape Float64 seeds. Queries leave the stored gradients untouched. Dense Jacobians and Hessians are subject to the eight-axis, heap element and memory-budget limits. Split large derivative work into seeded products.
+
+`sparse.matvec(A,x)` differentiates a tracked dense Float64 vector with a fixed sparse matrix. `sparse.matvec(A,values,x)` accepts replacement Float64 values in canonical CSR storage order. It can differentiate the values, the dense vector, or both. CSR offsets and column indices remain fixed. A supplied zero retains its structural position and its gradient. The operation traverses CSR rows and keeps the matrix compressed.
+
+[Runnable 0.17.1 example](../examples/gradient_queries.arda) · [Numerical validation](../research/implemented/optimization-and-ad.md#derivative-queries)

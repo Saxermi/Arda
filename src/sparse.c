@@ -1,4 +1,5 @@
 #include "sparse_internal.h"
+#include "autodiff.h"
 
 #define S(o) ((o)->as.sparse)
 
@@ -756,6 +757,14 @@ static Val sparse_dispatch(VM *v, int id, int argc, Val *a) {
         return sparse_solve(v, as_sparse(v, a[0]), a[1], a[2], a[3], argc == 5 ? a[4] : nil(),
                             op == SP_PCG);
     }
+    if (op == SP_MATVEC && argc == 3) {
+        Obj *pattern = as_sparse(v, a[0]);
+        if (!pattern->as.sparse.csr)
+            vmerror_kind(v, "format", "sparse.matvec with explicit values requires canonical CSR");
+        if (a[1].t == V_NIL)
+            vmerror_kind(v, "shape", "sparse.matvec requires a vector of CSR values");
+        return ad_sparse_matvec(v, pattern, a[1], a[2]);
+    }
     if (argc != nargs[op])
         vmerror(v, "sparse.%s expects %d arguments, got %d", names[op], nargs[op], argc);
     if (op == SP_COO || op == SP_CSR)
@@ -829,8 +838,16 @@ static Val sparse_dispatch(VM *v, int id, int argc, Val *a) {
     case SP_COMPONENTS:
         return components(v, o);
     case SP_MATVEC:
+        if (isobj(a[1], O_AD) || isobj(a[1], O_TYPED_TENSOR)) {
+            Obj *csr = sparse_as_csr(v, o);
+            Val out = ad_sparse_matvec(v, csr, nil(), a[1]);
+            if (!isobj(out, O_AD))
+                sparse_drop_temporary(v, csr, o);
+            return out;
+        }
+        return objval(sparse_product(v, o, a[1], 1));
     case SP_SPMM:
-        return objval(sparse_product(v, o, a[1], op == SP_MATVEC ? 1 : 2));
+        return objval(sparse_product(v, o, a[1], 2));
     case SP_TRANSPOSE:
         return objval(sparse_transpose(v, o));
     case SP_ADD:

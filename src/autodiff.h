@@ -24,18 +24,28 @@ typedef enum {
     AD_VIEW,
     AD_SLICE,
     AD_AT,
-    AD_MATMUL
+    AD_MATMUL,
+    AD_SPARSE_MATVEC
 } ADOperation;
 
 typedef struct TensorAD {
     Val value, grad, left, right;
-    Obj *parents[2];
+    Obj *parents[2], *pattern;
     uint64_t versions[3];
     unsigned saved, visit;
+    bool active;
     int slot, axis, axes[8];
     ADOperation operation;
 } TensorAD;
 
+// This native entry delegates a dynamically scoped call to the VM.
+#define AD_NO_GRAD_ID (AD_BASE + 13)
+
+static inline bool ad_disabled(const VM *v) {
+    return v->nf && v->frames[v->nf - 1].no_grad;
+}
+
+Val ad_sparse_matvec(VM *v, Obj *pattern, Val values, Val input);
 Val ad_primal(Val value);
 void ad_validate(VM *v, Val value);
 Val ad_unary(VM *v, ADOperation op, Val input, Val exponent);

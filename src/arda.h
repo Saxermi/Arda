@@ -461,10 +461,12 @@ typedef struct {
     int ip, base;
     Obj *env, *module, *locals;
     Val constructed;
+    bool no_grad;
 } Frame;
 typedef struct {
     int frame, ip, sp;
     Obj *env;
+    bool no_grad;
 } Handler;
 typedef struct VM {
     Obj *objects, *global, *builtins;

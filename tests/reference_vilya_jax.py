@@ -47,3 +47,84 @@ class JaxAutodiffTests(unittest.TestCase):
         np.testing.assert_allclose(loss, expected_loss, rtol=1e-13, atol=1e-14)
         np.testing.assert_allclose(dx, ex, rtol=1e-13, atol=1e-14)
         np.testing.assert_allclose(dy, ey, rtol=1e-13, atol=1e-14)
+
+    def test_vjp_jvp_and_jacobian_match_jax(self):
+        output = self.run_code("""
+        import ad
+        tol tensor as t
+        let x = ad.variable(t.array([0.5,1.2,2.0],"float64"))
+        let a = t.reshape(t.view(x,[3],[-1],2)*1,[3,1])
+        let weights = t.array([1.1,0.7,-0.3,0.5,-0.4,1.3],"float64",[3,2])
+        let f = t.sum(t.sin(a + weights)/t.exp(a),0)
+        print(t.tolist(ad.vjp(f,x,t.array([-0.6,1.1],"float64"))))
+        print(t.tolist(ad.jvp(f,x,t.array([0.1,-0.3,0.7],"float64"))))
+        print(t.tolist(ad.jacobian(f,x)))
+        """, stress=True)
+        vjp, jvp, jac = map(ast.literal_eval, output.splitlines())
+        point = jnp.array([0.5, 1.2, 2.0])
+        weights = jnp.array([[1.1, 0.7], [-0.3, 0.5], [-0.4, 1.3]])
+
+        def function(x):
+            a = x[::-1, None]
+            return jnp.sum(jnp.sin(a + weights) / jnp.exp(a), axis=0)
+
+        _, pullback = jax.vjp(function, point)
+        _, jvp_expected = jax.jvp(function, (point,), (jnp.array([0.1, -0.3, 0.7]),))
+        for actual, expected in ((vjp, pullback(jnp.array([-0.6, 1.1]))[0]),
+                                 (jvp, jvp_expected), (jac, jax.jacrev(function)(point))):
+            np.testing.assert_allclose(actual, expected, rtol=2e-13, atol=2e-14)
+
+    def test_hessian_matches_jax_on_nonlinear_tensor_graph(self):
+        text = self.run_code("""
+        import ad
+        import tensor as t
+        let x = ad.variable(t.array([0.5,1.2,2.0,0.9],"float64",[2,2]))
+        let y = t.matmul(x,t.permute(x,[1,0]))
+        let p = x*x + 1
+        let z = t.sin(p)*t.cos(x/p) + t.exp(p/10) + t.log(p) + t.sqrt(p)
+        let w = ad.tanh(x) + ad.pow(x,2.5)
+        let loss = t.mean((z+w)*y)
+        print(t.tolist(ad.hessian(loss,x)))
+        """, stress=True)
+        result = ast.literal_eval(text)
+        point = jnp.array([[0.5, 1.2], [2.0, 0.9]])
+
+        def loss(x):
+            y = x @ x.T
+            p = x*x + 1
+            z = jnp.sin(p)*jnp.cos(x/p) + jnp.exp(p/10) + jnp.log(p) + jnp.sqrt(p)
+            w = jnp.tanh(x) + x ** 2.5
+            return jnp.mean((z+w)*y)
+
+        np.testing.assert_allclose(result, jax.hessian(loss)(point), rtol=3e-13, atol=3e-14)
+
+    def test_sparse_csr_uses_the_same_gradient_as_jax_bcoo(self):
+        from jax.experimental.sparse import BCOO
+
+        text = self.run_code("""
+        import tensor as t
+        import sparse as sp
+        import ad
+        let pattern = sp.csr(3,2,[0,1,1,3],[0,0,1],[1,2,3])
+        let values = ad.variable(t.array([2,0,5],"float64"))
+        let x = ad.variable(t.array([2,3],"float64"))
+        let out = sp.matvec(pattern,values,x)
+        let loss = t.sum(out*out)
+        ad.backward(loss)
+        print(t.tolist(ad.grad(values)))
+        print(t.tolist(ad.grad(x)))
+        print(t.tolist(ad.hessian(loss,values)))
+        """, stress=True)
+        values, inputs, hessian = map(ast.literal_eval, text.splitlines())
+        indices = jnp.array([[0, 0], [2, 0], [2, 1]])
+        point, x = jnp.array([2.0, 0.0, 5.0]), jnp.array([2.0, 3.0])
+
+        def loss(a, x):
+            y = BCOO((a, indices), shape=(3, 2)) @ x
+            return jnp.sum(y*y)
+
+        ev, ex = jax.grad(loss, argnums=(0, 1))(point, x)
+        np.testing.assert_allclose(values, ev, rtol=1e-13, atol=1e-14)
+        np.testing.assert_allclose(inputs, ex, rtol=1e-13, atol=1e-14)
+        np.testing.assert_allclose(hessian, jax.hessian(loss, argnums=0)(point, x),
+                                   rtol=1e-13, atol=1e-14)

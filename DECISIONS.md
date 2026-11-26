@@ -107,3 +107,11 @@ Represent scientific quantities with SI values and separate display-unit metadat
 - Use IEEE results for ordinary real floating-point operations and reject nonfinite values in differentiation. Keep checked integer arithmetic. Require an explicit scalar condition for tensors and tracked values.
 - Use maps with named fields for caught errors and iterative solver reports. Migrate in-tree examples and callers directly when an interface changes. Present both English and Elvish-inspired spellings in the main tutorial.
 - Make `range` lazy and make materialization explicit with `list`. Give the standard library an explicit import spelling and resolve bare standard names consistently. Keep quoted paths for local modules.
+
+## 2026-11-26 — Derivative queries and fixed CSR patterns
+
+**Status** — Accepted for the 0.17.1 development branch
+
+Use the executed tape for seeded VJPs and JVPs. Treat the selected node as independent for partial derivatives. Queries leave published gradients intact. Compute a full Jacobian along the smaller basis and a scalar-output Hessian by differentiating reverse accumulation. Reuse scratch buffers between basis sweeps. Dense results follow the existing rank and heap limits.
+
+Let `zero_grad` release the stored gradient and `detach` expose a shared primal without graph edges. Scope `no_grad` to a callable and restore the caller's recording state after errors. Keep CSR offsets and columns immutable. Differentiate an explicit vector of stored coefficients in CSR order, including a coefficient whose current value is zero. [API and evidence](docs/VILYA_RUNTIME.md#gradient-queries-and-sparse-matvec)

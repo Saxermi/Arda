@@ -47,6 +47,7 @@ static unsigned saved_values(ADOperation op, bool left, bool right) {
     switch (op) {
     case AD_MUL:
     case AD_MATMUL:
+    case AD_SPARSE_MATVEC:
         return (left ? 2u : 0u) | (right ? 1u : 0u);
     case AD_DIV:
         return (left ? 2u : 0u) | (right ? 6u : 0u);
@@ -186,7 +187,7 @@ static double *data(Obj *x) {
 }
 
 Val ad_unary(VM *v, ADOperation op, Val input, Val exponent) {
-    bool tracked = isobj(input, O_AD);
+    bool tracked = isobj(input, O_AD) && !ad_disabled(v);
     Val value = ad_primal(input);
     double power = op == AD_POW ? checked(v, asnum(v, exponent)) : 0;
     TypedTensor t = layout(v, value);
@@ -211,7 +212,7 @@ Val ad_unary(VM *v, ADOperation op, Val input, Val exponent) {
     return tracked ? ad_record(v, op, result, input, exponent, 0, NULL) : result;
 }
 
-static Obj *topology(VM *v, Obj *root) {
+static Obj *topology(VM *v, Obj *root, Obj *stop) {
     Obj *stack = list(v), *order = list(v);
     append(v, stack, objval(root));
     while (stack->as.list.n) {
@@ -219,9 +220,10 @@ static Obj *topology(VM *v, Obj *root) {
         TensorAD *n = o->as.ad;
         if (!n->visit) {
             n->visit = 1;
-            for (int i = 1; i >= 0; i--)
-                if (n->parents[i] && !n->parents[i]->as.ad->visit)
-                    append(v, stack, objval(n->parents[i]));
+            if (o != stop)
+                for (int i = 1; i >= 0; i--)
+                    if (n->parents[i] && !n->parents[i]->as.ad->visit)
+                        append(v, stack, objval(n->parents[i]));
         } else {
             stack->as.list.n--;
             if (n->visit == 1) {
@@ -279,41 +281,102 @@ static double grad_value(Val grad, size_t i) {
     return grad.t == V_OBJ ? data(grad.o)[i] : grad.n;
 }
 
-static void reverse_elementwise(VM *v, const TensorAD *n, Val g, Val *a, Val *b,
-                                const TypedTensor *x, const TypedTensor *y, const TypedTensor *z) {
+typedef struct {
+    VM *vm;
+    TensorAD *node;
+    Val *output, *parents[2];
+    Val *adjoint, *tangents[2], *out_tangent;
+    bool forward;
+} Sweep;
+
+static double tangent_at(const Val *tangent, size_t i) {
+    return tangent ? grad_value(*tangent, i) : 0;
+}
+
+static void edge(const Sweep *s, int parent, size_t from, size_t to, double slope,
+                 double slope_direction) {
+    if (!s->parents[parent])
+        return;
+    if (s->forward) {
+        add(s->vm, s->output, to, slope * grad_value(*s->parents[parent], from));
+    } else {
+        double value = slope * grad_value(*s->output, to);
+        if (s->adjoint) {
+            value += slope_direction * grad_value(*s->adjoint, to);
+        }
+        add(s->vm, s->parents[parent], from, value);
+    }
+}
+
+static double slope_change(ADOperation op, double x, double z, double power, double dx, double dz) {
+    switch (op) {
+    case AD_SIN:
+        return -sin(x) * dx;
+    case AD_COS:
+        return -cos(x) * dx;
+    case AD_EXP:
+        return dz;
+    case AD_LOG:
+        return -(dx / x) / x;
+    case AD_SQRT:
+        return -(0.5 / z) * (dz / z);
+    case AD_TANH:
+        return -2 * z * dz;
+    case AD_POW:
+        if (power == 0 || power == 1 || dx == 0)
+            return 0;
+        if (power == 2)
+            return 2 * dx;
+        return power * (power - 1) * pow(x, power - 2) * dx;
+    default:
+        return 0;
+    }
+}
+
+static void elementwise(const Sweep *s, const TypedTensor *x, const TypedTensor *y,
+                        const TypedTensor *z) {
+    TensorAD *n = s->node;
     for (size_t i = 0; i < z->n; i++) {
         int index[8];
         coordinates(z, i, index);
         size_t xi = broadcast_index(x, z->rank, index);
-        size_t yi = y ? broadcast_index(y, z->rank, index) : 0;
-        double weight = grad_value(g, i);
+        size_t yi = broadcast_index(y, z->rank, index);
+        double tx = tangent_at(s->tangents[0], xi);
+        double ty = tangent_at(s->tangents[1], yi);
         switch (n->operation) {
         case AD_ADD:
         case AD_SUB:
-            if (a)
-                add(v, a, xi, weight);
-            if (b)
-                add(v, b, yi, n->operation == AD_SUB ? -weight : weight);
+            edge(s, 0, xi, i, 1, 0);
+            edge(s, 1, yi, i, n->operation == AD_SUB ? -1 : 1, 0);
             break;
         case AD_MUL:
-            if (a)
-                add(v, a, xi, weight * read_value(v, y, n->right, yi));
-            if (b)
-                add(v, b, yi, weight * read_value(v, x, n->left, xi));
+            if (s->parents[0])
+                edge(s, 0, xi, i, read_value(s->vm, y, n->right, yi), ty);
+            if (s->parents[1])
+                edge(s, 1, yi, i, read_value(s->vm, x, n->left, xi), tx);
             break;
         case AD_DIV: {
-            double denominator = read_value(v, y, n->right, yi);
-            if (a)
-                add(v, a, xi, weight / denominator);
-            if (b)
-                add(v, b, yi, -weight * (read_value(v, z, n->value, i) / denominator));
+            double denominator = read_value(s->vm, y, n->right, yi);
+            if (s->parents[0])
+                edge(s, 0, xi, i, 1 / denominator, -(ty / denominator) / denominator);
+            if (s->parents[1]) {
+                double value = read_value(s->vm, z, n->value, i);
+                double change =
+                    s->adjoint
+                        ? (value * (ty / denominator) - tangent_at(s->out_tangent, i)) / denominator
+                        : 0;
+                edge(s, 1, yi, i, -value / denominator, change);
+            }
             break;
         }
         default: {
-            double xv = n->saved & 1 ? read_value(v, x, n->left, xi) : 0;
-            double zv = n->saved & 4 ? read_value(v, z, n->value, i) : 0;
-            double power = n->operation == AD_POW ? asnum(v, n->right) : 0;
-            add(v, a, xi, weight * unary_derivative(n->operation, xv, zv, power));
+            double xv = n->saved & 1 ? read_value(s->vm, x, n->left, xi) : 0;
+            double zv = n->saved & 4 ? read_value(s->vm, z, n->value, i) : 0;
+            double power = n->operation == AD_POW ? asnum(s->vm, n->right) : 0;
+            double change = s->adjoint ? slope_change(n->operation, xv, zv, power, tx,
+                                                      tangent_at(s->out_tangent, i))
+                                       : 0;
+            edge(s, 0, xi, i, unary_derivative(n->operation, xv, zv, power), change);
             break;
         }
         }
@@ -328,29 +391,29 @@ static void matrix_index(const TypedTensor *t, int rank, const int *index, int r
     out[t->rank - 1] = col;
 }
 
-static void reverse_matmul(VM *v, Val g, Val *a, Val *b, const TypedTensor *x, const TypedTensor *y,
-                           const TypedTensor *z) {
+static void matrix_edges(const Sweep *s, const TypedTensor *x, const TypedTensor *y,
+                         const TypedTensor *z) {
     for (size_t i = 0; i < z->n; i++) {
         int index[8], left[8], right[8];
         coordinates(z, i, index);
-        double weight = grad_value(g, i);
         for (int k = 0; k < x->shape[x->rank - 1]; k++) {
             matrix_index(x, z->rank, index, index[z->rank - 2], k, left);
             matrix_index(y, z->rank, index, k, index[z->rank - 1], right);
             size_t xi = linear_index(x, left), yi = linear_index(y, right);
-            if (a)
-                add(v, a, xi, weight * item(y, yi));
-            if (b)
-                add(v, b, yi, weight * item(x, xi));
+            if (s->parents[0])
+                edge(s, 0, xi, i, item(y, yi), tangent_at(s->tangents[1], yi));
+            if (s->parents[1])
+                edge(s, 1, yi, i, item(x, xi), tangent_at(s->tangents[0], xi));
         }
     }
 }
 
-static void reverse_layout(VM *v, const TensorAD *n, Val g, Val *a, const TypedTensor *x,
-                           const TypedTensor *z) {
+static void layout_edges(const Sweep *s, const TypedTensor *x, const TypedTensor *z) {
+    TensorAD *n = s->node;
     if (n->operation == AD_SUM || n->operation == AD_MEAN) {
         int axis = n->axis;
         size_t count = axis < 0 ? x->n : (size_t)x->shape[axis];
+        double scale = n->operation == AD_MEAN && count ? 1.0 / (double)count : 1;
         for (size_t i = 0; i < x->n; i++) {
             size_t zi = 0;
             if (axis >= 0) {
@@ -360,8 +423,7 @@ static void reverse_layout(VM *v, const TensorAD *n, Val g, Val *a, const TypedT
                     if (d != axis)
                         zi = zi * (size_t)x->shape[d] + (size_t)index[d];
             }
-            double w = grad_value(g, zi);
-            add(v, a, i, n->operation == AD_MEAN ? w / (double)count : w);
+            edge(s, 0, i, zi, scale, 0);
         }
         return;
     }
@@ -380,111 +442,350 @@ static void reverse_layout(VM *v, const TensorAD *n, Val g, Val *a, const TypedT
                 source[n->axis] = n->axes[0] + source[n->axis] * n->axes[1];
             xi = linear_index(x, source);
         }
-        add(v, a, xi, grad_value(g, i));
+        edge(s, 0, xi, i, 1, 0);
     }
 }
 
-static void reverse_node(VM *v, TensorAD *n, Val *grads) {
-    if (n->operation == AD_LEAF)
-        return;
-    Val *a = n->parents[0] ? grads + n->parents[0]->as.ad->slot : NULL;
-    Val *b = n->parents[1] ? grads + n->parents[1]->as.ad->slot : NULL;
-    Val g = grads[n->slot];
-    TypedTensor x = layout(v, n->left), z = layout(v, n->value);
-    if (n->operation >= AD_SUM && n->operation < AD_MATMUL)
-        reverse_layout(v, n, g, a, &x, &z);
-    else {
-        TypedTensor y = layout(v, n->right);
-        if (n->operation == AD_MATMUL)
-            reverse_matmul(v, g, a, b, &x, &y, &z);
-        else
-            reverse_elementwise(v, n, g, a, b, &x, &y, &z);
-    }
-}
-
-static void backward(VM *v, Obj *root, Val seed) {
-    TypedTensor target = layout(v, root->as.ad->value);
-    TypedTensor start = layout(v, seed);
-    if (seed.t == V_NIL && target.rank)
-        vmerror_kind(v, "shape", "tensor backward requires an explicit seed or scalar reduction");
-    if (target.rank != start.rank ||
-        memcmp(target.shape, start.shape, (size_t)target.rank * sizeof *target.shape))
-        vmerror_kind(v, "shape", "backward seed shape mismatch");
-    if (seed.t != V_NIL)
-        ad_validate(v, seed);
-    Obj *order = topology(v, root), *work = list(v);
-    size_t available = tensor_memory_available(v);
-    for (int i = 0; i < order->as.list.n; i++) {
-        TensorAD *n = order->as.list.a[i].o->as.ad;
-        Val saved[] = {n->left, n->right, n->value};
-        for (unsigned j = 0; j < 3; j++)
-            if ((n->saved & (1u << j)) && version(v, saved[j]) != n->versions[j])
-                vmerror_kind(v, "mutation",
-                             "tensor saved for backward was modified through an alias");
-        TypedTensor t = layout(v, n->value);
-        if (t.rank) {
-            if (t.n > available / sizeof(double))
-                vmerror_kind(v, "memory_budget",
-                             "autodiff gradients exceed the tensor memory budget");
-            available -= t.n * sizeof(double);
+static void sparse_edges(const Sweep *s, const TypedTensor *values, const TypedTensor *input) {
+    const Sparse *pattern = &s->node->pattern->as.sparse;
+    for (uint32_t row = 0; row < pattern->rows; row++) {
+        for (size_t i = pattern->offset[row]; i < pattern->offset[row + 1]; i++) {
+            uint32_t col = pattern->col[i];
+            if (s->parents[0])
+                edge(s, 0, i, row, item(input, col), tangent_at(s->tangents[1], col));
+            if (s->parents[1]) {
+                double value = values->rank ? item(values, i) : pattern->values[i];
+                edge(s, 1, col, row, value, tangent_at(s->tangents[0], i));
+            }
         }
     }
-    for (int i = 0; i < order->as.list.n; i++) {
-        TypedTensor t = layout(v, order->as.list.a[i].o->as.ad->value);
-        Val gradient = t.rank ? objval(typed_new(v, DT_F64, t.rank, t.shape)) : number(0);
-        append(v, work, gradient);
+}
+
+static void visit_node(VM *v, TensorAD *n, Obj *stop, Val *work, bool forward, Val *adjoints,
+                       Val *tangents) {
+    if (!n->active || n->operation == AD_LEAF || (stop && n == stop->as.ad))
+        return;
+    Sweep s = {.vm = v,
+               .node = n,
+               .output = work + n->slot,
+               .forward = forward,
+               .adjoint = adjoints ? adjoints + n->slot : NULL,
+               .out_tangent = tangents ? tangents + n->slot : NULL};
+    for (int i = 0; i < 2; i++) {
+        Obj *parent = n->parents[i];
+        if (!parent || !parent->as.ad->active)
+            continue;
+        int slot = parent->as.ad->slot;
+        s.parents[i] = work + slot;
+        if (tangents)
+            s.tangents[i] = tangents + slot;
     }
-    Val *grads = work->as.list.a;
-    if (start.rank) {
-        double *dst = data(grads[root->as.ad->slot].o);
-        for (size_t i = 0; i < start.n; i++)
-            dst[i] = item(&start, i);
-    } else
-        grads[root->as.ad->slot] = number(seed.t == V_NIL ? 1 : asnum(v, seed));
-    for (int i = order->as.list.n - 1; i >= 0; i--)
-        reverse_node(v, order->as.list.a[i].o->as.ad, grads);
-    for (int i = 0; i < order->as.list.n; i++) {
-        Obj *o = order->as.list.a[i].o;
-        o->as.ad->grad = grads[i];
-        barrier(v, o, grads[i]);
+
+    TypedTensor x = layout(v, n->left), y = layout(v, n->right), z = layout(v, n->value);
+    switch (n->operation) {
+    case AD_SUM:
+    case AD_MEAN:
+    case AD_RESHAPE:
+    case AD_PERMUTE:
+    case AD_VIEW:
+    case AD_SLICE:
+    case AD_AT:
+        layout_edges(&s, &x, &z);
+        break;
+    case AD_MATMUL:
+        matrix_edges(&s, &x, &y, &z);
+        break;
+    case AD_SPARSE_MATVEC:
+        sparse_edges(&s, &x, &y);
+        break;
+    default:
+        elementwise(&s, &x, &y, &z);
+        break;
     }
 }
 
-enum { VARIABLE, VALUE, GRAD, BACKWARD, SIN, COS, EXP, LOG, SQRT, TANH, POW };
-static const char *const names[] = {"variable", "value", "grad", "backward", "sin", "cos",
-                                    "exp",      "log",   "sqrt", "tanh",     "pow"};
+static bool connected(const Obj *order, const Obj *node) {
+    int slot = node->as.ad->slot;
+    return slot >= 0 && slot < order->as.list.n && order->as.list.a[slot].o == node;
+}
+
+static Obj *prepare(VM *v, Obj *root, Obj *stop, size_t buffers, size_t output_bytes) {
+    size_t available = tensor_memory_available(v);
+    if (output_bytes > available)
+        vmerror_kind(v, "memory_budget", "autodiff result exceeds the tensor memory budget");
+    available -= output_bytes;
+    Obj *order = topology(v, root, stop);
+    for (int i = 0; i < order->as.list.n; i++) {
+        Obj *object = order->as.list.a[i].o;
+        TensorAD *n = object->as.ad;
+        bool left = object != stop && n->parents[0] && n->parents[0]->as.ad->active;
+        bool right = object != stop && n->parents[1] && n->parents[1]->as.ad->active;
+        n->active = !stop || object == stop || left || right;
+        if (!n->active)
+            continue;
+        unsigned saved_mask = object == stop ? 0 : saved_values(n->operation, left, right);
+        Val saved[] = {n->left, n->right, n->value};
+        for (unsigned j = 0; j < 3; j++)
+            if ((saved_mask & (1u << j)) && version(v, saved[j]) != n->versions[j])
+                vmerror_kind(v, "mutation",
+                             "tensor saved for differentiation was modified through an alias");
+        TypedTensor t = layout(v, n->value);
+        if (t.rank) {
+            size_t per_entry = buffers * sizeof(double);
+            if (t.n > available / per_entry)
+                vmerror_kind(v, "memory_budget",
+                             "autodiff derivatives exceed the tensor memory budget");
+            available -= t.n * per_entry;
+        }
+    }
+    return order;
+}
+
+static Val zero(VM *v, const TypedTensor *t) {
+    return t->rank ? objval(typed_new(v, DT_F64, t->rank, t->shape)) : number(0);
+}
+
+static Val *allocate_work(VM *v, const Obj *order) {
+    Obj *work = list(v);
+    for (int i = 0; i < order->as.list.n; i++) {
+        const TensorAD *n = order->as.list.a[i].o->as.ad;
+        TypedTensor t = layout(v, n->value);
+        append(v, work, n->active ? zero(v, &t) : nil());
+    }
+    return work->as.list.a;
+}
+
+static void reset_work(Val *work, int count) {
+    for (int i = 0; i < count; i++) {
+        if (work[i].t == V_OBJ)
+            memset(data(work[i].o), 0, work[i].o->as.tensor.n * sizeof(double));
+        else if (work[i].t == V_NUM)
+            work[i] = number(0);
+    }
+}
+
+static TypedTensor validate_seed(VM *v, const TypedTensor *target, Val seed, const char *name,
+                                 bool default_one) {
+    if (seed.t == V_NIL && (!default_one || target->rank))
+        vmerror_kind(v, "shape", "%s requires an explicit seed for this input", name);
+    TypedTensor layout_seed = layout(v, seed);
+    if (target->rank != layout_seed.rank ||
+        memcmp(target->shape, layout_seed.shape, (size_t)target->rank * sizeof *target->shape))
+        vmerror_kind(v, "shape", "%s seed shape mismatch", name);
+    if (seed.t != V_NIL)
+        ad_validate(v, seed);
+    return layout_seed;
+}
+
+static void assign_seed(VM *v, Val *out, Val seed, const TypedTensor *layout_seed) {
+    if (layout_seed->rank) {
+        double *dst = data(out->o);
+        for (size_t i = 0; i < layout_seed->n; i++)
+            dst[i] = item(layout_seed, i);
+    } else
+        *out = number(seed.t == V_NIL ? 1 : asnum(v, seed));
+}
+
+static void forward_sweep(VM *v, const Obj *order, Obj *stop, Val *work) {
+    for (int i = 0; i < order->as.list.n; i++)
+        visit_node(v, order->as.list.a[i].o->as.ad, stop, work, true, NULL, NULL);
+}
+
+static void reverse_sweep(VM *v, const Obj *order, Obj *stop, Val *work, Val *adjoints,
+                          Val *tangents) {
+    for (int i = order->as.list.n - 1; i >= 0; i--)
+        visit_node(v, order->as.list.a[i].o->as.ad, stop, work, false, adjoints, tangents);
+}
+
+static Val single_sweep(VM *v, Obj *root, Obj *input, Val seed, bool forward) {
+    Obj *seed_node = forward ? input : root;
+    const char *name = forward ? "jvp" : input ? "vjp" : "backward";
+    TypedTensor source = layout(v, seed_node->as.ad->value);
+    TypedTensor seed_shape = validate_seed(v, &source, seed, name, !forward);
+    Obj *order = prepare(v, root, input, 1, 0);
+    if (input && !connected(order, input)) {
+        TypedTensor target = layout(v, (forward ? root : input)->as.ad->value);
+        return zero(v, &target);
+    }
+    Val *work = allocate_work(v, order);
+    assign_seed(v, &work[seed_node->as.ad->slot], seed, &seed_shape);
+    if (forward) {
+        forward_sweep(v, order, input, work);
+        return work[root->as.ad->slot];
+    }
+    reverse_sweep(v, order, input, work, NULL, NULL);
+    if (input)
+        return work[input->as.ad->slot];
+    for (int i = 0; i < order->as.list.n; i++) {
+        Obj *node = order->as.list.a[i].o;
+        node->as.ad->grad = work[i];
+        barrier(v, node, work[i]);
+    }
+    return nil();
+}
+
+static void seed_basis(Val *seed, size_t i) {
+    if (seed->t == V_OBJ)
+        data(seed->o)[i] = 1;
+    else
+        *seed = number(1);
+}
+
+static Val derivative_matrix(VM *v, Obj *root, Obj *input, bool hessian) {
+    TypedTensor x = layout(v, input->as.ad->value), y = layout(v, root->as.ad->value);
+    if (hessian && y.rank)
+        vmerror_kind(v, "shape", "hessian requires a scalar output");
+    TypedTensor rows = hessian ? x : y;
+    int rank = rows.rank + x.rank, axes[8];
+    if (rank > 8)
+        vmerror_kind(v, "shape", "derivative result rank exceeds eight axes");
+    memcpy(axes, rows.shape, (size_t)rows.rank * sizeof *axes);
+    memcpy(axes + rows.rank, x.shape, (size_t)x.rank * sizeof *axes);
+    TypedTensor result = rank ? typed_layout(v, DT_F64, rank, axes) : (TypedTensor){.n = 1};
+    if (!result.n)
+        return zero(v, &result);
+    size_t bytes = rank ? result.n * sizeof(double) : 0;
+    Obj *order = prepare(v, root, input, hessian ? 3 : 1, bytes);
+    Val out = zero(v, &result);
+    double *values = rank ? data(out.o) : &out.n;
+    if (!connected(order, input))
+        return out;
+
+    bool forward = !hessian && x.n <= y.n;
+    Val *work = allocate_work(v, order);
+    Val *tangents = hessian ? allocate_work(v, order) : NULL;
+    Val *adjoints = hessian ? allocate_work(v, order) : NULL;
+    int n = order->as.list.n, source = input->as.ad->slot, sink = root->as.ad->slot;
+    if (hessian) {
+        seed_basis(&adjoints[sink], 0);
+        reverse_sweep(v, order, input, adjoints, NULL, NULL);
+    }
+    size_t sweeps = hessian || forward ? x.n : y.n;
+    for (size_t i = 0; i < sweeps; i++) {
+        reset_work(work, n);
+        if (hessian) {
+            reset_work(tangents, n);
+            seed_basis(&tangents[source], i);
+            forward_sweep(v, order, input, tangents);
+            reverse_sweep(v, order, input, work, adjoints, tangents);
+            for (size_t j = 0; j < x.n; j++)
+                values[j * x.n + i] = grad_value(work[source], j);
+        } else if (forward) {
+            seed_basis(&work[source], i);
+            forward_sweep(v, order, input, work);
+            for (size_t j = 0; j < y.n; j++)
+                values[j * x.n + i] = grad_value(work[sink], j);
+        } else {
+            seed_basis(&work[sink], i);
+            reverse_sweep(v, order, input, work, NULL, NULL);
+            for (size_t j = 0; j < x.n; j++)
+                values[i * x.n + j] = grad_value(work[source], j);
+        }
+    }
+    return out;
+}
+
+enum {
+    VARIABLE,
+    VALUE,
+    GRAD,
+    BACKWARD,
+    SIN,
+    COS,
+    EXP,
+    LOG,
+    SQRT,
+    TANH,
+    POW,
+    ZERO_GRAD,
+    DETACH,
+    NO_GRAD,
+    VJP,
+    JVP,
+    JACOBIAN,
+    HESSIAN
+};
+static const char *const names[] = {
+    "variable", "value", "grad",      "backward", "sin",     "cos", "exp", "log",      "sqrt",
+    "tanh",     "pow",   "zero_grad", "detach",   "no_grad", "vjp", "jvp", "jacobian", "hessian"};
+static const int arities[] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 2, 3, 2, 2};
+_Static_assert(sizeof names / sizeof *names == sizeof arities / sizeof *arities, "ad arities");
+_Static_assert(AD_BASE + NO_GRAD == AD_NO_GRAD_ID, "no_grad native ID");
 
 Val ad_call(VM *v, int id, int argc, Val *args) {
     int op = id - AD_BASE;
     if (op < 0 || (size_t)op >= sizeof names / sizeof *names ||
-        (argc != (op == POW ? 2 : 1) && !(op == BACKWARD && argc == 2)))
+        (argc != arities[op] && !(op == BACKWARD && argc == 2) && !(op == VJP && argc == 3)))
         vmerror(v, "invalid autodiff function arity");
     if (op == VARIABLE) {
+        if (ad_disabled(v))
+            return ad_primal(args[0]);
         if (isobj(args[0], O_AD))
             vmerror(v, "expected ordinary input to ad.variable");
         Val input = is_tensor(args[0]) ? args[0] : number(asnum(v, args[0]));
         return ad_record(v, AD_LEAF, input, nil(), nil(), 0, NULL);
     }
-    if (op == VALUE)
+    if (op == VALUE || op == DETACH)
         return ad_primal(args[0]);
-    if (op == GRAD || op == BACKWARD) {
-        if (!isobj(args[0], O_AD))
-            vmerror(v, "expected autodiff node");
-        if (op == GRAD) {
-            Val result = args[0].o->as.ad->grad;
-            if (is_tensor(result)) {
-                TypedTensor t = typed_tensor(v, result);
-                t.readonly = true;
-                return objval(typed_wrap(v, t));
-            }
-            return result;
-        }
-        backward(v, args[0].o, argc == 2 ? args[1] : nil());
+    if (op >= SIN && op <= POW) {
+        static const ADOperation rules[] = {AD_SIN,  AD_COS,  AD_EXP, AD_LOG,
+                                            AD_SQRT, AD_TANH, AD_POW};
+        return ad_unary(v, rules[op - SIN], args[0], argc == 2 ? args[1] : nil());
+    }
+    if (op == NO_GRAD)
+        vmerror(v, "ad.no_grad must be invoked as a callable");
+    if (!isobj(args[0], O_AD) || (op >= VJP && !isobj(args[1], O_AD)))
+        vmerror(v, "expected autodiff node");
+    Obj *root = args[0].o;
+    if (op == ZERO_GRAD) {
+        root->as.ad->grad = nil();
         return nil();
     }
-    static const ADOperation unary_ops[] = {AD_SIN,  AD_COS,  AD_EXP, AD_LOG,
-                                            AD_SQRT, AD_TANH, AD_POW};
-    return ad_unary(v, unary_ops[op - SIN], args[0], argc == 2 ? args[1] : nil());
+    if (op == GRAD) {
+        Val result = root->as.ad->grad;
+        if (is_tensor(result)) {
+            TypedTensor t = typed_tensor(v, result);
+            t.readonly = true;
+            return objval(typed_wrap(v, t));
+        }
+        return result;
+    }
+    if (op == BACKWARD)
+        return single_sweep(v, root, NULL, argc == 2 ? args[1] : nil(), false);
+    if (op == VJP || op == JVP)
+        return single_sweep(v, root, args[1].o, argc == 3 ? args[2] : nil(), op == JVP);
+    return derivative_matrix(v, root, args[1].o, op == HESSIAN);
+}
+
+Val ad_sparse_matvec(VM *v, Obj *pattern, Val values, Val input) {
+    const Sparse *p = &pattern->as.sparse;
+    TypedTensor x = layout(v, ad_primal(input)), weights = layout(v, ad_primal(values));
+    if (x.rank != 1 || x.n != p->cols)
+        vmerror_kind(v, "shape", "sparse.matvec input must match its column count");
+    if (values.t != V_NIL && (weights.rank != 1 || weights.n != p->nnz))
+        vmerror_kind(v, "shape", "sparse.matvec values must match its stored CSR entries");
+    ad_validate(v, input);
+    if (weights.rank)
+        ad_validate(v, values);
+    if (p->rows > ARDA_MAX_ELEMENTS)
+        vmerror_kind(v, "shape", "sparse.matvec output exceeds the tensor element limit");
+    int rows = (int)p->rows;
+    Obj *out = typed_new(v, DT_F64, 1, &rows);
+    double *dst = data(out);
+    for (uint32_t row = 0; row < p->rows; row++) {
+        long double sum = 0;
+        for (size_t i = p->offset[row]; i < p->offset[row + 1]; i++) {
+            double coefficient = weights.rank ? item(&weights, i) : p->values[i];
+            sum += (long double)coefficient * item(&x, p->col[i]);
+        }
+        dst[row] = checked(v, (double)sum);
+    }
+    if (!isobj(values, O_AD) && !isobj(input, O_AD))
+        return objval(out);
+    Val result = ad_record(v, AD_SPARSE_MATVEC, objval(out), values, input, 0, NULL);
+    result.o->as.ad->pattern = pattern;
+    barrier(v, result.o, objval(pattern));
+    return result;
 }
 
 Obj *extra_module(VM *v, const char *name) {

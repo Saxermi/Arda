@@ -12,7 +12,7 @@ Its long-term goal is to combine scientifically validated numerical algorithms w
 
 *Development codename: Mithril*
 
-**Development version** — Arda 0.17.0 — Memory-Efficient Differentiable Programming
+**Development version** — Arda 0.17.1 — Memory-Efficient Differentiable Programming
 
 **Wiki** — [Quickstart, language and module guides, and AMDE examples](https://github.com/Saxermi/Arda/wiki)
 
@@ -313,6 +313,8 @@ pedo(ad.value(f), ad.grad(x), ad.grad(y))
 ```
 
 The output is `15 8 3`. The same module tracks dense Float64 tensors. Use `tensor` operations for differentiable reductions, broadcasting, batched matrix multiplication, and views. A successful `ad.backward` replaces gradients in the traversed graph. `ad.grad` returns `mun` before the first successful sweep. Optimizer updates are available as `opt.sgd` and `opt.adam`. [Tensor example](examples/tensor_autodiff.arda) · [Scalar learning example](examples/learning.arda)
+
+Use `ad.vjp` and `ad.jvp` for seeded derivative products and `ad.jacobian` or `ad.hessian` for small dense derivatives. `ad.zero_grad` clears the stored gradient. `ad.detach` exposes a primal alias, and `ad.no_grad(f, ...)` runs a callable with recording disabled. Canonical CSR matrix-vector products can differentiate an explicit vector of stored values. [Vilya 0.17.1 API](docs/VILYA_RUNTIME.md#gradient-queries-and-sparse-matvec)
 
 ### `high`: structured and high-dimensional numerical methods
 

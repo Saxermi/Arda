@@ -29,6 +29,8 @@ _Noreturn void vmerror(VM *v, const char *fmt, ...) {
 }
 
 int truth(VM *v, Val x) {
+    if (isobj(x, O_AD) && ad_disabled(v))
+        x = ad_primal(x);
     if (isobj(x, O_ARRAY) || isobj(x, O_TYPED_TENSOR) || isobj(x, O_LOWRANK) ||
         isobj(x, O_SPARSE) || isobj(x, O_AD) || isobj(x, O_QUANTITY))
         vmerror_kind(v, "ambiguous_truth",
@@ -234,8 +236,12 @@ int64_t checked_arith(VM *v, Op op, int64_t x, int64_t y) {
 }
 
 static Val binary(VM *v, Op op, Val a, Val b) {
-    if (isobj(a, O_AD) || isobj(b, O_AD))
-        return ad_binary(v, op, a, b);
+    if (isobj(a, O_AD) || isobj(b, O_AD)) {
+        if (!ad_disabled(v))
+            return ad_binary(v, op, a, b);
+        a = ad_primal(a);
+        b = ad_primal(b);
+    }
     if (op == OP_EQ || op == OP_NE)
         return boolean(eq(a, b) ^ (op == OP_NE));
     if (isobj(a, O_QUANTITY) || isobj(b, O_QUANTITY))
@@ -477,7 +483,9 @@ void vm_destroy(VM *v) {
 static void enter(VM *v, Proto *p, Obj *env, int base, Obj *module, Val constructed) {
     if (v->nf == 512)
         vmerror(v, "call depth limit (512)");
+    bool no_grad = ad_disabled(v);
     v->frames[v->nf++] = (Frame){.p = p,
+                                 .no_grad = no_grad,
                                  .env = env,
                                  .locals = env,
                                  .base = base,
@@ -509,12 +517,17 @@ static void insert_self(VM *v, int base, int argc, Obj *fn, Val self) {
 }
 
 static void call_native(VM *v, Obj *function, int base, int argc) {
-    Val result = native_call(v, function->as.native.id, argc, &v->stack[base + 1]);
+    int id = function->as.native.id;
+    Val *args = &v->stack[base + 1];
+    if (ad_disabled(v) && (id < AD_BASE || id >= HIGH_BASE))
+        for (int i = 0; i < argc; i++)
+            args[i] = ad_primal(args[i]);
+    Val result = native_call(v, id, argc, args);
     v->sp = base;
     push(v, result);
 }
 
-static void call(VM *v, int argc) {
+static void invoke(VM *v, int argc) {
     int base = v->sp - argc - 1;
     Val callee = v->stack[base];
     if (isobj(callee, O_NATIVE)) {
@@ -550,12 +563,34 @@ static void call(VM *v, int argc) {
         vmerror(v, "attempt to call non-callable value");
 }
 
+static void call(VM *v, int argc) {
+    int base = v->sp - argc - 1;
+    Val callee = v->stack[base];
+    if (!isobj(callee, O_NATIVE) || callee.o->as.native.id != AD_NO_GRAD_ID) {
+        invoke(v, argc);
+        return;
+    }
+    Frame *caller = &v->frames[v->nf - 1];
+    bool previous = caller->no_grad;
+    do {
+        if (!argc)
+            vmerror_kind(v, "type", "ad.no_grad expects a callable");
+        argc--;
+        memmove(&v->stack[base], &v->stack[base + 1], sizeof(Val) * (size_t)(argc + 1));
+        v->sp--;
+        callee = v->stack[base];
+    } while (isobj(callee, O_NATIVE) && callee.o->as.native.id == AD_NO_GRAD_ID);
+    caller->no_grad = true;
+    invoke(v, argc);
+    caller->no_grad = previous;
+}
+
 static void addhandler(VM *v, Frame *f, int ip) {
     if (v->nh == v->hcap) {
         v->hcap = v->hcap ? 2 * v->hcap : 16;
         v->handlers = resize(v->handlers, sizeof(Handler) * (size_t)v->hcap);
     }
-    v->handlers[v->nh++] = (Handler){v->nf - 1, ip, v->sp, f->env};
+    v->handlers[v->nh++] = (Handler){v->nf - 1, ip, v->sp, f->env, f->no_grad};
 }
 
 static void module_import(VM *v, Frame *f, const char *name) {
@@ -784,6 +819,8 @@ static void dispatch(VM *v) {
         }
         case OP_NEG: {
             Val x = pop(v);
+            if (isobj(x, O_AD) && ad_disabled(v))
+                x = ad_primal(x);
             if (x.t == V_INT) {
                 if (x.i == INT64_MIN)
                     vmerror(v, "integer overflow");
@@ -989,6 +1026,7 @@ int vm_run(VM *v, Proto *p) {
             v->sp = h.sp;
             v->frames[h.frame].env = h.env;
             v->frames[h.frame].ip = h.ip;
+            v->frames[h.frame].no_grad = h.no_grad;
             push(v, caught_error(v));
             v->thrown = nil();
         } else {

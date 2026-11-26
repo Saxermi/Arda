@@ -174,3 +174,110 @@ class VilyaRuntimeTests(unittest.TestCase):
         catch issue:
             print(issue["code"])
         """, "shape\n[8, 20]\ndtype\ndtype", stress=True)
+
+    def test_tracking_controls_are_scoped_and_gradients_can_be_cleared(self):
+        self.run_code("""
+        import ad
+        tol tensor as t
+        let x = ad.variable(t.array([1,2],"float64"))
+        let raw = ad.detach(x)
+        print(raw == ad.value(x))
+        let foo = ad.no_grad
+        def nested(y):
+            try:
+                foo(t.at,y,[9])
+            catch issue:
+                print(type(t.sum(y*y)))
+            return t.sum(ad.sin(y) + y*y)
+        let r = foo(foo,nested,x)
+        print(type(r),type(foo(ad.variable,17)))
+        try:
+            foo(t.at,x,[8])
+        catch issue:
+            print(type(t.sum(x*x)))
+        let f = t.sum(x*x)
+        ad.backward(f)
+        let snapshot = ad.grad(x)
+        ad.zero_grad(x)
+        print(ad.grad(x), t.tolist(snapshot))
+        ad.backward(f)
+        print(t.tolist(ad.grad(x)))
+        """, "nae\nfloat\nfloat int\nad\nmun [2, 4]\n[2, 4]", stress=True)
+
+    def test_queries_stop_at_selected_node_and_leave_published_gradients_alone(self):
+        self.run_code("""
+        import ad
+        tol tensor as t
+        let x = ad.variable(3)
+        let u = x*x
+        let f = u*u+x
+        ad.backward(f)
+        print(ad.vjp(f,u),ad.jvp(f,u,2),ad.jacobian(f,u),ad.hessian(f,u))
+        let independent = ad.variable(t.array([7,8],"float64"))
+        print(t.tolist(ad.vjp(f,independent)),ad.jvp(f,independent,t.array([1,2],"float64")))
+        print(t.tolist(ad.hessian(f,independent)), ad.grad(x), ad.grad(u))
+        """, "18 36 18 2\n[0, 0] 0\n[[0, 0], [0, 0]] 109 18", stress=True)
+
+    def test_derivative_shapes_empty_and_budget_checks(self):
+        self.run_code("""
+        import ad
+        tol tensor as t
+        tol compute as c
+        let x = ad.variable(t.array([1,2,3,4],"float64",[2,2]))
+        let v = x*x
+        let f = t.sum(v)
+        print(t.shape(ad.jacobian(v,x)),t.shape(ad.hessian(f,x)))
+        let empty = ad.variable(t.zeros([0,2],"float64"))
+        print(t.shape(ad.jacobian(empty,empty)),t.shape(ad.hessian(t.sum(empty),empty)))
+        let highrank = ad.variable(t.zeros([1,1,1,1,1],"float64"))
+        try:
+            ad.jacobian(highrank,highrank)
+        catch issue:
+            print(issue["code"])
+        try:
+            ad.hessian(v,x)
+        catch issue:
+            print(issue["code"])
+        try:
+            ad.vjp(v,x)
+        catch issue:
+            print(issue["code"])
+        try:
+            ad.jvp(v,x,t.zeros([4],"float64"))
+        catch issue:
+            print(issue["code"])
+        collect()
+        let before = c.memory_stats()["tensor_heap_bytes"]
+        c.memory_budget(before+128)
+        try:
+            ad.hessian(f,x)
+        catch issue:
+            print(issue["code"],c.memory_stats()["tensor_heap_bytes"]==before)
+        """, "[2, 2, 2, 2] [2, 2, 2, 2]\n[0, 2, 0, 2] [0, 2, 0, 2]\n"
+             "shape\nshape\nshape\nshape\nmemory_budget nae", stress=True)
+
+    def test_sparse_matvec_derivatives_keep_csr_order_and_validate_alias_versions(self):
+        self.run_code("""
+        import ad
+        tol sparse as sp
+        import tensor as t
+        let pattern = sp.csr(3,2,[0,1,1,3],[0,0,1],[1,2,3])
+        let backing = t.array([2,0,5],"float64")
+        let values = ad.variable(backing)
+        let x = ad.variable(t.array([2,3],"float64"))
+        let y = sp.matvec(pattern,values,x)
+        let f = t.sum(y)
+        ad.backward(f)
+        print(t.tolist(ad.value(y)),t.tolist(ad.grad(values)),t.tolist(ad.grad(x)))
+        print(t.tolist(ad.jvp(y,values,t.array([2,3,4],"float64"))))
+        print(t.tolist(ad.vjp(t.sum(sp.matvec(pattern,x)),x)))
+        print(t.tolist(ad.no_grad(sp.matvec,pattern,x)))
+        t.put(backing,[0],9)
+        # The values gradient uses x. The input gradient needs the changed values.
+        print(t.tolist(ad.vjp(f,values)))
+        try:
+            ad.vjp(f,x)
+        catch issue:
+            print(issue["code"],t.tolist(ad.grad(x)))
+        """, "[4, 0, 15] [2, 2, 3] [2, 5]\n[4, 0, 18]\n[3, 3]\n[2, 0, 13]\n"
+             "[2, 2, 3]\nmutation [2, 5]", stress=True)
