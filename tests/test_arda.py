@@ -223,25 +223,25 @@ class ArdaTests(unittest.TestCase):
         try:
             tol a
         catch e:
-            pedo(e)
+            pedo(e["message"])
         try:
             tol a
         catch e:
-            pedo(e)
-        ''', "broken\nmodule 'a' previously failed", stress=True, files={'a.arda':'throw "broken"'})
+            pedo(e["message"])
+        ''', "broken\nmodule 'a' previously failed", stress=True, files={'a.arda':'throw {"code": "user_error", "message": "broken"}'})
     def test_exception_unwind(self):
         self.run_code('''
         caro f():
-            throw "mordor"
+            throw {"code": "user_error", "message": "mordor"}
         try:
             f()
         catch e:
             collect()
-            pedo(e)
+            pedo(e["message"])
         pedo(1)
         ''', 'mordor\n1', stress=True)
     def test_runtime_exception(self):
-        self.run_code('try:\n    pedo(1 / 0)\ncatch e:\n    pedo(e)', 'division by zero', stress=True)
+        self.run_code('try:\n    pedo(1 % 0)\ncatch e:\n    pedo(e["message"])', 'modulo by zero', stress=True)
     def test_try_loop_cleanup(self):
         self.run_code('''
         an i in range(5):
@@ -252,18 +252,18 @@ class ArdaTests(unittest.TestCase):
             catch e:
                 pedo("unexpected")
         try:
-            throw "ok"
+            throw {"code": "user_error", "message": "ok"}
         catch e:
-            pedo(e)
+            pedo(e["message"])
         ''', 'ok', stress=True)
     def test_try_with_outer_iterator(self):
         self.run_code('''
         an i in range(3):
             try:
-                throw str(i)
+                throw {"code": "user_error", "message": str(i)}
             catch e:
                 collect()
-                pedo(e)
+                pedo(e["message"])
         ''', '0\n1\n2', stress=True)
     def test_return_from_try(self):
         self.run_code('''
@@ -273,7 +273,7 @@ class ArdaTests(unittest.TestCase):
             catch e:
                 nan 0
         pedo(f())
-        throw "outer"
+        throw {"code": "user_error", "message": "outer"}
         ''', error='outer', stress=True)
     def test_unhandled_trace(self):
         self.run_code('caro f():\n    pedo(nope)\nf()', error='at f (')

@@ -1,10 +1,11 @@
-#include "arda.h"
+#include "autodiff.h"
 #include <time.h>
-static const char *names[] = {
-    "len",      "push",       "pop",     "str",   "num",        "sqrt",       "heap",
-    "clock_gc", "heap_bytes", "collect", "range", "read_text",  "write_text", "keys",
-    "type",     "int",        "float",   "abs",   "sin",        "cos",        "floor",
-    "ceil",     "monotonic",  "split",   "join",  "startswith", "endswith",   "isinstance"};
+static const char *names[] = {"len",        "push",      "pop",        "str",        "num",
+                              "sqrt",       "heap",      "clock_gc",   "heap_bytes", "collect",
+                              "range",      "read_text", "write_text", "keys",       "type",
+                              "int",        "float",     "abs",        "sin",        "cos",
+                              "floor",      "ceil",      "monotonic",  "split",      "join",
+                              "startswith", "endswith",  "isinstance", "list"};
 
 const char *native_builtin_name(int id) {
     return id >= 0 && (size_t)id < sizeof names / sizeof *names ? names[id] : NULL;
@@ -31,11 +32,12 @@ static const char *typename(Val v) {
         return "bool";
     case V_OBJ: {
         static const char *n[] = {
-            "string",           "list",   "map",       "scope",   "function",
-            "native",           "class",  "instance",  "method",  "module",
-            "iterator",         "array",  "ad",        "sparse",  "sparse_builder",
-            "sparse_workspace", "factor", "generator", "moments", "complex",
-            "linear_operator",  "buffer", "tensor"};
+            "string",           "list",   "map",         "scope",         "function",
+            "native",           "class",  "instance",    "method",        "module",
+            "iterator",         "array",  "ad",          "sparse",        "sparse_builder",
+            "sparse_workspace", "factor", "generator",   "moments",       "complex",
+            "linear_operator",  "buffer", "tensor",      "tensor_blocks", "lowrank",
+            "quantity",         "range",  "offload_plan"};
         return n[v.o->type];
     }
     }
@@ -58,10 +60,8 @@ char *value_string(Val v) {
         snprintf(b, sizeof b, "%.15g", v.n);
         return copystr(b);
     case V_OBJ:
-        if (isobj(v, O_AD)) {
-            snprintf(b, sizeof b, "%.15g", v.o->as.ad.value);
-            return copystr(b);
-        }
+        if (isobj(v, O_AD))
+            return value_string(ad_primal(v));
         if (isobj(v, O_STRING))
             return copystr(v.o->as.str.s);
         if (isobj(v, O_LIST))
@@ -168,7 +168,31 @@ static void arity(VM *v, int id, int argc, int n) {
         vmerror(v, "%s expects %d arguments, got %d", names[id], n, argc);
 }
 
+static int64_t range_integer(VM *v, Val value) {
+    if (value.t == V_INT)
+        return value.i;
+    double x = asnum(v, value);
+    if (!isfinite(x) || trunc(x) != x || x < -0x1p63 || x >= 0x1p63)
+        vmerror_kind(v, "range", "range requires integral Int64 endpoints and step");
+    return (int64_t)x;
+}
+
+int64_t range_element(const Obj *range, uint64_t index) {
+    uint64_t bits = (uint64_t)range->as.range.start + index * (uint64_t)range->as.range.step;
+    return bits <= INT64_MAX ? (int64_t)bits : INT64_MIN + (int64_t)(bits - (UINT64_C(1) << 63));
+}
+
 Val native_call(VM *v, int id, int argc, Val *a) {
+    if (id >= UNCERTAINTY_BASE)
+        return uncertainty_call(v, id, argc, a);
+    if (id >= OPTIMIZER_BASE)
+        return optimizer_call(v, id, argc, a);
+    if (id >= UNITS_BASE)
+        return units_call(v, id, argc, a);
+    if (id >= LOWRANK_BASE)
+        return lowrank_call(v, id, argc, a);
+    if (id >= COMPUTE_BASE)
+        return compute_call(v, id, argc, a);
     if (id >= TYPED_TENSOR_BASE)
         return typed_tensor_call(v, id, argc, a);
     if (id >= SPECIAL_BASE)
@@ -202,13 +226,15 @@ Val native_call(VM *v, int id, int argc, Val *a) {
         arity(v, id, argc, 1);
         if (isobj(a[0], O_ARRAY))
             return integer(a[0].o->as.array.rows);
+        if (isobj(a[0], O_RANGE))
+            return integer((int64_t)a[0].o->as.range.count);
         if (isobj(a[0], O_LIST))
             return integer(a[0].o->as.list.n);
         if (isobj(a[0], O_STRING))
             return integer(utf8len(a[0].o->as.str.s));
         if (isobj(a[0], O_MAP))
             return integer(a[0].o->as.map.tab.n);
-        vmerror(v, "len expects list, string or map");
+        vmerror(v, "len expects array, list, string, map or range");
         break;
     case 1:
         arity(v, id, argc, 2);
@@ -248,9 +274,9 @@ Val native_call(VM *v, int id, int argc, Val *a) {
     }
     case 5: {
         arity(v, id, argc, 1);
+        if (isobj(a[0], O_AD) && ad_primal(a[0]).t == V_NUM)
+            return ad_unary(v, AD_SQRT, a[0], nil());
         double x = asnum(v, a[0]);
-        if (x < 0)
-            vmerror(v, "sqrt domain error");
         return number(sqrt(x));
     }
     case 6:
@@ -269,18 +295,24 @@ Val native_call(VM *v, int id, int argc, Val *a) {
     case 10: {
         if (argc < 1 || argc > 3)
             vmerror(v, "range expects 1 to 3 arguments");
-        long double start = argc == 1 ? 0 : asnum(v, a[0]), end = asnum(v, a[argc == 1 ? 0 : 1]),
-                    step = argc == 3 ? asnum(v, a[2]) : 1;
-        if (!isfinite(start) || !isfinite(end) || !isfinite(step) || truncl(start) != start ||
-            truncl(end) != end || truncl(step) != step || step == 0 || fabsl(start) > 9e15 ||
-            fabsl(end) > 9e15 || fabsl(step) > 9e15)
-            vmerror(v, "range requires bounded integers and nonzero step");
-        long double n = ceill((end - start) / step);
-        if (n > 1000000)
-            vmerror(v, "range limit: 1000000 elements");
-        Obj *o = list(v);
-        for (int i = 0; i < n; i++)
-            append(v, o, integer((int64_t)(start + i * step)));
+        int64_t start = argc == 1 ? 0 : range_integer(v, a[0]);
+        int64_t end = range_integer(v, a[argc == 1 ? 0 : 1]);
+        int64_t step = argc == 3 ? range_integer(v, a[2]) : 1;
+        if (!step)
+            vmerror_kind(v, "range", "range step must be nonzero");
+        uint64_t distance = 0;
+        if (step > 0 && end > start)
+            distance = (uint64_t)end - (uint64_t)start;
+        if (step < 0 && end < start)
+            distance = (uint64_t)start - (uint64_t)end;
+        uint64_t width = step < 0 ? 0 - (uint64_t)step : (uint64_t)step;
+        uint64_t count = distance ? (distance - 1) / width + 1 : 0;
+        if (count > INT64_MAX)
+            vmerror_kind(v, "range", "range length exceeds Int64");
+        Obj *o = newobj(v, O_RANGE);
+        o->as.range.start = start;
+        o->as.range.step = step;
+        o->as.range.count = count;
         return objval(o);
     }
     case 11: {
@@ -366,11 +398,13 @@ Val native_call(VM *v, int id, int argc, Val *a) {
         }
         return number(fabs(asnum(v, a[0])));
     case 18:
+    case 19: {
         arity(v, id, argc, 1);
-        return number(sin(asnum(v, a[0])));
-    case 19:
-        arity(v, id, argc, 1);
-        return number(cos(asnum(v, a[0])));
+        if (isobj(a[0], O_AD) && ad_primal(a[0]).t == V_NUM)
+            return ad_unary(v, id == 18 ? AD_SIN : AD_COS, a[0], nil());
+        double x = asnum(v, a[0]);
+        return number(id == 18 ? sin(x) : cos(x));
+    }
     case 20:
     case 21: {
         arity(v, id, argc, 1);
@@ -446,6 +480,18 @@ Val native_call(VM *v, int id, int argc, Val *a) {
                     return boolean(1);
         return boolean(0);
     }
+    case 28: {
+        arity(v, id, argc, 1);
+        if (!isobj(a[0], O_RANGE))
+            vmerror_kind(v, "type", "list expects a range");
+        uint64_t count = a[0].o->as.range.count;
+        if (count > 1000000)
+            vmerror_kind(v, "range", "list materialization limit: 1000000 elements");
+        Obj *out = list(v);
+        for (uint64_t i = 0; i < count; i++)
+            append(v, out, integer(range_element(a[0].o, i)));
+        return objval(out);
+    }
     }
     return nil();
 }
@@ -473,6 +519,16 @@ Obj *named_native_module(VM *v, const char *name, const char *const *names, size
 }
 
 Obj *native_module(VM *v, const char *name) {
+    if (!strcmp(name, "_uncertainty"))
+        return uncertainty_module(v);
+    if (!strcmp(name, "_optimizer"))
+        return optimizer_module(v);
+    if (!strcmp(name, "units"))
+        return units_module(v);
+    if (!strcmp(name, "lowrank"))
+        return lowrank_module(v);
+    if (!strcmp(name, "compute"))
+        return compute_module(v);
     if (!strcmp(name, "tensor"))
         return typed_tensor_module(v);
     if (!strcmp(name, "special"))

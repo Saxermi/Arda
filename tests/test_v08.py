@@ -96,7 +96,7 @@ class UpgradeTests(unittest.TestCase):
         tol io
         pedo(math.sqrt(81),math.floor(1.9),math.ceil(1.1),math.cos(0))
         pedo(text.join("-",text.split("a-é-b","-")),text.startswith("éx","é"),text.endswith("ab","b"))
-        pedo(collections.range(3),time.monotonic() > 0)
+        pedo(list(collections.range(3)),time.monotonic() > 0)
         io.write_text("test.txt","é")
         pedo(io.read_text("test.txt"))
         ''','9 1 2 1\na-é-b nae nae\n[0, 1, 2] nae\né',stress=True)

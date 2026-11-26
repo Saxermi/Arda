@@ -1,6 +1,6 @@
 # Static mathematical documentation
 
-**Status** — Arda 0.15.4 introduced static native and straight-line queries. Arda 0.15.5 adds a limited range-loop model. [Release validation](../../docs/RUMIL_0.15.5.md)
+**Status** — Arda 0.15.4 introduced static native and straight-line queries. Arda 0.15.5 adds a limited range-loop model. Arda 0.16.5 adds straight-line subscript notation. [Release validation](../../docs/RUMIL_0.15.5.md)
 
 ## Queries
 
@@ -40,12 +40,22 @@ The IR is one frontend allocation per supported prototype, including copied iden
 
 `--mathdoc=compact` (default) collects bounded metadata during compilation, including imported modules and REPL submissions. `--mathdoc=none` skips user-function extraction. Native descriptors remain queryable. [Implementation](../../src/mathir.c) · [Tests](../../tests/test_mathdoc.py)
 
+### Subscripts
+
+Straight-line bracket expressions such as `x[i + 1]` and `A[i][j]` display their source indices as LaTeX subscripts. The result preserves the original index expression. Indexed functions retain their named relations and source operations at all formula levels. The query explains that operand types, shapes and bounds are unresolved. Actual shape and dtype assertions are available at runtime through `tensor.contract`. [Scientific type contracts](scientific-types.md)
+
 ### Single range loops
 
-Arda recognizes one `for`/`an` loop after scalar local declarations. Initialize a local accumulator, update it once per iteration with an arithmetic expression, then return it. Bounds may use literals, parameters and prior locals. They must evaluate to integral values within the native range limit. Supply a nonzero literal step or omit it for the default step of 1. Dynamic calls, external values, nested loops, control flow and mutation outside the accumulator cause the query to return `mun`. The query checks the closure's `range` binding against the native builtin without invoking it. Changing that binding can change the result of a later query.
+Arda recognizes one `for`/`an` loop after scalar local declarations. Initialize a local accumulator, update it once per iteration with an arithmetic expression, then return it. Bounds may use literals, parameters and prior locals. The MathIR model is bounded independently of the lazy runtime range. They must evaluate to integral values within the native range limit. Supply a nonzero literal step or omit it for the default step of 1. Dynamic calls, external values, nested loops, control flow and mutation outside the accumulator cause the query to return `mun`. The query checks the closure's `range` binding against the native builtin without invoking it. Changing that binding can change the result of a later query.
 
 Let `start`, `stop` and `step` be the resolved bounds. The index at iteration $k$ is $i_k=\mathrm{start}+k\,\mathrm{step}$ for $0\le k<N$, where $N=\max(0,\lceil(\mathrm{stop}-\mathrm{start})/\mathrm{step}\rceil)$. The stop is exclusive in either direction. Empty ranges return the initial accumulator. Level 0 displays a sum for `state = state + term` or a product for `state = state * term` when the term does not depend on the state. Other supported updates display a recurrence. Level 1 keeps the order of source operations in the recurrence, level 2 gives its assumptions, and level 3 shows the loop and update. Algebraic sums and products can round differently from sequential Float64 updates. Queries use bounded metadata independent of the iteration count. [Runnable loop example](../../examples/mathematical_library.arda)
 
 ### Limited mathematical simplification (accepted 0.15.4 policy)
 
 The default compact metadata mode and opaque call treatment are accepted. Only user-function `getTex(0)` in the call-free, external-free compact view applies bounded formal scalar-real display identities: `x+0`, `0+x`, `x-0`, `x*1`, `1*x`, `x/1` (integer identity literals), double negation, and adjacent repeated parameter factors (such as `v*v` or `0.5*m*v*v` rendered with a square). No constant evaluation, cancellation, multiplication by zero elimination, reassociation of executable arithmetic, or arbitrary symbolic reasoning is performed. These identities are conditional on ordinary finite scalar real mathematics; they do not guarantee the same dynamic type, IEEE signed zero, overflow behavior, or runtime result for arbitrary inputs. Levels 1 and 3 retain source operations; level 2 and `getAssumptions` state the boundary. Calls and external dependencies disable simplification altogether. If expansion exceeds existing limits, the renderer falls back to unsimplified named steps. The immutable source IR, bytecode and VM are unchanged by rendering.
+
+## Static derivatives and numerical sensitivity
+
+`getDerivativeTex(parameter)` builds a bounded derivative expression from a straight-line source MathIR. It applies sum, product, quotient and chain rules through local bindings without executing them. For bare `sin`, `cos` and `sqrt` calls it verifies that the lexical binding still resolves to the corresponding Arda builtin. Unsupported source and dynamic calls yield `mun`. Algebraic simplification is formal over the original real domain.
+
+`getSensitivity(args)` is the numerical query. It executes the callback once with tracked arguments, then obtains partial derivatives from the resulting AD tape. Its values apply at the supplied point and reflect actual runtime dispatch. Static MathIR and numerical AD own independent graphs. [Runtime contracts](../../docs/VILYA_RUNTIME.md#sensitivity-and-uncertainty)

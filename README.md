@@ -8,15 +8,15 @@ Arda is an independent, open-source, research-driven scientific programming lang
 
 Its long-term goal is to combine scientifically validated numerical algorithms with adaptive execution, from ordinary laptops to distributed research clusters. The language brings native numerical data structures and algorithms to an indentation-based runtime for physics, engineering, and other computational research.
 
-**Current version** — Arda 0.16.2 — Typed Tensors and File Storage
+**Published version** — Arda 0.16.5 — Scientific Types
 
 *Development codename: Mithril*
 
-**Next milestone** — Arda 0.16.3 — Buffer Pools, Workspace Reservations, and Memory Budgets
+**Development version** — Arda 0.17.4 — Memory-Efficient Differentiable Programming
 
 **Wiki** — [Quickstart, language and module guides, and AMDE examples](https://github.com/Saxermi/Arda/wiki)
 
-Arda supports typed tensors, read-only tensor file mapping, static mathematical queries, numerical solvers, and compact matrix operators. The optional LAPACK build adds randomized SVD for dense, sparse, and structured operators. [Tensor API and validation](research/implemented/typed-tensors.md)
+Arda supports typed tensors, budgeted tile I/O, streaming statistics, static mathematical queries, numerical solvers, and compact matrix operators. The optional LAPACK build adds randomized SVD for dense, sparse, and structured operators. [Tensor API and validation](research/implemented/typed-tensors.md)
 
 > **Development status:** Arda is an early-stage scientific language with dense and sparse tensors, bounded tensor-file reads, selected optimized CPU kernels, and scalar automatic differentiation. Automatic out-of-core planning, general mathematical introspection, and distributed HPC are roadmap goals.
 
@@ -39,7 +39,7 @@ Python, Julia, MATLAB, Mathematica, C++, Fortran and their ecosystems already of
 | **High-dimensional mathematics** | Exploit sparsity, matrix-free operators, low-rank factorizations and compressed tensors instead of blindly materializing enormous dense arrays. |
 | **Beyond-RAM computing** | Eventually process file-backed data and models in bounded chunks, with controlled I/O, prefetching and offloading. |
 | **Mathematical transparency** | Eventually describe equations, assumptions, algorithms and costs directly from functions without requiring a numerical run. |
-| **Numerical reliability** | Independent reference tests today; planned verification, uncertainty propagation, units and reproducible experiment records. |
+| **Numerical reliability** | Independent reference tests and SI quantities today, with uncertainty propagation and reproducible experiment records planned. |
 | **Scalable execution** | Preserve efficient local CPU execution while developing optional GPU, NUMA and MPI support for larger systems. |
 | **Accessibility** | A compact standalone runtime with approachable syntax and a portable baseline, suitable for education, research and embedded numerical applications. |
 
@@ -71,7 +71,7 @@ Beyond-RAM execution is not a promise that an SSD performs like RAM. Disk-backed
 
 ## Mathematical documentation and introspection
 
-The **Arda Mathematical Documentation Engine (AMDE)**, development codename *Rúmil*, documents selected native functions, straight-line user functions and supported single range loops. `nc.solve.getTex(3)` shows pivoted LU, and `nc.solve.getCost({"shape":[10,10]})` estimates arithmetic and buffer sizes from dimensions. [Query contracts](research/implemented/mathdoc.md) · [Runnable example](examples/mathdoc_queries.arda)
+The **Arda Mathematical Documentation Engine (AMDE)**, development codename *Rúmil*, documents selected native functions, straight-line user functions with bracket subscripts, and supported single range loops. `nc.solve.getTex(3)` shows pivoted LU, and `nc.solve.getCost({"shape":[10,10]})` estimates arithmetic and buffer sizes from dimensions. [Query contracts](research/implemented/mathdoc.md) · [Runnable example](examples/mathdoc_queries.arda)
 
 A simple energy function can be written today using existing language syntax:
 
@@ -176,7 +176,7 @@ Switching build configurations does not require `make clean`. The `arda` symlink
 tol numc as nc
 
 caro magnitude(x, y):
-    nan nc.sqrt(x*x + y*y)
+    nan sqrt(x*x + y*y)
 
 pedo(magnitude(3, 4))
 esta A = nc.array([[3, 2], [1, 2]])
@@ -184,16 +184,16 @@ esta b = nc.array([7, 5])
 pedo(nc.solve(A, b))
 ```
 
-Expected mathematical results: 5 and the vector [1, 2]. English aliases can be used instead:
+The results are 5 and the vector [1, 2]. You can also write the first example with English keywords:
 
 ```arda
-import numc as nc
-
 def magnitude(x, y):
-    return nc.sqrt(x*x + y*y)
+    return sqrt(x*x + y*y)
 
 print(magnitude(3, 4))
 ```
+
+The 0.17 development examples use both keyword styles. For lazy ranges, import precedence, and caught error maps, see [Vilya runtime contracts](docs/VILYA_RUNTIME.md).
 
 ## Implemented features
 
@@ -232,7 +232,11 @@ COO allows duplicates and explicit zeros; CSR uses strictly sorted columns withi
 
 ## Numerical standard library
 
-The `tensor` module supports typed CPU arrays and file-backed storage. Use `tensor.array(values,dtype[,shape])` for flat input, `tensor.cast` for explicit conversion, and `tensor.to_numc` to materialize a Float64 array for the existing kernels. Use `tensor.mmap` for read-only views or `tensor.read_block` for bounded reads that handle truncated files with an error. [Typed tensor and file contracts](research/implemented/typed-tensors.md)
+The `lowrank` module builds CP, Tucker, and tensor trains from factors or cores. It supports direct element access, contractions, and norms. Optional LAPACK provides TT-SVD and controlled tensor train rounding. [Low-rank tensor contracts](research/implemented/low-rank-tensors.md)
+
+The `units` module handles SI quantities, temperature scales, and dimensional compatibility for scalar and Float64 tensor arithmetic. Use `tensor.contract` to check a live tensor's shape and dtype and `tensor.spec` to describe logical dimensions with 64-bit integers. [Scientific type contracts](research/implemented/scientific-types.md) · [Runnable example](examples/scientific_types.arda)
+
+The `tensor` module supports typed CPU arrays, read-only mapping, bounded blocks and rectangular tiles. Use `tensor.array(values,dtype[,shape])` for flat input, `tensor.cast` for explicit conversion, and `tensor.to_numc` to materialize a Float64 array for the existing kernels. The `compute` module reports buffer and workspace usage and runs budgeted mean and variance directly on tensor files. [Typed tensor and file contracts](research/implemented/typed-tensors.md) · [Memory budgets and streaming](research/implemented/typed-tensors.md#memory-budgets-and-streaming)
 
 ### `numc`: dense arrays and linear algebra
 
@@ -253,7 +257,7 @@ pedo(nc.solve(A, nc.array([7, 5])))
 | `dot`, `norm`, `matmul`, `transpose`, `solve` | Dense vector/matrix algebra |
 | `sin`, `cos`, `exp`, `log`, `sqrt` | Elementwise mathematics |
 | `reshape`, `view`, `permute`, `copy`, `contiguous` | Tensor layout and views |
-| `get`, `set`, `at`, `put` | Element access and mutation |
+| `at`, `put` | Element access and mutation |
 
 Arrays are row-major Float64, with GC-traced ownership. Arithmetic `+ - * /` is elementwise with broadcasting; `matmul` is explicit and currently rank two. Reshape requires contiguous input with the same element count; views use positive steps; permutation and views share the backing buffer. Row indexing and `transpose` return copies. Equality is object identity, not an elementwise comparison. `bytes` measures logical data, not exclusive allocated storage. Some operations materialize non-contiguous inputs. The one-shot dense `solve` uses partial-pivoted LU and returns the solution.
 
@@ -285,11 +289,11 @@ pedo(nc.tolist(la.pinv(a)))  # [[0.25, 0, 0], [0, 1, 0]]
 | `calc.trapz(y,h)`, `calc.simpson(y,h)` | Composite rules on uniform samples |
 | `calc.fft(a)`, `calc.ifft(a)` | Radix-2 Cooley–Tukey, N×2 real/imaginary data |
 | `calc.rk4_linear(A,y0,h,steps)` | Native RK4 for y'=Ay |
-| `calc.lapack_solve(A,b)`, `calc.eigh(A)` | Optional LAPACK DGESV/DSYEV |
+| `calc.lapack_solve(A,b)` | Optional LAPACK DGESV |
 | `ode.integrate(f,a,b,n=100)` | Composite Simpson quadrature with callback |
 | `ode.rk4(f,t0,y0,h,steps)` | Classical explicit RK4, scalar/tensor state |
-| `ode.rk45(f,t0,y0,t1,h,rtol=1e-6,atol=1e-9,maxiter=100000)` | Adaptive Dormand–Prince 5(4), returns `[final_state,accepted_steps,rejected_steps]` |
-| `opt.lbfgs(f,x0,tolerance=1e-6,maxiter=500,memory=10)` | User-supplied gradient, L-BFGS with Armijo backtracking; returns `[x,iterations,gradient_norm,converged,value]` |
+| `ode.rk45(f,t0,y0,t1,h,rtol=1e-6,atol=1e-9,maxiter=100000)` | Adaptive Dormand–Prince 5(4), reports the solution and accepted and rejected step counts |
+| `opt.lbfgs(f,x0,tolerance=1e-6,maxiter=500,memory=10)` | L-BFGS with Armijo backtracking. The callback returns named value and gradient fields. |
 
 The `ode` and `opt` modules are written in Arda and embedded at build time. Callback functions should not mutate their inputs. FFT lengths must be powers of two up to 1,048,576. The optional LAPACK routines require a LAPACK build; `nc.solve` is available in the portable build. RK45 controls estimated local error, not a guaranteed global error. There is no general stiff solver or event detection yet.
 
@@ -297,7 +301,7 @@ The `ode` and `opt` modules are written in Arda and embedded at build time. Call
 
 The `special` module provides real Gamma, Beta, integer-order Bessel and error functions. Use `numerics.brent(f,a,b)` for a sign bracket, `numerics.newton(f,df,a,b)` when a derivative is available, and `numerics.quad(f,a,b)` for adaptive scalar integration. `numerics.linear(x,y)` and `numerics.spline(x,y)` return reusable interpolants. [API contracts](research/implemented/mathematical-library.md) · [Runnable example](examples/mathematical_library.arda)
 
-### `ad`: scalar automatic differentiation
+### `ad`: reverse-mode automatic differentiation
 
 ```arda
 tol ad
@@ -308,7 +312,15 @@ ad.backward(f)
 pedo(ad.value(f), ad.grad(x), ad.grad(y))
 ```
 
-Expected output: `15 8 3`. Scalar reverse-mode AD records a GC-managed DAG and accumulates gradients in reverse topological order. Supported arithmetic and elementary functions include `sin`, `cos`, `exp`, `log`, `sqrt`, `tanh`, and constant-exponent `pow`. `sgd` and `adam` return updated vectors; these are not general neural-network layers or tensor AD. See [learning example](examples/learning.arda).
+The output is `15 8 3`. The same module tracks dense Float64 tensors. Use `tensor` operations for differentiable reductions, broadcasting, batched matrix multiplication, and views. A successful `ad.backward` replaces gradients in the traversed graph. `ad.grad` returns `mun` before the first successful sweep. Optimizer updates are available as `opt.sgd` and `opt.adam`. [Tensor example](examples/tensor_autodiff.arda) · [Scalar learning example](examples/learning.arda)
+
+Use `ad.vjp` and `ad.jvp` for seeded derivative products and `ad.jacobian` or `ad.hessian` for small dense derivatives. `ad.zero_grad` clears the stored gradient. `ad.detach` exposes a primal alias, and `ad.no_grad(f, ...)` runs a callable with recording disabled. Canonical CSR matrix-vector products can differentiate an explicit vector of stored values. [Vilya 0.17.1 API](docs/VILYA_RUNTIME.md#gradient-queries-and-sparse-matvec)
+
+For training loops, an optional backward mode releases temporary adjoints after their last use and publishes gradients only for selected nodes. Use `ad.checkpoint` to retain the boundaries of a pure elementwise segment and recompute its intermediates. Use `ad.offload` to store selected activations in temporary files under an explicit disk quota. [Memory-efficient backward, checkpoints, and activation offloading](docs/VILYA_RUNTIME.md#activation-offloading)
+
+### Sensitivity and uncertainty
+
+Use `f.getSensitivity([arg1,arg2])` for signed absolute and relative sensitivities of a scalar model at a supplied point. `f.getDerivativeTex("arg1")` shows a formal derivative for supported scalar MathIR expressions. The `uncertainty` module propagates diagonal and factored covariances and supports seeded Gaussian Monte Carlo. Use `ad.hvp(loss,x,direction)` for a Hessian-vector product on the recorded tape. [Runtime contracts](docs/VILYA_RUNTIME.md#sensitivity-and-uncertainty) · [Runnable example](examples/sensitivity_uncertainty.arda)
 
 ### `high`: structured and high-dimensional numerical methods
 
@@ -318,10 +330,10 @@ Expected output: `15 8 3`. Scalar reverse-mode AD records a GC-managed DAG and a
 | `poisson(b,tolerance,maxiter)` | Matrix-free negative discrete Laplacian with homogeneous exterior Dirichlet conditions and unit spacing |
 | `laplace(x)` | Apply the same negative discrete Laplacian |
 | `lstsq(A,b,tolerance,maxiter)` | Rectangular CGLS without explicitly forming AᵀA |
-| `axpy(x,y,a)`, `inner(x,y)`, `sum_axis(x,axis)` | Fused scale/add, tensor inner product, axis reduction |
+| `axpy(x,y,a)`, `inner(x,y)` | Fused scale/add and tensor inner product |
 | `finite(x)`, `rkerror(y,z,low,rtol,atol)` | Finite checks and weighted RMS error estimator |
 
-The iterative solvers return `[solution,iterations,relative_residual,converged]`. CG/Poisson use the relative data residual; CGLS uses the relative normal-equation residual. SPD is a caller assumption, with symmetry checks and numerical breakdown detection; convergence and accuracy are not universally guaranteed. The matrix-free Poisson solver does not allocate an N×N matrix: its per-iteration work is O(dN) for d axes and N grid points, and its working storage is O(N). See [high-dimensional examples](examples/highdim.arda).
+The iterative solvers return maps with `solution`, `iterations`, `residual`, `converged`, and `reason`. CG/Poisson use the relative data residual; CGLS uses the relative normal-equation residual. SPD is a caller assumption, with symmetry checks and numerical breakdown detection; convergence and accuracy are not universally guaranteed. The matrix-free Poisson solver does not allocate an N×N matrix: its per-iteration work is O(dN) for d axes and N grid points, and its working storage is O(N). See [high-dimensional examples](examples/highdim.arda).
 
 ## Language identity
 
@@ -343,7 +355,7 @@ Both keyword spellings are supported and can be mixed. Each pair maps to the sam
 | `nost` | `class` | Class |
 | `tol` | `import` | Module import |
 
-Blocks use `:` and spaces for indentation; semicolons and indentation tabs are rejected. Strings are UTF-8 and index Unicode code points. Integer arithmetic is checked signed 64-bit; floating-point arithmetic uses double precision. Modules are resolved relative to the importing file and cached per VM. Use ordinary English scientific API names regardless of keyword dialect.
+Blocks use `:` and spaces for indentation; semicolons and indentation tabs are rejected. Strings are UTF-8 and index Unicode code points. Integer arithmetic is checked signed 64-bit; floating-point arithmetic uses double precision. Bare standard-module names resolve through the standard library. Quoted paths resolve from the importing file. Modules are cached per VM. Use ordinary English scientific API names regardless of keyword dialect.
 
 ## Tools and project layout
 

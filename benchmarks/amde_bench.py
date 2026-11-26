@@ -36,7 +36,7 @@ esta b = nc.ones(256,256)
 esta c = nc.matmul(a,b)
 an i in range(8):
     c = nc.matmul(a,b)
-pedo(nc.get(c,255,255))
+pedo(nc.at(c,[255,255]))
 """, "256"),
     }
 

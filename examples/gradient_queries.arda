@@ -1,0 +1,8 @@
+import "std:tensor" as t
+tol ad
+
+let x = ad.variable(t.array([2, 3], "float64"))
+esta f = t.sum(x*x*x)
+print("VJP", t.tolist(ad.vjp(f, x)))
+pedo("Hessian", t.tolist(ad.hessian(f, x)))
+print("Independent directional derivative", ad.jvp(f, x, t.array([1, -1], "float64")))

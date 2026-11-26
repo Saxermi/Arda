@@ -69,7 +69,7 @@ class ProbabilityTests(unittest.TestCase):
         try:
             r.normal(g,1.7e308,1.7e308,100)
         catch e:
-            pedo(e)
+            pedo(e["message"])
         pedo(r.uint32(g))
         """, "normal sample is outside the Float64 range\n2707161783", stress=True)
 

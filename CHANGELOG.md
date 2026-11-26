@@ -2,6 +2,54 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
+## 0.17.4 — Sensitivity and Uncertainty
+
+- Added local scalar-output sensitivity reports and static symbolic derivative TeX for supported MathIR expressions.
+- Added Hessian-vector products and linear propagation with diagonal or factored covariance, including covariance-vector products for tensor outputs.
+- Added seeded streaming Gaussian Monte Carlo estimates of scalar output moments. [Runtime contracts](docs/VILYA_RUNTIME.md#sensitivity-and-uncertainty)
+- Validated the 1,000-step checkpoint benchmark and documented a proposed ownership and reduction contract for distributed training. [Benchmark results](research/implemented/optimization-and-ad.md#vilya-a1-checkpoint-benchmark) · [Draft contract](research/planned/computing-systems.md#draft-distributed-parameter-and-gradient-ownership-contract)
+
+## 0.17.3 — Budgeted Activation Offloading
+
+- Added opt-in snapshots of selected dense Float64 activations in temporary files under an explicit disk quota.
+- Derivative sweeps read saved activations in bounded chunks and can combine spilling with elementwise checkpoint replay.
+- Added counters for disk usage, writes, reads, and checkpoint replay work. [Runtime contracts](docs/VILYA_RUNTIME.md#activation-offloading)
+
+## 0.17.2 — Memory-Efficient Backward and Checkpoints
+
+- Added selected-gradient backward with last-use scratch recycling and explicit release of the output's tape after a successful sweep.
+- Added sample-weighted accumulation of batch-mean gradients.
+- Added deterministic checkpoint replay for dense elementwise tape segments. Replay preserves captured random samples and the gradient contracts. [Vilya runtime contracts](docs/VILYA_RUNTIME.md#memory-efficient-backward-and-checkpoints)
+
+## 0.17.1 — Gradient Controls and Derivative Queries
+
+- Added explicit gradient clearing, zero-copy detachment, and a dynamically scoped no-grad call.
+- Added VJP, JVP, dense Jacobian and scalar-output Hessian queries over recorded operations.
+- Added CSR matrix-vector differentiation for the dense input and separately supplied values in fixed structural order. [Vilya runtime contracts](docs/VILYA_RUNTIME.md#gradient-queries-and-sparse-matvec)
+
+## 0.17.0 — Vilya runtime and tensor autodiff
+
+- Extended reverse-mode autodiff to dense Float64 tensors. Backward checks saved tensor versions and publishes gradients after a successful sweep.
+- Added lazy Int64 ranges, explicit standard-library imports, structured caught errors, and named reports for iterative solvers.
+- Retired redundant dense access names and the legacy axis sum. Moved SGD and Adam to `opt`. Migrated examples and callbacks to the new contracts. [Vilya runtime contracts](docs/VILYA_RUNTIME.md)
+
+## 0.16.5 — Scientific Types
+
+- Added SI quantities with dimension-checked arithmetic, explicit conversion, absolute and interval temperatures, and Float64 tensor products and sums.
+- Added metadata-only shape and dtype assertions, 64-bit logical shape specifications, and MathIR notation for straight-line subscripts.
+- Extended the bounded direct-evaluation check for near-cancelling inner products to CP, Tucker, and tensor trains. [Scientific type contracts](research/implemented/scientific-types.md) · [Low-rank tensor contracts](research/implemented/low-rank-tensors.md)
+
+## 0.16.4 — Low-Rank Tensors
+
+- Added immutable CP, Tucker, and tensor train representations with element access, contraction, norms, same-format dot products, and explicit materialization.
+- Added optional LAPACK TT-SVD and controlled tensor train rounding with a discarded-tail estimate. [Low-rank tensor contracts](research/implemented/low-rank-tensors.md)
+
+## 0.16.3 — Tensor Memory Budgets and Tiled I/O
+
+- Added per-VM tensor buffer budgets, byte counters and a reusable workspace buffer.
+- Added explicit block iteration and tile reads and atomic tile writes for tensor files.
+- Added workspace planning and streaming mean and population variance. [Memory budgets and streaming](research/implemented/typed-tensors.md#memory-budgets-and-streaming)
+
 ## 0.16.2 — Tensor File Storage
 
 - Added read-only memory mapping, bounded block reads and atomic tensor file creation with a per-file byte budget. [Tensor contracts and validation](research/implemented/typed-tensors.md)

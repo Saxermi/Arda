@@ -18,4 +18,4 @@ esta m = nc.ones(256, 256)
 esta t = time.monotonic()
 esta product = nc.matmul(m, m)
 esta elapsed = time.monotonic() - t
-pedo(nc.get(product, 0, 0), elapsed, nc.backend())
+pedo(nc.at(product,[0,0]), elapsed, nc.backend())

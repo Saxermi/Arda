@@ -1,4 +1,4 @@
-#include "typed_tensor.h"
+#include "autodiff.h"
 
 static int is_tensor(Val x) {
     return isobj(x, O_TYPED_TENSOR) || isobj(x, O_ARRAY);
@@ -51,14 +51,20 @@ TypedTensor typed_layout(VM *v, DType dtype, int rank, const int *shape) {
     return result;
 }
 
-static void materializable(VM *v, const TypedTensor *t) {
+bool typed_materializable(const TypedTensor *t) {
     size_t span = 1;
     for (int i = 0; i < t->rank; i++) {
         size_t length = t->shape[i] ? (size_t)t->shape[i] : 1;
         if (span > ARDA_MAX_ELEMENTS / length)
-            vmerror(v, "tensor allocation limit: 16000000 elements; use block access");
+            return false;
         span *= length;
     }
+    return true;
+}
+
+static void require_materializable(VM *v, const TypedTensor *t) {
+    if (!typed_materializable(t))
+        vmerror(v, "tensor allocation limit: 16000000 elements; use block access");
 }
 
 Obj *typed_wrap(VM *v, TypedTensor layout) {
@@ -70,7 +76,7 @@ Obj *typed_wrap(VM *v, TypedTensor layout) {
 
 Obj *typed_new(VM *v, DType dtype, int rank, const int *shape) {
     TypedTensor t = typed_layout(v, dtype, rank, shape);
-    materializable(v, &t);
+    require_materializable(v, &t);
     t.buffer = buffer_new(v, t.n * dtype_info[dtype].size);
     return typed_wrap(v, t);
 }
@@ -115,7 +121,7 @@ static const Obj *list_input(VM *v, Val x) {
     return x.o;
 }
 
-static int get_shape(VM *v, Val x, int *shape) {
+int typed_dimensions(VM *v, Val x, int *shape) {
     const Obj *obj = list_input(v, x);
     int rank = obj->as.list.n;
     if (rank < 1 || rank > 8)
@@ -179,7 +185,7 @@ static Val tolist(VM *v, const TypedTensor *t, int axis, ptrdiff_t pos) {
 
 static TypedTensor strided_view(VM *v, const TypedTensor *src, Val shape, Val strides, Val offset) {
     int dims[8];
-    int rank = get_shape(v, shape, dims);
+    int rank = typed_dimensions(v, shape, dims);
     const Obj *steps = list_input(v, strides);
     if (!typed_contiguous(src) || steps->as.list.n != rank || offset.t != V_INT || offset.i < 0 ||
         (uint64_t)offset.i > src->n)
@@ -240,7 +246,7 @@ static DType scalar_dtype(TensorScalar s) {
 
 static int broadcast(VM *v, int x, int y) {
     if (x != y && x != 1 && y != 1)
-        vmerror(v, "tensor shape mismatch (broadcast)");
+        vmerror_kind(v, "shape", "tensor shape mismatch (broadcast)");
     return x == 1 ? y : x;
 }
 
@@ -327,7 +333,7 @@ static TypedTensor without_axis(TypedTensor t, int axis) {
 
 static Obj *matmul(VM *v, TypedTensor a, TypedTensor b) {
     if (a.rank < 2 || b.rank < 2 || a.shape[a.rank - 1] != b.shape[b.rank - 2])
-        vmerror(v, "tensor matmul requires compatible matrix axes");
+        vmerror_kind(v, "shape", "tensor matmul requires compatible matrix axes");
     int da = a.rank - 1, db = b.rank - 2;
     int rank = a.rank > b.rank ? a.rank : b.rank, dims[8];
     TypedTensor batches_a = a, batches_b = b;
@@ -340,6 +346,13 @@ static Obj *matmul(VM *v, TypedTensor a, TypedTensor b) {
     DType type = accumulator(dtype_promote(a.dtype, b.dtype, OP_MUL));
     Obj *out = typed_new(v, type, rank, dims);
     TypedTensor *dst = &out->as.tensor;
+    if (rank == 2 && a.dtype == DT_F64 && b.dtype == DT_F64 && typed_contiguous(&a) &&
+        typed_contiguous(&b)) {
+        dense_matmul_into(m, a.shape[da], n, (const double *)typed_element(&a, (ptrdiff_t)a.offset),
+                          (const double *)typed_element(&b, (ptrdiff_t)b.offset),
+                          (double *)typed_element(dst, 0));
+        return out;
+    }
     for (size_t i = 0; i < dst->n; i++) {
         size_t row = i / (size_t)n % (size_t)m, col = i % (size_t)n;
         size_t batch = i / ((size_t)m * n);
@@ -467,23 +480,159 @@ static Val einsum(VM *v, const char *spec, TypedTensor a, TypedTensor b) {
     return objval(out);
 }
 
-static TensorScalar sum_axis(VM *v, const TypedTensor *t, int axis, ptrdiff_t base, DType dtype) {
+static TensorScalar sum_axis(VM *v, const TypedTensor *t, int axis, ptrdiff_t base, DType dtype,
+                             bool mean) {
+    if (dtype == DT_F64) {
+        long double sum = 0;
+        for (int i = 0; i < t->shape[axis]; i++) {
+            TensorScalar x = element(t, base + i * t->stride[axis]);
+            sum += x.kind <= SC_INT ? (long double)x.i : (long double)x.re;
+        }
+        return (TensorScalar){.kind = SC_REAL, .re = (double)(mean ? sum / t->shape[axis] : sum)};
+    }
     TensorScalar s = {.kind = dtype_info[dtype].kind};
     for (int i = 0; i < t->shape[axis]; i++)
         s = dtype_binary(v, OP_ADD, dtype, s, element(t, base + i * t->stride[axis]));
     return s;
 }
 
-static Val sum(VM *v, const TypedTensor *t, int axis) {
-    DType dtype = accumulator(t->dtype);
+static Val reduce(VM *v, const TypedTensor *t, int axis, bool mean, bool legacy_float64) {
+    if (mean && dtype_info[t->dtype].kind == SC_COMPLEX)
+        vmerror_kind(v, "dtype", "mean requires a real tensor");
+    DType dtype = mean ? DT_F64 : accumulator(t->dtype);
+    if (axis < 0) {
+        if (dtype == DT_F64) {
+            long double sum = 0;
+            for (size_t i = 0; i < t->n; i++) {
+                TensorScalar x = element(t, typed_offset(t, i));
+                sum += x.kind <= SC_INT ? (long double)x.i : (long double)x.re;
+            }
+            return number((double)(mean ? sum / t->n : sum));
+        }
+        TensorScalar sum = {.kind = dtype_info[dtype].kind};
+        for (size_t i = 0; i < t->n; i++)
+            sum = dtype_binary(v, OP_ADD, dtype, sum, element(t, typed_offset(t, i)));
+        return dtype_value(v, sum);
+    }
     if (t->rank == 1)
-        return dtype_value(v, sum_axis(v, t, axis, (ptrdiff_t)t->offset, dtype));
-    TypedTensor layout = without_axis(*t, axis);
-    Obj *result = typed_new(v, dtype, layout.rank, layout.shape);
-    TypedTensor *dst = &result->as.tensor;
-    for (size_t i = 0; i < dst->n; i++)
-        store(v, dst, (ptrdiff_t)i, sum_axis(v, t, axis, typed_offset(&layout, i), dtype));
+        return dtype_value(v, sum_axis(v, t, axis, (ptrdiff_t)t->offset, dtype, mean));
+    TypedTensor view = without_axis(*t, axis);
+    Obj *result = legacy_float64 ? tensor_new(v, view.rank, view.shape)
+                                 : typed_new(v, dtype, view.rank, view.shape);
+    TypedTensor dst = typed_tensor(v, objval(result));
+    for (size_t i = 0; i < dst.n; i++)
+        store(v, &dst, (ptrdiff_t)i, sum_axis(v, t, axis, typed_offset(&view, i), dtype, mean));
     return objval(result);
+}
+
+Val typed_sum_axis(VM *v, const TypedTensor *t, int axis, bool legacy_float64) {
+    return reduce(v, t, axis, false, legacy_float64);
+}
+
+static Obj *reshape(VM *v, TypedTensor t, Val target) {
+    int shape[8];
+    int rank = typed_dimensions(v, target, shape);
+    TypedTensor dst = typed_layout(v, t.dtype, rank, shape);
+    if (!typed_contiguous(&t) || t.n != dst.n)
+        vmerror_kind(v, "shape", "reshape requires contiguous input with the same element count");
+    dst.buffer = t.buffer;
+    dst.offset = t.offset;
+    dst.readonly = t.readonly;
+    return typed_wrap(v, dst);
+}
+
+static int slice_bound(VM *v, Val val, int length, int fallback) {
+    if (val.t == V_NIL)
+        return fallback;
+    if (val.t != V_INT)
+        vmerror_kind(v, "index", "slice bounds must be integers");
+    int64_t i = val.i;
+    if (i < 0)
+        i += length;
+    return i < 0 ? 0 : i > length ? length : (int)i;
+}
+
+static Obj *slice_tensor(VM *v, TypedTensor t, int axis, Val lo, Val hi, Val step, int *params) {
+    int length = t.shape[axis];
+    int first = slice_bound(v, lo, length, 0), end = slice_bound(v, hi, length, length);
+    if (step.t != V_INT || step.i <= 0 || step.i > INT_MAX)
+        vmerror_kind(v, "index", "slice step must be a positive integer");
+    int width = (int)step.i;
+    t.shape[axis] = first < end ? 1 + (end - first - 1) / width : 0;
+    TypedTensor shape = typed_layout(v, t.dtype, t.rank, t.shape);
+    t.n = shape.n;
+    if (t.n)
+        t.offset = (size_t)((ptrdiff_t)t.offset + first * t.stride[axis]);
+    t.stride[axis] = t.n && t.shape[axis] > 1 ? t.stride[axis] * width : 0;
+    params[0] = first;
+    params[1] = width;
+    return typed_wrap(v, t);
+}
+
+static const Obj *contract_dimensions(VM *v, Val shape, bool wildcard) {
+    const Obj *dims = list_input(v, shape);
+    if (dims->as.list.n < 1 || dims->as.list.n > 8)
+        vmerror(v, "tensor contract shape rank must be between 1 and 8");
+    for (int d = 0; d < dims->as.list.n; d++) {
+        Val length = dims->as.list.a[d];
+        if (!(wildcard && length.t == V_NIL) && (length.t != V_INT || length.i < 0))
+            vmerror(v, "tensor contract dimensions require nonnegative integers");
+    }
+    return dims;
+}
+
+static Val tensor_contract(VM *v, Val input, Val shape, Val type) {
+    const Obj *dims = contract_dimensions(v, shape, true);
+    TypedTensor t = {.dtype = DT_F64};
+    if (isobj(input, O_LOWRANK)) {
+        const LowRankTensor *lowrank = &input.o->as.lowrank;
+        t.rank = lowrank->rank;
+        memcpy(t.shape, lowrank->shape, (size_t)t.rank * sizeof *t.shape);
+    } else
+        t = typed_tensor(v, input);
+    if (dims->as.list.n != t.rank)
+        vmerror_kind(v, "shape", "tensor contract rank mismatch");
+    if (type.t != V_NIL && dtype_parse(v, type) != t.dtype)
+        vmerror_kind(v, "dtype", "tensor contract dtype mismatch");
+    for (int d = 0; d < t.rank; d++)
+        if (dims->as.list.a[d].t != V_NIL && dims->as.list.a[d].i != t.shape[d])
+            vmerror_kind(v, "shape", "tensor contract dimension mismatch at axis %d", d);
+    return input;
+}
+
+static Val tensor_spec(VM *v, Val shape, DType dtype) {
+    const Obj *dims = contract_dimensions(v, shape, false);
+    Obj *copy = list(v);
+    int64_t elements = 1;
+    size_t span = 1;
+    bool empty = false, overflow = false, materializable = true;
+    for (int d = 0; d < dims->as.list.n; d++) {
+        Val dim = dims->as.list.a[d];
+        int64_t length = dim.i ? dim.i : 1;
+        append(v, copy, dim);
+        empty |= dim.i == 0;
+        if (overflow || elements > INT64_MAX / length)
+            overflow = true;
+        else
+            elements *= length;
+        if (!materializable || (uint64_t)length > ARDA_MAX_ELEMENTS / span)
+            materializable = false;
+        else
+            span *= (size_t)length;
+    }
+    if (empty) {
+        elements = 0;
+        overflow = false;
+    }
+    int64_t size = (int64_t)dtype_info[dtype].size;
+    Obj *out = newobj(v, O_MAP);
+    tableset(v, out, &out->as.map.tab, "shape", objval(copy));
+    tableset(v, out, &out->as.map.tab, "dtype", objval(string(v, dtype_info[dtype].name)));
+    tableset(v, out, &out->as.map.tab, "elements", overflow ? nil() : integer(elements));
+    tableset(v, out, &out->as.map.tab, "bytes",
+             overflow || elements > INT64_MAX / size ? nil() : integer(elements * size));
+    tableset(v, out, &out->as.map.tab, "materializable", boolean(materializable));
+    return objval(out);
 }
 
 static size_t flat_index(VM *v, Val x, size_t length) {
@@ -518,7 +667,7 @@ static Obj *mask(VM *v, const TypedTensor *t, const TypedTensor *flags) {
     if (flags->dtype != DT_BOOL || flags->rank != t->rank ||
         memcmp(t->shape, flags->shape, (size_t)t->rank * sizeof(*t->shape)))
         vmerror(v, "tensor mask requires a bool tensor with the same shape");
-    materializable(v, t);
+    require_materializable(v, t);
     int selected = 0;
     for (size_t i = 0; i < t->n; i++)
         selected += element(flags, typed_offset(flags, i)).i != 0;
@@ -578,50 +727,123 @@ enum {
     EINSUM,
     MMAP,
     READ_BLOCK,
-    SAVE
+    SAVE,
+    BLOCKS,
+    CLOSE_BLOCKS,
+    READ_TILE,
+    WRITE_TILE,
+    CONTRACT,
+    SPEC,
+    RESHAPE,
+    SLICE,
+    MEAN,
+    SIN,
+    COS,
+    EXP,
+    LOG,
+    SQRT
 };
-static const char *const names[] = {"array",     "zeros",   "cast",     "dtype",      "shape",
-                                    "bytes",     "tolist",  "at",       "put",        "view",
-                                    "permute",   "to_numc", "readonly", "matmul",     "sum",
-                                    "tensordot", "gather",  "scatter",  "mask",       "fft",
-                                    "ifft",      "einsum",  "mmap",     "read_block", "save"};
-static const int arities[] = {2, 2, 2, 1, 1, 1, 1, 2, 3, 4, 2, 1, 1,
-                              2, 2, 4, 2, 3, 2, 1, 1, 3, 1, 3, 2};
+static const char *const names[] = {
+    "array",      "zeros",     "cast",       "dtype",   "shape",   "bytes",        "tolist",
+    "at",         "put",       "view",       "permute", "to_numc", "readonly",     "matmul",
+    "sum",        "tensordot", "gather",     "scatter", "mask",    "fft",          "ifft",
+    "einsum",     "mmap",      "read_block", "save",    "blocks",  "close_blocks", "read_tile",
+    "write_tile", "contract",  "spec",       "reshape", "slice",   "mean",         "sin",
+    "cos",        "exp",       "log",        "sqrt"};
+static const int arities[] = {2, 2, 2, 1, 1, 1, 1, 2, 3, 4, 2, 1, 1, 2, 2, 4, 2, 3, 2, 1,
+                              1, 3, 1, 3, 2, 2, 1, 3, 3, 2, 2, 2, 4, 2, 1, 1, 1, 1, 1};
 _Static_assert(sizeof names / sizeof *names == sizeof arities / sizeof *arities, "tensor arities");
 
 Val typed_tensor_call(VM *v, int id, int argc, Val *args) {
     int op = id - TYPED_TENSOR_BASE;
     if (op < 0 || (size_t)op >= sizeof names / sizeof *names ||
-        (argc != arities[op] && !((op == ARRAY || op == SAVE) && argc == 3)))
+        (argc != arities[op] && !((op == ARRAY || op == SAVE) && argc == 3) &&
+         !(op == WRITE_TILE && argc == 4) && !(op == CONTRACT && argc == 3) &&
+         !((op == SUM || op == MEAN) && argc == 1) && !(op == SLICE && argc == 5)))
         vmerror(v, "invalid tensor API arity");
+    Val left = args[0], primal = ad_primal(left);
+    bool tracked = isobj(left, O_AD);
+    bool rhs_tracked = op == MATMUL && isobj(args[1], O_AD);
+    if (tracked || rhs_tracked) {
+        switch (op) {
+        case MATMUL:
+            ad_validate(v, args[1]);
+            /* fall through */
+        case SUM:
+        case MEAN:
+        case RESHAPE:
+        case SLICE:
+        case AT:
+        case VIEW:
+        case PERMUTE:
+        case READONLY:
+            ad_validate(v, left);
+            break;
+        case SHAPE:
+        case DTYPE:
+        case BYTES:
+        case CONTRACT:
+        case SIN:
+        case COS:
+        case EXP:
+        case LOG:
+        case SQRT:
+            break;
+        default:
+            vmerror_kind(v, "autodiff", "unsupported tensor operation on differentiated input");
+        }
+    }
+    if (op == CONTRACT) {
+        tensor_contract(v, primal, args[1], argc == 3 ? args[2] : nil());
+        return left;
+    }
+    if (op == SPEC)
+        return tensor_spec(v, args[0], dtype_parse(v, args[1]));
     if (op == MMAP)
         return tensor_mmap(v, args[0]);
     if (op == READ_BLOCK)
         return tensor_read_block(v, args[0], args[1], args[2]);
     if (op == SAVE)
         return tensor_save(v, args[0], args[1], argc == 3 ? args[2] : nil());
+    if (op == BLOCKS)
+        return tensor_blocks(v, args[0], args[1]);
+    if (op == CLOSE_BLOCKS) {
+        if (!isobj(args[0], O_TENSOR_BLOCKS))
+            vmerror(v, "expected tensor blocks");
+        tensor_blocks_close(args[0].o);
+        return nil();
+    }
+    if (op == READ_TILE)
+        return tensor_read_tile(v, args[0], args[1], args[2]);
+    if (op == WRITE_TILE)
+        return tensor_write_tile(v, args[0], args[1], args[2], argc == 4 ? args[3] : nil());
     if (op == EINSUM)
         return einsum(v, asstr(v, args[0]), typed_tensor(v, args[1]), typed_tensor(v, args[2]));
     if (op == ARRAY || op == ZEROS) {
         int dims[8], rank;
         DType dtype = dtype_parse(v, args[1]);
         if (op == ZEROS) {
-            rank = get_shape(v, args[0], dims);
+            rank = typed_dimensions(v, args[0], dims);
             return objval(typed_new(v, dtype, rank, dims));
         }
         const Obj *values = list_input(v, args[0]);
         dims[0] = values->as.list.n;
-        rank = argc == 3 ? get_shape(v, args[2], dims) : 1;
+        rank = argc == 3 ? typed_dimensions(v, args[2], dims) : 1;
         TypedTensor layout = typed_layout(v, dtype, rank, dims);
         if (layout.n != (size_t)values->as.list.n)
-            vmerror(v, "tensor flat data length and shape differ");
+            vmerror_kind(v, "shape", "tensor flat data length and shape differ");
         Obj *out = typed_new(v, dtype, rank, dims);
         for (int i = 0; i < values->as.list.n; i++)
             store(v, &out->as.tensor, i, dtype_scalar(v, values->as.list.a[i]));
         return objval(out);
     }
 
-    TypedTensor t = typed_tensor(v, args[0]);
+    if (op >= SIN) {
+        static const ADOperation rules[] = {AD_SIN, AD_COS, AD_EXP, AD_LOG, AD_SQRT};
+        return ad_unary(v, rules[op - SIN], left, nil());
+    }
+
+    TypedTensor t = typed_tensor(v, primal);
     switch (op) {
     case CAST:
         return objval(cast(v, &t, dtype_parse(v, args[1])));
@@ -632,28 +854,70 @@ Val typed_tensor_call(VM *v, int id, int argc, Val *args) {
     case BYTES:
         return integer((int64_t)(t.n * dtype_info[t.dtype].size));
     case TOLIST:
-        materializable(v, &t);
+        require_materializable(v, &t);
         return tolist(v, &t, 0, (ptrdiff_t)t.offset);
-    case AT:
-        return dtype_value(v, element(&t, index_offset(v, &t, args[1])));
-    case PUT:
+    case AT: {
+        ptrdiff_t pos = index_offset(v, &t, args[1]);
+        Val result = dtype_value(v, element(&t, pos));
+        if (!tracked)
+            return result;
+        const Obj *indices = args[1].o;
+        int i = 0;
+        for (int d = 0; d < t.rank; d++)
+            i = i * t.shape[d] + indexnum(v, indices->as.list.a[d], t.shape[d]);
+        return ad_record(v, AD_AT, result, left, nil(), i, NULL);
+    }
+    case PUT: {
         if (t.readonly || t.buffer->as.buffer.readonly)
-            vmerror(v, "tensor is read-only");
-        store(v, &t, index_offset(v, &t, args[1]), dtype_scalar(v, args[2]));
+            vmerror_kind(v, "readonly", "tensor is read-only");
+        ptrdiff_t pos = index_offset(v, &t, args[1]);
+        unsigned char bytes[2 * sizeof(double)];
+        dtype_store(v, t.dtype, bytes, dtype_scalar(v, args[2]));
+        tensor_bump_version(v, t.buffer);
+        memcpy(typed_element(&t, pos), bytes, dtype_info[t.dtype].size);
         return nil();
-    case VIEW:
-        return objval(typed_wrap(v, strided_view(v, &t, args[1], args[2], args[3])));
-    case READONLY:
+    }
+    case VIEW: {
+        Val out = objval(typed_wrap(v, strided_view(v, &t, args[1], args[2], args[3])));
+        return tracked ? ad_record(v, AD_VIEW, out, left, nil(), 0, NULL) : out;
+    }
+    case READONLY: {
         t.readonly = true;
-        return objval(typed_wrap(v, t));
-    case PERMUTE:
-        return objval(permute(v, t, args[1]));
+        Val out = objval(typed_wrap(v, t));
+        return tracked ? ad_record(v, AD_RESHAPE, out, left, nil(), 0, NULL) : out;
+    }
+    case PERMUTE: {
+        Val out = objval(permute(v, t, args[1]));
+        if (!tracked)
+            return out;
+        int axes[8] = {0};
+        for (int d = 0; d < t.rank; d++)
+            axes[d] = indexnum(v, args[1].o->as.list.a[d], t.rank);
+        return ad_record(v, AD_PERMUTE, out, left, nil(), 0, axes);
+    }
     case TO_NUMC:
         return objval(to_numc(v, &t));
-    case MATMUL:
-        return objval(matmul(v, t, typed_tensor(v, args[1])));
+    case RESHAPE: {
+        Val out = objval(reshape(v, t, args[1]));
+        return tracked ? ad_record(v, AD_RESHAPE, out, left, nil(), 0, NULL) : out;
+    }
+    case SLICE: {
+        int axis = indexnum(v, args[1], t.rank), params[8] = {0};
+        Val out = objval(
+            slice_tensor(v, t, axis, args[2], args[3], argc == 5 ? args[4] : integer(1), params));
+        return tracked ? ad_record(v, AD_SLICE, out, left, nil(), axis, params) : out;
+    }
+    case MATMUL: {
+        Val out = objval(matmul(v, t, typed_tensor(v, ad_primal(args[1]))));
+        return tracked || rhs_tracked ? ad_record(v, AD_MATMUL, out, left, args[1], 0, NULL) : out;
+    }
     case SUM:
-        return sum(v, &t, indexnum(v, args[1], t.rank));
+    case MEAN: {
+        int axis = argc == 2 ? indexnum(v, args[1], t.rank) : -1;
+        Val out = reduce(v, &t, axis, op == MEAN, false);
+        return tracked ? ad_record(v, op == MEAN ? AD_MEAN : AD_SUM, out, left, nil(), axis, NULL)
+                       : out;
+    }
     case TENSORDOT: {
         TypedTensor rhs = typed_tensor(v, args[1]);
         return tensordot(v, t, rhs, indexnum(v, args[2], t.rank), indexnum(v, args[3], rhs.rank));

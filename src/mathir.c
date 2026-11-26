@@ -13,6 +13,7 @@ typedef enum {
     MI_EXTERNAL,
     MI_LOCAL,
     MI_INDEX,
+    MI_SUBSCRIPT,
     MI_STATE,
     MI_NEG,
     MI_ADD,
@@ -25,7 +26,7 @@ typedef enum {
 typedef struct {
     Kind kind;
     int a, b, next;
-    int64_t integer;
+    int64_t integer; // Literal value, or eligibility for a bare builtin call.
     double real;
     const char *name;
 } MathNode;
@@ -35,13 +36,13 @@ typedef struct {
     int index, accumulator, start, stop, step, update;
 } MathLoop;
 struct MathIR {
-    int count, result, has_calls, has_external;
+    int count, result, has_calls, has_external, has_subscript;
     const MathLoop *loop;
     MathNode nodes[];
 };
 typedef struct {
     MathNode nodes[MAX_NODES];
-    int count, has_calls, has_external;
+    int count, has_calls, has_external, has_subscript;
     const Node *fn;
     MathLoop loop;
 } Extract;
@@ -110,6 +111,15 @@ static int expression(Extract *e, const Node *n, int depth) {
             return -1;
         a = expression(e, n->a, depth + 1);
         return a < 0 ? -1 : add(e, MI_NEG, NULL, a, -1);
+    case N_INDEX:
+        if (e->loop.kind != NO_LOOP)
+            return -1;
+        a = expression(e, n->a, depth + 1);
+        if (a < 0)
+            return -1;
+        b = expression(e, n->b, depth + 1);
+        e->has_subscript = 1;
+        return b < 0 ? -1 : add(e, MI_SUBSCRIPT, NULL, a, b);
     case N_BINARY:
         switch (n->op) {
         case T_PLUS:
@@ -157,7 +167,11 @@ static int expression(Extract *e, const Node *n, int depth) {
                 first = arg;
             last = arg;
         }
-        return add(e, MI_CALL, callee->str, first, qualifier);
+        i = add(e, MI_CALL, callee->str, first, qualifier);
+        if (i >= 0 && qualifier < 0 && n->count == 1 && binding(e, callee->str) < 0 &&
+            parameter(e, callee->str) < 0)
+            e->nodes[i].integer = 1;
+        return i;
     }
     default:
         return -1;
@@ -220,7 +234,8 @@ static int loop_expression(Extract *e, const Node *loop, const Node *ret) {
     int stop = expression(e, last, 0);
     int step = expression(e, stride, 0);
     int index = add(e, MI_INDEX, loop->str, -1, -1);
-    if (start < 0 || stop < 0 || step < 0 || index < 0 || e->has_calls || e->has_external)
+    if (start < 0 || stop < 0 || step < 0 || index < 0 || e->has_calls || e->has_external ||
+        e->has_subscript)
         return 0;
     e->loop = (MathLoop){.kind = RECURRENCE,
                          .index = index,
@@ -267,7 +282,7 @@ static MathIR *extract(const Node *fn) {
                 if (value < 0 || add(&e, MI_BIND, s->str, value, -1) < 0)
                     return NULL;
             } else if (s->t == N_FOR && i == body->count - 2 && body->items[i + 1]->t == N_RETURN) {
-                if (!loop_expression(&e, s, body->items[i + 1]->a))
+                if (e.has_subscript || !loop_expression(&e, s, body->items[i + 1]->a))
                     return NULL;
             } else if (s->t == N_RETURN && i == body->count - 1) {
                 // The return in a supported loop is the final accumulator.
@@ -295,6 +310,7 @@ static MathIR *extract(const Node *fn) {
     ir->result = result;
     ir->has_calls = e.has_calls;
     ir->has_external = e.has_external;
+    ir->has_subscript = e.has_subscript;
     memcpy(ir->nodes, e.nodes, (size_t)e.count * sizeof(MathNode));
     char *dst = (char *)ir + bytes;
     ir->loop = NULL;
@@ -505,6 +521,13 @@ static void render(Writer *w, const MathIR *ir, int i, int expand, int minimum, 
         if (expand < 0)
             put(w, "_{\\mathsf{k}}");
         break;
+    case MI_SUBSCRIPT:
+        put(w, "{");
+        render(w, ir, n->a, expand, 4, depth + 1);
+        put(w, "}_{");
+        render(w, ir, n->b, expand, 0, depth + 1);
+        put(w, "}");
+        break;
     case MI_NEG:
         put(w, "-");
         render(w, ir, n->a, expand, 4, depth + 1);
@@ -643,6 +666,9 @@ const char *mathir_assumptions(const Proto *p) {
                "and at most 1000000 iterations. Numeric scalar accumulator operations assumed. "
                "The half-open range can be empty. A mathematical sum or product may round "
                "differently from the ordered source updates.";
+    if (p->mathir->has_subscript)
+        return "Subscripts show source indices. Operand types, shapes, bounds and dynamic "
+               "call targets are unresolved. The function is never evaluated by this query.";
     return "Source-level mathematical notation conditional on numeric operands and compatible "
            "operations. "
            "Level 0 may use formal identities for ordinary finite scalar real arithmetic; "
@@ -681,8 +707,10 @@ int mathir_tex(const Proto *p, int level, char *out, size_t size) {
     }
     if (level == 2) {
         put(&w, "\\text{Numeric operands assumed; types, shapes and domains unknown.}");
-        if (!ir->has_calls && !ir->has_external)
+        if (!ir->has_calls && !ir->has_external && !ir->has_subscript)
             put(&w, "\\quad\\text{Level 0 may use formal finite scalar real identities.}");
+        if (ir->has_subscript)
+            put(&w, "\\quad\\text{Subscripts show source indices; bounds unknown.}");
         if (ir->has_external)
             put(&w, "\\quad\\text{External values unresolved.}");
         if (ir->has_calls)
@@ -691,7 +719,7 @@ int mathir_tex(const Proto *p, int level, char *out, size_t size) {
     }
     /* For calls and external dependencies keep declarations visible rather
      * than expanding a possibly effectful expression multiple times. */
-    if (level == 0 && !ir->has_calls && !ir->has_external) {
+    if (level == 0 && !ir->has_calls && !ir->has_external && !ir->has_subscript) {
         signature(&w, p);
         put(&w, "=");
         render(&w, ir, ir->result, 1, 0, 0);
@@ -715,5 +743,147 @@ int mathir_tex(const Proto *p, int level, char *out, size_t size) {
     if (ir->has_external)
         put(&w, "\\\\\\text{External values unresolved.}&");
     put(&w, "\\end{aligned}");
+    return !w.failed;
+}
+
+typedef struct {
+    Extract derivative;
+    int memo[MAX_NODES];
+    int zero, one;
+    const char *parameter;
+    VM *vm;
+    Obj *environment;
+} Symbolic;
+
+static int combine(Symbolic *s, Kind kind, int a, int b) {
+    if (a < 0 || (kind != MI_NEG && b < 0))
+        return -1;
+    if (kind == MI_MUL && (a == s->zero || b == s->zero))
+        return s->zero;
+    if (kind == MI_MUL && a == s->one)
+        return b;
+    if (kind == MI_MUL && b == s->one)
+        return a;
+    if ((kind == MI_ADD || kind == MI_SUB) && b == s->zero)
+        return a;
+    if (kind == MI_ADD && a == s->zero)
+        return b;
+    if (kind == MI_NEG && a == s->zero)
+        return a;
+    return add(&s->derivative, kind, NULL, a, b);
+}
+
+static int differentiate(Symbolic *s, int i) {
+    if (s->memo[i] != -2)
+        return s->memo[i];
+    Extract *e = &s->derivative;
+    const MathNode *n = &e->nodes[i];
+    int d = -1;
+    switch (n->kind) {
+    case MI_INT:
+    case MI_REAL:
+        d = s->zero;
+        break;
+    case MI_PARAM:
+        d = !strcmp(n->name, s->parameter) ? s->one : s->zero;
+        break;
+    case MI_LOCAL:
+    case MI_BIND:
+        d = differentiate(s, n->a);
+        break;
+    case MI_NEG:
+        d = combine(s, MI_NEG, differentiate(s, n->a), -1);
+        break;
+    case MI_ADD:
+    case MI_SUB:
+    case MI_MUL:
+    case MI_DIV: {
+        int a = differentiate(s, n->a), b = differentiate(s, n->b);
+        if (a < 0 || b < 0)
+            break;
+        if (n->kind == MI_ADD || n->kind == MI_SUB) {
+            d = combine(s, n->kind, a, b);
+            break;
+        }
+        int left = combine(s, MI_MUL, a, n->b);
+        int right = combine(s, MI_MUL, n->a, b);
+        if (n->kind == MI_MUL)
+            d = combine(s, MI_ADD, left, right);
+        else {
+            int top = combine(s, MI_SUB, left, right);
+            int bottom = combine(s, MI_MUL, n->b, n->b);
+            d = combine(s, MI_DIV, top, bottom);
+        }
+        break;
+    }
+    case MI_CALL: {
+        if (!n->integer ||
+            (strcmp(n->name, "sin") && strcmp(n->name, "cos") && strcmp(n->name, "sqrt")))
+            break;
+        if (!vm_uses_builtin(s->vm, s->environment, n->name))
+            break;
+        int inner = differentiate(s, n->a);
+        if (inner < 0)
+            break;
+        if (!strcmp(n->name, "sqrt")) {
+            int two = add(e, MI_INT, NULL, -1, -1);
+            if (two < 0)
+                break;
+            e->nodes[two].integer = 2;
+            d = combine(s, MI_DIV, inner, combine(s, MI_MUL, two, i));
+        } else {
+            bool cosine = !strcmp(n->name, "cos");
+            int outer = add(e, MI_CALL, cosine ? "sin" : "cos", n->a, -1);
+            if (cosine)
+                outer = combine(s, MI_NEG, outer, -1);
+            d = combine(s, MI_MUL, outer, inner);
+        }
+        break;
+    }
+    default:
+        break;
+    }
+    s->memo[i] = d;
+    return d;
+}
+
+int mathir_derivative_tex(VM *v, Obj *function, const char *parameter, char *out, size_t size) {
+    const Proto *p = function->as.func.p;
+    const MathIR *source = p->mathir;
+    if (!source || source->loop || source->has_external || source->has_subscript || !size ||
+        source->count > MAX_NODES - 2)
+        return 0;
+    bool known = false;
+    for (int i = 0; i < p->arity; i++)
+        if (!strcmp(p->params[i], parameter))
+            known = true;
+    if (!known)
+        vmerror_kind(v, "domain", "unknown symbolic derivative parameter");
+    Symbolic s = {.parameter = parameter, .vm = v, .environment = function->as.func.env};
+    Extract *e = &s.derivative;
+    e->count = source->count;
+    memcpy(e->nodes, source->nodes, (size_t)e->count * sizeof *e->nodes);
+    for (int i = 0; i < e->count; i++)
+        s.memo[i] = -2;
+    s.zero = add(e, MI_INT, NULL, -1, -1);
+    s.one = add(e, MI_INT, NULL, -1, -1);
+    e->nodes[s.one].integer = 1;
+    int result = differentiate(&s, source->result);
+    if (result < 0)
+        return 0;
+
+    size_t bytes = (size_t)e->count * sizeof *e->nodes;
+    MathIR *ir = mem(sizeof *ir + bytes);
+    ir->count = e->count;
+    memcpy(ir->nodes, e->nodes, bytes);
+    Writer w = {.out = out, .size = size};
+    out[0] = '\0';
+    put(&w, "\\frac{\\partial ");
+    identifier(&w, p->name);
+    put(&w, "}{\\partial ");
+    identifier(&w, parameter);
+    put(&w, "}=");
+    render(&w, ir, result, 1, 0, 0);
+    free(ir);
     return !w.failed;
 }

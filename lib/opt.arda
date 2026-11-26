@@ -1,26 +1,45 @@
+tol "std:_optimizer" as _optimizer
+esta sgd = _optimizer.sgd
+esta adam = _optimizer.adam
 # Limited-memory BFGS, user supplies f(x) -> [objective, gradient tensor].
 tol numc as _nc
 tol high as _high
+caro _report(x, iterations, gradient_norm, converged, value, reason, evaluations):
+    qui converged:
+        reason = "converged"
+    esta result = {"solution": x, "iterations": iterations,
+                   "gradient_norm": gradient_norm, "converged": converged,
+                   "value": value, "reason": reason}
+    qui evaluations != mun:
+        result["evaluations"] = evaluations
+    nan result
+
+caro _objective(f, x):
+    esta result = f(x)
+    qui type(result) != "map":
+        throw {"code": "type", "message": "L-BFGS objective must return a map with value and gradient"}
+    nan result
+
 caro lbfgs(f, x0, tolerance = 0.000001, maxiter = 500, memory = 10):
     qui type(x0) != "array" or not _high.finite(x0) or _nc.bytes(x0) == 0 or not _high.finite(tolerance) or tolerance <= 0 or type(maxiter) != "int" or maxiter < 1 or type(memory) != "int" or memory < 1 or memory > 50:
-        throw "invalid L-BFGS configuration"
+        throw {"code": "user_error", "message": "invalid L-BFGS configuration"}
     esta x = _nc.copy(x0)
-    esta fg = f(x)
-    esta value = fg[0]
-    esta g = fg[1]
+    esta fg = _objective(f, x)
+    esta value = fg["value"]
+    esta g = fg["gradient"]
     esta ss = []
     esta ys = []
     esta rho = []
     esta it = 0
     tenna it < maxiter:
         qui not _high.finite(value) or not _high.finite(g):
-            throw "nonfinite L-BFGS objective or gradient"
+            throw {"code": "user_error", "message": "nonfinite L-BFGS objective or gradient"}
         # Also enforces matching tensor shape.
         esta gn = _nc.norm(g)
         esta q = _nc.copy(g)
         _high.inner(g,x)
         qui gn <= tolerance:
-            nan [x,it,gn,nae,value]
+            nan _report(x,it,gn,nae,value,"converged",mun)
         esta alphas = []
         esta j = len(ss)-1
         tenna j >= 0:
@@ -52,17 +71,17 @@ caro lbfgs(f, x0, tolerance = 0.000001, maxiter = 500, memory = 10):
         esta next = fg
         tenna attempt < 40:
             trial = _high.axpy(d,x,step)
-            next = f(trial)
-            qui _high.finite(next[0]) and _high.finite(next[1]) and next[0] <= value + 0.0001*step*slope:
-                _high.inner(next[1],x)
+            next = _objective(f, trial)
+            qui _high.finite(next["value"]) and _high.finite(next["gradient"]) and next["value"] <= value + 0.0001*step*slope:
+                _high.inner(next["gradient"],x)
                 found = nae
                 break
             step = step/2
             attempt = attempt+1
         qui not found:
-            nan [x,it,gn,law,value]
+            nan _report(x,it,gn,law,value,"line_search",mun)
         esta s = trial-x
-        esta y = next[1]-g
+        esta y = next["gradient"]-g
         esta sy = _high.inner(s,y)
         qui sy > 0.0000000001*_nc.norm(s)*_nc.norm(y) and _high.finite(sy) and _high.finite(1/sy):
             qui len(ss) == memory:
@@ -74,22 +93,22 @@ caro lbfgs(f, x0, tolerance = 0.000001, maxiter = 500, memory = 10):
             push(rho,1/sy)
         x = trial
         fg = next
-        value = fg[0]
-        g = fg[1]
+        value = fg["value"]
+        g = fg["gradient"]
         it = it+1
     esta gn = _nc.norm(g)
-    nan [x,it,gn,gn <= tolerance,value]
+    nan _report(x,it,gn,gn <= tolerance,value,"iteration_limit",mun)
 
 # Objective-only central differences with coordinate or seeded random directions.
 caro _zero_value(f, x):
     esta value = f(_nc.copy(x))
     qui type(value) != "float" and type(value) != "int":
-        throw "zeroth-order objective must return a real scalar"
+        throw {"code": "user_error", "message": "zeroth-order objective must return a real scalar"}
     nan float(value)
 
 caro _zero_derivative(above, below, span):
     qui not _high.finite(above) or not _high.finite(below) or not _high.finite(span) or span <= 0:
-        throw "nonfinite objective or unresolved zeroth-order probe"
+        throw {"code": "user_error", "message": "nonfinite objective or unresolved zeroth-order probe"}
     # Dividing the difference first avoids cancellation when the objectives
     # share a large offset. Split the terms if their difference overflowed.
     esta difference = above - below
@@ -106,7 +125,7 @@ caro _coordinate_gradient(f, x, radius):
         esta above = center + radius
         esta below = center - radius
         qui not _high.finite(above) or not _high.finite(below) or above <= below:
-            throw "nonfinite or unresolved zeroth-order probe"
+            throw {"code": "user_error", "message": "nonfinite or unresolved zeroth-order probe"}
         point[i] = above
         esta right = _zero_value(f,point)
         point[i] = below
@@ -122,24 +141,24 @@ caro _direction_gradient(f, x, radius, normal_sample, generator, directions):
         esta direction = normal_sample(generator,0,1,n)
         esta norm = _nc.norm(direction)
         qui norm == 0:
-            throw "zero random search direction"
+            throw {"code": "user_error", "message": "zero random search direction"}
         direction = direction/norm
         esta above = x + radius*direction
         esta below = x - radius*direction
         qui not _high.finite(above) or not _high.finite(below):
-            throw "nonfinite zeroth-order probe"
+            throw {"code": "user_error", "message": "nonfinite zeroth-order probe"}
         esta span = _high.inner(above-below,direction)
         qui span <= 0:
-            throw "unresolved zeroth-order probe"
+            throw {"code": "user_error", "message": "unresolved zeroth-order probe"}
         esta derivative = _zero_derivative(_zero_value(f,above),_zero_value(f,below),span)
         gradient = gradient + direction*(derivative*(n/directions))
     nan [gradient,2*directions]
 
 caro zeroth_order(f, x0, method = "coordinate", radius = 0.0001, tolerance = 0.000001, maxiter = 200, seed = 0, directions = 8):
     qui type(x0) != "array" or len(_nc.shape(x0)) != 1 or len(x0) < 1 or not _high.finite(x0):
-        throw "zeroth-order optimization requires a nonempty finite Float64 vector"
+        throw {"code": "user_error", "message": "zeroth-order optimization requires a nonempty finite Float64 vector"}
     qui (method != "coordinate" and method != "random") or not _high.finite(radius) or radius <= 0 or not _high.finite(tolerance) or tolerance <= 0 or type(maxiter) != "int" or maxiter < 1 or type(seed) != "int" or type(directions) != "int" or directions < 1:
-        throw "invalid zeroth-order optimization configuration"
+        throw {"code": "user_error", "message": "invalid zeroth-order optimization configuration"}
     esta generator = mun
     esta normal_sample = mun
     qui method == "random":
@@ -149,7 +168,7 @@ caro zeroth_order(f, x0, method = "coordinate", radius = 0.0001, tolerance = 0.0
     esta x = _nc.copy(x0)
     esta value = _zero_value(f,x)
     qui not _high.finite(value):
-        throw "nonfinite initial zeroth-order objective"
+        throw {"code": "user_error", "message": "nonfinite initial zeroth-order objective"}
     esta evaluations = 1
     esta iteration = 0
     tenna nae:
@@ -162,9 +181,9 @@ caro zeroth_order(f, x0, method = "coordinate", radius = 0.0001, tolerance = 0.0
         esta gradient = estimate[0]
         esta magnitude = _nc.norm(gradient)
         qui not _high.finite(magnitude):
-            throw "nonfinite zeroth-order gradient estimate"
+            throw {"code": "user_error", "message": "nonfinite zeroth-order gradient estimate"}
         qui magnitude <= tolerance or iteration == maxiter:
-            nan [x,iteration,magnitude,magnitude <= tolerance,value,evaluations]
+            nan _report(x,iteration,magnitude,magnitude <= tolerance,value,"iteration_limit",evaluations)
         esta step = 1
         esta attempt = 0
         esta improved = law
@@ -182,5 +201,5 @@ caro zeroth_order(f, x0, method = "coordinate", radius = 0.0001, tolerance = 0.0
             step = step/2
             attempt = attempt + 1
         qui not improved:
-            nan [x,iteration,magnitude,law,value,evaluations]
+            nan _report(x,iteration,magnitude,law,value,"line_search",evaluations)
         iteration = iteration + 1

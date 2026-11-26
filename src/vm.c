@@ -1,15 +1,72 @@
-#include "arda.h"
+#include "autodiff.h"
+#include "activation_store.h"
 #include "numerics_source.h"
 #include "ode_source.h"
 #include "opt_source.h"
+#include "uncertainty_source.h"
+static _Noreturn void jump_error(VM *v) {
+    offload_read_finish(v);
+    if (v->sparse_active)
+        sparse_abort(v);
+    longjmp(v->trap, 1);
+}
+
+_Noreturn void vmerror_kind(VM *v, const char *code, const char *fmt, ...) {
+    va_list a;
+    va_start(a, fmt);
+    vsnprintf(v->error, sizeof v->error, fmt, a);
+    va_end(a);
+    v->error_code = code;
+    v->thrown = nil();
+    jump_error(v);
+}
+
 _Noreturn void vmerror(VM *v, const char *fmt, ...) {
     va_list a;
     va_start(a, fmt);
     vsnprintf(v->error, sizeof v->error, fmt, a);
     va_end(a);
-    if (v->sparse_active)
-        sparse_abort(v);
-    longjmp(v->trap, 1);
+    v->error_code = "runtime_error";
+    v->thrown = nil();
+    jump_error(v);
+}
+
+int truth(VM *v, Val x) {
+    if (isobj(x, O_AD) && ad_disabled(v))
+        x = ad_primal(x);
+    if (isobj(x, O_ARRAY) || isobj(x, O_TYPED_TENSOR) || isobj(x, O_LOWRANK) ||
+        isobj(x, O_SPARSE) || isobj(x, O_AD) || isobj(x, O_QUANTITY))
+        vmerror_kind(v, "ambiguous_truth",
+                     "tensor, quantity or differentiated value needs an explicit scalar condition");
+    if (x.t == V_NIL || x.t == V_MISSING)
+        return 0;
+    if (x.t == V_INT)
+        return x.i != 0;
+    if (x.t == V_BOOL || x.t == V_NUM)
+        return x.n != 0;
+    if (isobj(x, O_COMPLEX))
+        return x.o->as.cplx.re != 0 || x.o->as.cplx.im != 0;
+    if (isobj(x, O_STRING))
+        return x.o->as.str.len != 0;
+    if (isobj(x, O_LIST))
+        return x.o->as.list.n != 0;
+    if (isobj(x, O_MAP))
+        return x.o->as.map.tab.n != 0;
+    if (isobj(x, O_RANGE))
+        return x.o->as.range.count != 0;
+    return 1;
+}
+
+static Val caught_error(VM *v) {
+    if (v->thrown.t != V_NIL)
+        return v->thrown;
+    Obj *out = newobj(v, O_MAP);
+    Table *tab = &out->as.map.tab;
+    tableset(v, out, tab, "code", objval(string(v, v->error_code)));
+    tableset(v, out, tab, "message", objval(string(v, v->error)));
+    tableset(v, out, tab, "file", objval(string(v, v->path ? v->path : "")));
+    tableset(v, out, tab, "line", integer(v->line));
+    return objval(out);
 }
 
 static void reserve(VM *v, int n) {
@@ -182,10 +239,16 @@ int64_t checked_arith(VM *v, Op op, int64_t x, int64_t y) {
 }
 
 static Val binary(VM *v, Op op, Val a, Val b) {
-    if (isobj(a, O_AD) || isobj(b, O_AD))
-        return ad_binary(v, op, a, b);
+    if (isobj(a, O_AD) || isobj(b, O_AD)) {
+        if (!ad_disabled(v))
+            return ad_binary(v, op, a, b);
+        a = ad_primal(a);
+        b = ad_primal(b);
+    }
     if (op == OP_EQ || op == OP_NE)
         return boolean(eq(a, b) ^ (op == OP_NE));
+    if (isobj(a, O_QUANTITY) || isobj(b, O_QUANTITY))
+        return units_binary(v, op, a, b);
     if (isobj(a, O_TYPED_TENSOR) || isobj(b, O_TYPED_TENSOR))
         return typed_tensor_binary(v, op, a, b);
     if (isobj(a, O_ARRAY) || isobj(b, O_ARRAY))
@@ -235,12 +298,8 @@ static Val binary(VM *v, Op op, Val a, Val b) {
     case OP_MUL:
         return number(x * y);
     case OP_DIV:
-        if (y == 0)
-            vmerror(v, "division by zero");
         return number(x / y);
     case OP_MOD:
-        if (y == 0)
-            vmerror(v, "modulo by zero");
         return number(fmod(x, y));
     case OP_LT:
         return boolean(compare_numeric(a, b) == -1);
@@ -259,6 +318,15 @@ static Val binary(VM *v, Op op, Val a, Val b) {
 static Val indexget(VM *v, Val a, Val b) {
     if (isobj(a, O_ARRAY))
         return array_index(v, a, b);
+    if (isobj(a, O_RANGE)) {
+        if (b.t != V_INT)
+            vmerror_kind(v, "index", "range index must be an integer");
+        uint64_t count = a.o->as.range.count;
+        int64_t i = b.i < 0 ? b.i + (int64_t)count : b.i;
+        if (i < 0 || (uint64_t)i >= count)
+            vmerror_kind(v, "index", "range index out of bounds");
+        return integer(range_element(a.o, (uint64_t)i));
+    }
     if (isobj(a, O_LIST))
         return a.o->as.list.a[indexnum(v, b, a.o->as.list.n)];
     if (isobj(a, O_MAP)) {
@@ -399,6 +467,7 @@ void vm_init(VM *v, int stress) {
     v->stress = stress;
     v->next_gc = 65536;
     v->sparse_limit = SIZE_MAX;
+    v->tensor_memory.limit = tensor_memory_unlimited();
     v->builtins = environment(v, NULL);
     v->global = environment(v, v->builtins);
     install_builtins(v);
@@ -406,6 +475,7 @@ void vm_init(VM *v, int stress) {
 
 void vm_destroy(VM *v) {
     destroy_objects(v);
+    tensor_pool_trim(v);
     for (int i = 0; i < v->np; i++)
         freeproto(v->programs[i]);
     free(v->programs);
@@ -416,7 +486,9 @@ void vm_destroy(VM *v) {
 static void enter(VM *v, Proto *p, Obj *env, int base, Obj *module, Val constructed) {
     if (v->nf == 512)
         vmerror(v, "call depth limit (512)");
+    bool no_grad = ad_disabled(v);
     v->frames[v->nf++] = (Frame){.p = p,
+                                 .no_grad = no_grad,
                                  .env = env,
                                  .locals = env,
                                  .base = base,
@@ -447,13 +519,75 @@ static void insert_self(VM *v, int base, int argc, Obj *fn, Val self) {
     v->sp++;
 }
 
+static void invoke(VM *v, int argc);
+
+static void enter_sensitivity(VM *v, int base, int argc) {
+    if (argc != 2)
+        vmerror(v, "getSensitivity expects a function and an argument list");
+    if (!v->sensitivity_entry) {
+        static const char wrapper[] = "def sensitivity(target, args):\n"
+                                      "    import \"std:uncertainty\" as uncertainty\n"
+                                      "    return uncertainty.sensitivity(target, args)\n";
+        Proto *root = NULL;
+        char error[256];
+        if (prepare_source(wrapper, "<stdlib:getSensitivity>", 0, &root, error, sizeof error))
+            vmerror(v, "%s", error);
+        remember_proto(v, root);
+        for (int i = 0; i < root->nk; i++) {
+            if (root->k[i].type != K_PROTO)
+                continue;
+            Obj *entry = newobj(v, O_FUNC);
+            entry->as.func.p = root->k[i].p;
+            entry->as.func.env = v->builtins;
+            v->sensitivity_entry = entry;
+            break;
+        }
+        if (!v->sensitivity_entry)
+            vmerror(v, "missing getSensitivity wrapper");
+    }
+    enter_fn(v, v->sensitivity_entry, base, argc, nil());
+}
+
+static void call_with_list(VM *v, int base, int argc) {
+    if (argc != 2 || !isobj(v->stack[base + 2], O_LIST))
+        vmerror_kind(v, "type", "uncertainty callback requires a function and an argument list");
+    Val target = v->stack[base + 1];
+    if (!(isobj(target, O_FUNC) || isobj(target, O_BOUND) ||
+          (isobj(target, O_NATIVE) && target.o->as.native.id != UNCERTAINTY_APPLY_ID &&
+           target.o->as.native.id != AD_NO_GRAD_ID)))
+        vmerror_kind(v, "type", "uncertainty requires a callable model");
+    Obj *arguments = v->stack[base + 2].o;
+    int count = arguments->as.list.n;
+    if (count > 1000000 - base - 1)
+        vmerror(v, "operand stack limit");
+    reserve(v, base + 1 + count);
+    v->stack[base] = target;
+    if (count)
+        memcpy(v->stack + base + 1, arguments->as.list.a, (size_t)count * sizeof(Val));
+    v->sp = base + 1 + count;
+    invoke(v, count);
+}
+
 static void call_native(VM *v, Obj *function, int base, int argc) {
-    Val result = native_call(v, function->as.native.id, argc, &v->stack[base + 1]);
+    int id = function->as.native.id;
+    if (id == MATHDOC_SENSITIVITY_ID) {
+        enter_sensitivity(v, base, argc);
+        return;
+    }
+    if (id == UNCERTAINTY_APPLY_ID) {
+        call_with_list(v, base, argc);
+        return;
+    }
+    Val *args = &v->stack[base + 1];
+    if (ad_disabled(v) && (id < AD_BASE || id >= HIGH_BASE))
+        for (int i = 0; i < argc; i++)
+            args[i] = ad_primal(args[i]);
+    Val result = native_call(v, id, argc, args);
     v->sp = base;
     push(v, result);
 }
 
-static void call(VM *v, int argc) {
+static void invoke(VM *v, int argc) {
     int base = v->sp - argc - 1;
     Val callee = v->stack[base];
     if (isobj(callee, O_NATIVE)) {
@@ -489,53 +623,83 @@ static void call(VM *v, int argc) {
         vmerror(v, "attempt to call non-callable value");
 }
 
+static void call(VM *v, int argc) {
+    int base = v->sp - argc - 1;
+    Val callee = v->stack[base];
+    if (!isobj(callee, O_NATIVE) || callee.o->as.native.id != AD_NO_GRAD_ID) {
+        invoke(v, argc);
+        return;
+    }
+    Frame *caller = &v->frames[v->nf - 1];
+    bool previous = caller->no_grad;
+    do {
+        if (!argc)
+            vmerror_kind(v, "type", "ad.no_grad expects a callable");
+        argc--;
+        memmove(&v->stack[base], &v->stack[base + 1], sizeof(Val) * (size_t)(argc + 1));
+        v->sp--;
+        callee = v->stack[base];
+    } while (isobj(callee, O_NATIVE) && callee.o->as.native.id == AD_NO_GRAD_ID);
+    caller->no_grad = true;
+    invoke(v, argc);
+    caller->no_grad = previous;
+}
+
 static void addhandler(VM *v, Frame *f, int ip) {
     if (v->nh == v->hcap) {
         v->hcap = v->hcap ? 2 * v->hcap : 16;
         v->handlers = resize(v->handlers, sizeof(Handler) * (size_t)v->hcap);
     }
-    v->handlers[v->nh++] = (Handler){v->nf - 1, ip, v->sp, f->env};
+    v->handlers[v->nh++] = (Handler){v->nf - 1, ip, v->sp, f->env, f->no_grad};
 }
 
 static void module_import(VM *v, Frame *f, const char *name) {
-    char *candidate;
+    bool standard = !strncmp(name, "std:", 4);
+    if (standard)
+        name += 4;
     size_t n = strlen(name);
-    int ext = n >= 5 && !strcmp(name + n - 5, ".arda");
-    const char *slash = strrchr(f->p->path, '/');
-    size_t dir = slash ? (size_t)(slash - f->p->path + 1) : 0;
-    if (name[0] == '/')
-        dir = 0;
-    candidate = mem(dir + n + 6);
-    if (dir)
-        memcpy(candidate, f->p->path, dir);
-    strcpy(candidate + dir, name);
-    if (!ext)
-        strcat(candidate, ".arda");
-    char *path = realpath(candidate, NULL);
-    free(candidate);
+    bool ext = n >= 5 && !strcmp(name + n - 5, ".arda");
+    bool bare = !ext && !strchr(name, '/');
     const char *embedded = NULL;
+    char *path = NULL;
     static const struct {
         const char *name, *path, *source;
     } stdlib[] = {
         {"ode", "<stdlib:ode>", ode_source},
         {"opt", "<stdlib:opt>", opt_source},
         {"numerics", "<stdlib:numerics>", numerics_source},
+        {"uncertainty", "<stdlib:uncertainty>", uncertainty_source},
     };
-    if (!path) {
+    if (standard || bare) {
         for (size_t i = 0; i < sizeof stdlib / sizeof *stdlib; i++)
             if (!strcmp(name, stdlib[i].name)) {
                 path = copystr(stdlib[i].path);
                 embedded = stdlib[i].source;
                 break;
             }
+        if (!path) {
+            Obj *mod = native_module(v, name);
+            if (mod) {
+                push(v, objval(mod));
+                return;
+            }
+            if (standard)
+                vmerror_kind(v, "import", "standard module '%s' not found", name);
+        }
     }
     if (!path) {
-        Obj *mod = native_module(v, name);
-        if (mod) {
-            push(v, objval(mod));
-            return;
-        }
-        vmerror(v, "module '%s' not found", name);
+        const char *slash = strrchr(f->p->path, '/');
+        size_t dir = slash && name[0] != '/' ? (size_t)(slash - f->p->path + 1) : 0;
+        char *candidate = mem(dir + n + 6);
+        if (dir)
+            memcpy(candidate, f->p->path, dir);
+        strcpy(candidate + dir, name);
+        if (!ext)
+            strcat(candidate, ".arda");
+        path = realpath(candidate, NULL);
+        free(candidate);
+        if (!path)
+            vmerror_kind(v, "import", "module '%s' not found", name);
     }
     Entry *e = tablefind(&v->modules, path);
     if (e) {
@@ -716,20 +880,24 @@ static void dispatch(VM *v) {
         }
         case OP_NEG: {
             Val x = pop(v);
+            if (isobj(x, O_AD) && ad_disabled(v))
+                x = ad_primal(x);
             if (x.t == V_INT) {
                 if (x.i == INT64_MIN)
                     vmerror(v, "integer overflow");
                 push(v, integer(-x.i));
             } else if (isobj(x, O_COMPLEX))
                 push(v, complex_value(v, -x.o->as.cplx.re, -x.o->as.cplx.im));
-            else if (isobj(x, O_ARRAY) || isobj(x, O_AD))
+            else if (isobj(x, O_AD))
+                push(v, ad_unary(v, AD_NEG, x, nil()));
+            else if (isobj(x, O_ARRAY) || isobj(x, O_TYPED_TENSOR))
                 push(v, binary(v, OP_MUL, x, integer(-1)));
             else
                 push(v, number(-asnum(v, x)));
             break;
         }
         case OP_NOT:
-            push(v, boolean(!truth(pop(v))));
+            push(v, boolean(!truth(v, pop(v))));
             break;
         case OP_ADD_INT_CONST:
         case OP_SUB_INT_CONST:
@@ -761,7 +929,7 @@ static void dispatch(VM *v) {
         case OP_JFALSE_LT_CONST: {
             Val x = pop(v);
             int64_t y = f->p->k[in.aux].i;
-            if (x.t == V_INT ? x.i >= y : !truth(binary(v, OP_LT, x, integer(y))))
+            if (x.t == V_INT ? x.i >= y : !truth(v, binary(v, OP_LT, x, integer(y))))
                 f->ip = a;
             break;
         }
@@ -769,11 +937,11 @@ static void dispatch(VM *v) {
             f->ip = a;
             break;
         case OP_JFALSE:
-            if (!truth(pop(v)))
+            if (!truth(v, pop(v)))
                 f->ip = a;
             break;
         case OP_JTRUE:
-            if (truth(pop(v)))
+            if (truth(v, pop(v)))
                 f->ip = a;
             break;
         case OP_CLOSURE: {
@@ -810,8 +978,9 @@ static void dispatch(VM *v) {
                         append(v, l, objval(string(v, t->a[i].key)));
                 x = objval(l);
             }
-            if (!isobj(x, O_LIST) && !isobj(x, O_STRING) && !isobj(x, O_ARRAY))
-                vmerror(v, "for expects list, string, map or array");
+            if (!isobj(x, O_LIST) && !isobj(x, O_STRING) && !isobj(x, O_ARRAY) &&
+                !isobj(x, O_TENSOR_BLOCKS) && !isobj(x, O_RANGE))
+                vmerror(v, "for expects list, string, map, range, array or tensor blocks");
             Obj *it = newobj(v, O_ITER);
             it->as.iter.source = x;
             push(v, objval(it));
@@ -820,23 +989,37 @@ static void dispatch(VM *v) {
         case OP_NEXT: {
             Obj *it = top(v).o;
             Val x = it->as.iter.source;
-            int i = it->as.iter.index;
-            if (isobj(x, O_LIST)) {
-                if (i >= x.o->as.list.n)
+            size_t i = it->as.iter.index;
+            if (isobj(x, O_RANGE)) {
+                uint64_t index = it->as.iter.range_index;
+                if (index == x.o->as.range.count)
+                    f->ip = a;
+                else {
+                    it->as.iter.range_index++;
+                    push(v, integer(range_element(x.o, index)));
+                }
+            } else if (isobj(x, O_TENSOR_BLOCKS)) {
+                Val block = tensor_block_next(v, x.o, &it->as.iter.index);
+                if (block.t == V_NIL)
+                    f->ip = a;
+                else
+                    push(v, block);
+            } else if (isobj(x, O_LIST)) {
+                if (i >= (size_t)x.o->as.list.n)
                     f->ip = a;
                 else {
                     it->as.iter.index++;
                     push(v, x.o->as.list.a[i]);
                 }
             } else if (isobj(x, O_ARRAY)) {
-                if (i >= x.o->as.array.rows)
+                if (i >= (size_t)x.o->as.array.rows)
                     f->ip = a;
                 else {
                     it->as.iter.index++;
-                    push(v, array_index(v, x, integer(i)));
+                    push(v, array_index(v, x, integer((int64_t)i)));
                 }
             } else {
-                if ((size_t)i >= x.o->as.str.len)
+                if (i >= x.o->as.str.len)
                     f->ip = a;
                 else {
                     const char *p = x.o->as.str.s + i;
@@ -877,11 +1060,15 @@ static void dispatch(VM *v) {
             break;
         case OP_THROW: {
             Val x = pop(v);
-            char *s = value_string(x);
-            snprintf(v->error, sizeof v->error, "%s", s);
-            free(s);
-            longjmp(v->trap, 1);
-            break;
+            if (!isobj(x, O_MAP))
+                vmerror_kind(v, "type", "throw expects an error map with code and message");
+            const Entry *code = tablefind(&x.o->as.map.tab, "code");
+            const Entry *message = tablefind(&x.o->as.map.tab, "message");
+            if (!code || !message || !isobj(code->val, O_STRING) || !isobj(message->val, O_STRING))
+                vmerror_kind(v, "type", "error map requires string code and message fields");
+            v->thrown = x;
+            snprintf(v->error, sizeof v->error, "%s", asstr(v, message->val));
+            jump_error(v);
         }
         }
         if (v->marking || v->stress || v->bytes >= v->next_gc)
@@ -900,7 +1087,9 @@ int vm_run(VM *v, Proto *p) {
             v->sp = h.sp;
             v->frames[h.frame].env = h.env;
             v->frames[h.frame].ip = h.ip;
-            push(v, objval(string(v, v->error)));
+            v->frames[h.frame].no_grad = h.no_grad;
+            push(v, caught_error(v));
+            v->thrown = nil();
         } else {
             fprintf(stderr, "%s:%d: %s\n", v->path, v->line, v->error);
             for (int i = v->nf - 1; i >= 0; i--) {
@@ -908,6 +1097,7 @@ int vm_run(VM *v, Proto *p) {
                 int ip = f->ip ? f->ip - 1 : 0;
                 fprintf(stderr, "  at %s (%s:%d)\n", f->p->name, f->p->path, f->p->code[ip].line);
             }
+            v->thrown = nil();
             fail_modules(v, 0);
             v->nf = v->sp = v->nh = 0;
             v->path = NULL;

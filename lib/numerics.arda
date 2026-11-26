@@ -5,7 +5,7 @@ caro _finite(x):
 
 caro _value(x):
     qui not _finite(x):
-        throw "numerics requires finite real scalars"
+        throw {"code": "user_error", "message": "numerics requires finite real scalars"}
     nan float(x)
 
 caro _mid(a, b):
@@ -24,7 +24,7 @@ caro _opposite(a, b):
 
 caro _check_interval(a, b, xtol, rtol, maxiter):
     qui not _finite(b-a) or xtol <= 0 or rtol < 0 or rtol >= 1 or type(maxiter) != "int" or maxiter < 1:
-        throw "invalid root bracket, tolerances or iteration limit"
+        throw {"code": "user_error", "message": "invalid root bracket, tolerances or iteration limit"}
 
 caro _converged(a, b, xtol, rtol):
     # The returned endpoint may be one full bracket width from the root.
@@ -32,7 +32,7 @@ caro _converged(a, b, xtol, rtol):
 
 caro _bracketed(fa, fb):
     qui fa != 0 and fb != 0 and not _opposite(fa, fb):
-        throw "root requires a sign-changing bracket"
+        throw {"code": "user_error", "message": "root requires a sign-changing bracket"}
 
 caro _secant(a, b, fa, fb):
     # b is the better endpoint, so |fb/fa| <= 1.
@@ -79,7 +79,7 @@ caro brent(f, a, b, xtol = 1e-12, rtol = 1e-12, maxiter = 100):
         qui fb == 0 or _converged(a, b, xtol, rtol):
             nan b
         qui iter >= maxiter:
-            throw "Brent iteration limit"
+            throw {"code": "user_error", "message": "Brent iteration limit"}
         esta s = _inverse_quadratic(a, b, c, fa, fb, fc)
         esta span = abs(c-d)
         qui bisected:
@@ -90,7 +90,7 @@ caro brent(f, a, b, xtol = 1e-12, rtol = 1e-12, maxiter = 100):
         qui bisected:
             s = _mid(a, b)
         qui not _within(s, a, b):
-            throw "Brent bracket reached Float64 resolution"
+            throw {"code": "user_error", "message": "Brent bracket reached Float64 resolution"}
         esta fs = _value(f(s))
         qui fs == 0:
             nan s
@@ -133,7 +133,7 @@ caro newton(f, derivative, a, b, xtol = 1e-12, rtol = 1e-12, maxiter = 100):
         qui _converged(other, x, xtol, rtol):
             nan x
         qui iter >= maxiter:
-            throw "Newton iteration limit"
+            throw {"code": "user_error", "message": "Newton iteration limit"}
         esta s = _mid(a, b)
         esta width = abs(b-a)
         qui not bisect:
@@ -143,7 +143,7 @@ caro newton(f, derivative, a, b, xtol = 1e-12, rtol = 1e-12, maxiter = 100):
                 qui _within(proposal, a, b):
                     s = proposal
         qui not _within(s, a, b):
-            throw "Newton bracket reached Float64 resolution"
+            throw {"code": "user_error", "message": "Newton bracket reached Float64 resolution"}
         esta fs = _value(f(s))
         qui fs == 0:
             nan s
@@ -158,17 +158,17 @@ caro newton(f, derivative, a, b, xtol = 1e-12, rtol = 1e-12, maxiter = 100):
 
 caro _samples(xs, ys):
     qui (type(xs) != "list" and type(xs) != "array") or (type(ys) != "list" and type(ys) != "array"):
-        throw "interpolation requires lists or vectors"
+        throw {"code": "user_error", "message": "interpolation requires lists or vectors"}
     esta n = len(xs)
     qui n < 2 or n != len(ys):
-        throw "interpolation requires equal lengths of at least two"
+        throw {"code": "user_error", "message": "interpolation requires equal lengths of at least two"}
     esta x = []
     esta y = []
     esta i = 0
     tenna i < n:
         esta knot = _value(xs[i])
         qui i > 0 and (knot <= x[i-1] or not _finite(knot-x[i-1])):
-            throw "interpolation knots must be strictly increasing with finite spacing"
+            throw {"code": "user_error", "message": "interpolation knots must be strictly increasing with finite spacing"}
         push(x, knot)
         push(y, _value(ys[i]))
         i = i+1
@@ -176,7 +176,7 @@ caro _samples(xs, ys):
 
 caro _segment(x, q):
     qui q < x[0] or q > x[-1]:
-        throw "interpolation query is outside the knot interval"
+        throw {"code": "user_error", "message": "interpolation query is outside the knot interval"}
     esta low = 0
     esta high = len(x)-1
     tenna high-low > 1:
@@ -269,7 +269,7 @@ caro _panel(f, a, b, rule):
     esta width = b-a
     esta half = width*0.5
     qui not _within(m, a, b):
-        throw "quadrature interval reached Float64 resolution"
+        throw {"code": "user_error", "message": "quadrature interval reached Float64 resolution"}
     esta center = _value(f(m))
     esta kronrod = (rule[7][1]*0.5)*center
     esta gauss = (rule[7][2]*0.5)*center
@@ -344,7 +344,7 @@ caro quad(f, a, b, rtol = 1e-9, atol = 1e-12, max_intervals = 1024):
     rtol = _value(rtol)
     atol = _value(atol)
     qui not _finite(b-a) or rtol < 0 or rtol >= 1 or atol < 0 or (rtol == 0 and atol == 0) or type(max_intervals) != "int" or max_intervals < 1 or max_intervals > 1000000:
-        throw "invalid quadrature interval, tolerances or interval limit"
+        throw {"code": "user_error", "message": "invalid quadrature interval, tolerances or interval limit"}
     qui a == b:
         nan [0.0,0.0,0]
     esta sign = 1
@@ -362,7 +362,7 @@ caro quad(f, a, b, rtol = 1e-9, atol = 1e-12, max_intervals = 1024):
     esta evaluations = 15
     tenna error > _max(atol, rtol*abs(total)):
         qui len(heap) >= max_intervals:
-            throw "quadrature interval limit before reaching tolerance"
+            throw {"code": "user_error", "message": "quadrature interval limit before reaching tolerance"}
         panel = _heap_pop(heap)
         esta m = _mid(panel[0], panel[1])
         esta left = _panel(f, panel[0], m, rule)

@@ -1,4 +1,5 @@
 #include "arda.h"
+#include "moments.h"
 #include <float.h>
 
 #define A(o) ((o)->as.array)
@@ -281,9 +282,7 @@ static Val online_moments(VM *v, int op, Val *args) {
         if (!state.count)
             state.origin = value;
         value -= state.origin;
-        long double delta = value - state.mean;
-        state.mean += delta / ++state.count;
-        state.squares += delta * (value - state.mean);
+        moments_update((uint64_t)++state.count, value, &state.mean, &state.squares);
         if (!isfinite(state.mean) || !isfinite(state.squares))
             vmerror(v, "online moments overflow");
         memcpy(storage, &state, sizeof state);

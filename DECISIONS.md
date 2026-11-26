@@ -77,3 +77,73 @@ AMDE models one source loop with a local accumulator and a literal nonzero step.
 Share one GC-traced buffer across views. Keep the existing Float64 kernels on the legacy array interface and expose explicit materialization from the typed tensor API. Arbitrary strided views are read-only so overlapping coordinates have unambiguous mutation behavior.
 
 Keep the first disk format contiguous. Map stable files read-only or read explicit flat blocks with `pread` when truncation must be recoverable. Publish complete replacement files by same-directory rename after flushing the file. This allows existing mappings to retain their old inode. [Tensor and storage contracts](research/implemented/typed-tensors.md)
+
+## 2026-11-25 — Budgeted tensor workspace and tile writes
+
+Charge heap-backed tensor payloads and native workspace to one per-VM budget. Report mappings separately so logical file size can grow without changing the heap limit. Keep one idle scratch allocation for equal-size reuse under the budget. Streaming mean and population variance use a single reservation and a shifted Welford accumulator.
+
+Publish tile changes as complete replacement files in 0.16.3. This preserves existing read-only maps and file iterators and keeps the original file available if publication fails. Each edit takes a full file copy and bounded scratch. [Memory and tile contracts](research/implemented/typed-tensors.md#memory-budgets-and-streaming)
+
+## 2026-11-25 — Defer large-file performance benchmarks
+
+**Status** — Deferred until a test machine with suitable SSD space is available. Small automated fixtures cover correctness and budget enforcement. Throughput and peak RSS remain unmeasured for the 20 GB streaming-statistics and 80 GB file-backed reduction targets. [Roadmap validation targets](ROADMAP.md#arda-016--virtual-tensors-and-memory-management-ame-v1)
+
+Plan for about 30 GB of free SSD space for the 20 GB benchmark alone, 100 GB for both read-only benchmarks run one dataset at a time, or 120 GB to retain both datasets. An optional atomic tile-write benchmark on the 80 GB file needs about 180 GB free before creating the dataset, since the original and full temporary replacement coexist. Allow about 200 GB if the 20 GB dataset is also retained. These estimates are in decimal GB and include working headroom.
+
+**Revisit** — Use fully allocated files and record throughput and peak RSS for cold and warm runs. Check output against an independent reference and measure tile writes separately from read-only reductions.
+
+## 2026-11-25 — Low-rank contractions and scientific types
+
+Use structured CP, Tucker and tensor train inner products and bounded direct evaluation when cancellation threatens the result on small shapes. Use deterministic LAPACK sweeps as the reference for TT approximation. Keep randomized rounding and TT-cross for later comparison. [Low-rank tensor contracts](research/implemented/low-rank-tensors.md)
+
+Represent scientific quantities with SI values and separate display-unit metadata. Check dimensions once per operation and reuse the Float64 kernels. Separate absolute temperatures from temperature differences. Keep 64-bit logical dimensions in specifications and assertions while retaining compact indices in live layouts. MathIR displays source subscripts with unresolved shapes and bounds. [Scientific type contracts](research/implemented/scientific-types.md)
+
+## 2026-11-26 — Vilya runtime and language contracts
+
+**Status** — Accepted
+
+- Use the existing typed tensor layout and shared buffers for tensor AD. Keep the optimized numerical kernels and retire redundant public names where operations have the same contract. Put mutation versions on shared buffers so writes through an owner or an alias invalidate a saved value.
+- Extend `ad` to dense Float64 tensors first. Accumulate contributions within a reverse sweep. Each successful backward call replaces the gradients it visits. Publish gradients only after a successful sweep. Charge gradient payloads against the tensor memory budget and keep MathIR separate from runtime tracing.
+- Use IEEE results for ordinary real floating-point operations and reject nonfinite values in differentiation. Keep checked integer arithmetic. Require an explicit scalar condition for tensors and tracked values.
+- Use maps with named fields for caught errors and iterative solver reports. Migrate in-tree examples and callers directly when an interface changes. Present both English and Elvish-inspired spellings in the main tutorial.
+- Make `range` lazy and make materialization explicit with `list`. Give the standard library an explicit import spelling and resolve bare standard names consistently. Keep quoted paths for local modules.
+
+## 2026-11-26 — Derivative queries and fixed CSR patterns
+
+**Status** — Accepted for the 0.17.1 development branch
+
+Use the executed tape for seeded VJPs and JVPs. Treat the selected node as independent for partial derivatives. Queries leave published gradients intact. Compute a full Jacobian along the smaller basis and a scalar-output Hessian by differentiating reverse accumulation. Reuse scratch buffers between basis sweeps. Dense results follow the existing rank and heap limits.
+
+Let `zero_grad` release the stored gradient and `detach` expose a shared primal without graph edges. Scope `no_grad` to a callable and restore the caller's recording state after errors. Keep CSR offsets and columns immutable. Differentiate an explicit vector of stored coefficients in CSR order, including a coefficient whose current value is zero. [API and evidence](docs/VILYA_RUNTIME.md#gradient-queries-and-sparse-matvec)
+
+## 2026-11-26 — Retained gradients and elementwise checkpoint replay
+
+**Status** — Adopted for the 0.17.2 development implementation and open to owner revision
+
+Use selected-gradient backward as an opt-in mode. Reuse one private gradient buffer when the byte count matches. Allow explicit consumption of the output's history after publishing successfully. This preserves existing callers and makes release visible. It requires a retain list and can leave shared history owned by other nodes. An automatic policy could require fewer flags and release more memory. It would change immediate access to intermediate gradients or repeated backward behavior and needs owner approval.
+
+Interpret `samples` as the weight of a batch-mean gradient. The published result is the full weighted mean, including unequal batch sizes. Callers must know the sample count and clear an unweighted gradient before mixing conventions. Accumulating raw sums would support custom normalization and weighting, with additional bookkeeping and a separate division step for callers.
+
+Pack pure dense elementwise operations between one or two explicit boundary nodes. Replay their numerical recipe while retaining the already sampled random values. This makes side effects and generator state independent of recomputation. It limits checkpoint coverage to supported operations and adds compute time. Callback replay would cover more workloads and could save and restore RNG state, with stronger requirements for effect tracking, generator ownership and error recovery. Broader replay needs owner approval. [Contracts and measurements](docs/VILYA_RUNTIME.md#memory-efficient-backward-and-checkpoints)
+
+## 2026-11-26 — Explicit activation offloading with bounded reads
+
+**Status** — Adopted for the 0.17.3 development implementation and open to owner revision
+
+Use an explicit disk quota and let callers name the dense Float64 intermediates to spill. This makes placement auditable and lets applications choose activations or checkpoint boundaries according to their workloads. Callers have to select and rebind those intermediates. A graph planner could choose placements automatically and reduce that work, at the cost of liveness and I/O estimates and new scheduling behavior.
+
+Use immutable snapshots in immediately unlinked files. Mapping the snapshot preserves the ordinary tensor interfaces for forward reads, while chunked reads bound derivative workspace. Forward page-cache residency depends on the OS, and strided access can reread chunks. Reloading each whole activation would simplify read management and may help random access. It would make derivative workspace proportional to the largest reloaded tensor. [Runtime contract](docs/VILYA_RUNTIME.md#activation-offloading)
+
+## 2026-11-26 — Local sensitivity products and factored covariance
+
+**Status** — Adopted for the 0.17.4 development implementation and open to owner revision
+
+Evaluate numerical sensitivity on a concrete tape and keep formal derivative TeX in MathIR. Execution captures the current arguments and control flow. Symbolic output works independently for a bounded subset under real differentiability assumptions. A shared symbolic graph could expose more numerical internals for explanation, at the cost of preserving effects, closure bindings, tensor shapes and dynamic dispatch in the symbolic representation.
+
+Use seeded products and allow independent standard deviations or a supplied covariance factor. This bounds memory and lets a rectangular factor express rank-deficient covariance directly. The caller prepares a factor for general correlated inputs. A dense covariance overload could accept the original matrix and factor it internally for convenience. It would require quadratic storage, factorization work, and an explicit policy for symmetry, small negative eigenvalues and singular inputs. [Runtime contracts](docs/VILYA_RUNTIME.md#sensitivity-and-uncertainty)
+
+## 2026-11-26 — Draft ownership for distributed training
+
+**Status** — Proposal for owner review before any distributed implementation
+
+Use stable logical parameter IDs and aggregate local gradient sums with exact sample counts. Start the design with replicated parameters and optimizer state because this gives each rank local reads and a straightforward comparison with serial training. Each rank pays the full model and optimizer memory cost. Sharded ownership would lower those memory costs and require an explicit map from parameters to ranks, remote reads and coordinated restart. The proposal leaves ownership granularity and the eventual distributed API open. [Draft contract and acceptance cases](research/planned/computing-systems.md#draft-distributed-parameter-and-gradient-ownership-contract)

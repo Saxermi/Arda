@@ -29,8 +29,8 @@ static int count(VM *v, Val a, int max) {
     return (int)a.i;
 }
 
-static const char *names[] = {"trapz",      "simpson",      "fft",  "ifft",
-                              "rk4_linear", "lapack_solve", "eigh", "backend"};
+static const char *names[] = {"trapz",      "simpson",      "fft",    "ifft",
+                              "rk4_linear", "lapack_solve", "backend"};
 /* In-place radix-2 DIT FFT, bit reversal, recurrence for twiddles. */
 static Obj *fft(VM *v, Obj *a, int inv) {
     int n = A(a).rows;
@@ -130,10 +130,11 @@ static Obj *rk4(VM *v, Obj *a, Obj *y, double h, int steps) {
 
 Val calculus_call(VM *v, int id, int argc, Val *a) {
     int k = id - CALC_BASE;
-    int ar[] = {2, 2, 1, 1, 4, 2, 1, 0};
-    if (k < 0 || k >= 8 || argc != ar[k])
+    static const int ar[] = {2, 2, 1, 1, 4, 2, 0};
+    _Static_assert(sizeof ar / sizeof *ar == sizeof names / sizeof *names, "calc arities");
+    if (k < 0 || (size_t)k >= sizeof ar / sizeof *ar || argc != ar[k])
         vmerror(v, "invalid calculus function arity");
-    if (k == 7) {
+    if (k == 6) {
 #ifdef ARDA_LAPACK
         return objval(string(v, "lapack"));
 #else
@@ -164,8 +165,6 @@ Val calculus_call(VM *v, int id, int argc, Val *a) {
     if (k == 4)
         return objval(rk4(v, array(v, a[0], 2), array(v, a[1], 1), finite_num(v, a[2]),
                           count(v, a[3], 1000000)));
-    if (k == 6)
-        return linalg_eigh(v, a[0]);
 #ifndef ARDA_LAPACK
     vmerror(v, "LAPACK unavailable: rebuild with LAPACK=1");
 #else
@@ -196,6 +195,6 @@ Val calculus_call(VM *v, int id, int argc, Val *a) {
 }
 
 const char **calculus_names(int *n) {
-    *n = 8;
+    *n = (int)(sizeof names / sizeof *names);
     return names;
 }

@@ -1,4 +1,5 @@
 #include "sparse_internal.h"
+#include "autodiff.h"
 
 #define S(o) ((o)->as.sparse)
 
@@ -11,9 +12,7 @@ typedef struct {
 typedef enum {
     SP_COO,
     SP_CSR,
-    SP_CRS,
     SP_TO_CSR,
-    SP_TO_CRS,
     SP_TO_COO,
     SP_SHAPE,
     SP_NNZ,
@@ -49,14 +48,13 @@ typedef enum {
 } SparseOp;
 
 static const char *names[] = {
-    "coo",        "csr",     "crs",      "to_csr",    "to_crs",     "to_coo",     "shape",
-    "nnz",        "bytes",   "format",   "get",       "components", "from_dense", "todense",
-    "describe",   "builder", "append",   "extend",    "finish",     "eye",        "diags",
-    "tridiag",    "matvec",  "spmm",     "transpose", "add",        "scale",      "diagonal",
-    "estimate",   "read_mm", "write_mm", "cg",        "pcg",        "verify",     "workspace",
-    "set_budget", "memory"};
-static const int nargs[] = {5, 5, 5, 1, 1, 1, 1, 1, 1, 1, 3, 1, 1, 1, 1, 2, 4, 4, 1,
-                            1, 4, 4, 2, 2, 1, 2, 2, 1, 1, 1, 2, 4, 4, 3, 1, 1, 0};
+    "coo",      "csr",       "to_csr",     "to_coo",     "shape",     "nnz",        "bytes",
+    "format",   "get",       "components", "from_dense", "todense",   "describe",   "builder",
+    "append",   "extend",    "finish",     "eye",        "diags",     "tridiag",    "matvec",
+    "spmm",     "transpose", "add",        "scale",      "diagonal",  "estimate",   "read_mm",
+    "write_mm", "cg",        "pcg",        "verify",     "workspace", "set_budget", "memory"};
+static const int nargs[] = {5, 5, 1, 1, 1, 1, 1, 1, 3, 1, 1, 1, 1, 2, 4, 4, 1, 1,
+                            4, 4, 2, 2, 1, 2, 2, 1, 1, 1, 2, 4, 4, 3, 1, 1, 0};
 _Static_assert(sizeof names / sizeof *names == sizeof nargs / sizeof *nargs,
                "sparse dispatch arity table");
 
@@ -699,7 +697,7 @@ static Obj *todense(VM *v, Obj *x) {
 /* Versioned, static descriptors are independent of numerical execution. */
 static Val describe(VM *v, Val name) {
     const char *s = asstr(v, name);
-    if (!strcmp(s, "to_csr") || !strcmp(s, "to_crs"))
+    if (!strcmp(s, "to_csr"))
         return objval(
             string(v, "v1: A[r,c] = sum of COO values at (r,c) in input order; count rows, prefix "
                       "sum, stable column sort, merge duplicates, omit exact zeros. O(rows + nnz + "
@@ -759,9 +757,17 @@ static Val sparse_dispatch(VM *v, int id, int argc, Val *a) {
         return sparse_solve(v, as_sparse(v, a[0]), a[1], a[2], a[3], argc == 5 ? a[4] : nil(),
                             op == SP_PCG);
     }
+    if (op == SP_MATVEC && argc == 3) {
+        Obj *pattern = as_sparse(v, a[0]);
+        if (!pattern->as.sparse.csr)
+            vmerror_kind(v, "format", "sparse.matvec with explicit values requires canonical CSR");
+        if (a[1].t == V_NIL)
+            vmerror_kind(v, "shape", "sparse.matvec requires a vector of CSR values");
+        return ad_sparse_matvec(v, pattern, a[1], a[2]);
+    }
     if (argc != nargs[op])
         vmerror(v, "sparse.%s expects %d arguments, got %d", names[op], nargs[op], argc);
-    if (op == SP_COO || op == SP_CSR || op == SP_CRS)
+    if (op == SP_COO || op == SP_CSR)
         return objval(construct(v, a, op != SP_COO));
     if (op == SP_SET_BUDGET) {
         size_t limit = a[0].t == V_NIL ? SIZE_MAX : nonnegative_size(v, a[0]);
@@ -812,7 +818,6 @@ static Val sparse_dispatch(VM *v, int id, int argc, Val *a) {
     Sparse *s = &S(o);
     switch (op) {
     case SP_TO_CSR:
-    case SP_TO_CRS:
         return objval(sparse_as_csr(v, o));
     case SP_TO_COO:
         return objval(to_coo(v, o));
@@ -833,8 +838,16 @@ static Val sparse_dispatch(VM *v, int id, int argc, Val *a) {
     case SP_COMPONENTS:
         return components(v, o);
     case SP_MATVEC:
+        if (isobj(a[1], O_AD) || isobj(a[1], O_TYPED_TENSOR)) {
+            Obj *csr = sparse_as_csr(v, o);
+            Val out = ad_sparse_matvec(v, csr, nil(), a[1]);
+            if (!isobj(out, O_AD))
+                sparse_drop_temporary(v, csr, o);
+            return out;
+        }
+        return objval(sparse_product(v, o, a[1], 1));
     case SP_SPMM:
-        return objval(sparse_product(v, o, a[1], op == SP_MATVEC ? 1 : 2));
+        return objval(sparse_product(v, o, a[1], 2));
     case SP_TRANSPOSE:
         return objval(sparse_transpose(v, o));
     case SP_ADD:

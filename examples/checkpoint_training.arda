@@ -1,0 +1,25 @@
+import "std:tensor" as t
+tol ad
+
+# Keep a boundary every four steps and release each unpacked segment.
+let x = ad.variable(t.array([0.2, 0.4, 0.6], "float64"))
+esta state = x
+let boundary = x
+for i in range(12):
+    state = t.sin(state*0.97 + 0.02)
+    if (i+1) % 4 == 0:
+        state = ad.checkpoint(state, boundary)
+        boundary = state
+        collect()
+let loss = t.sum(state)
+state = mun
+boundary = mun
+ad.backward(loss, mun, {"retain": [x], "consume": true})
+pedo("Loss", ad.value(loss))
+print("Gradient", t.tolist(ad.grad(x)))
+
+# Combine gradients from two unequal batches whose losses are batch means.
+ad.zero_grad(x)
+ad.backward(t.sum(x*2), mun, {"retain": [x], "samples": 2})
+ad.backward(t.sum(x*5), mun, {"retain": [x], "samples": 6})
+pedo("Weighted gradient", t.tolist(ad.grad(x)))

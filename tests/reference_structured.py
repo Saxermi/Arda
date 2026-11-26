@@ -117,8 +117,8 @@ class StructuredReferenceTests(unittest.TestCase):
         esta start = nc.array([7,-2,3])
         an method in ["coordinate","random"]:
             esta result = opt.zeroth_order(f,start,method,1e-4,1e-7,160,1532,24)
-            pedo(nc.tolist(result[0]))
-            pedo(result[4],result[5],result[3])
+            pedo(nc.tolist(result["solution"]))
+            pedo(result["value"],result["evaluations"],result["converged"])
         """, stress=True).splitlines()
         center = np.array([1.0, -1.0, 2.0])
         objective = lambda x: np.sum(np.array([1, 2, 3]) * (x - center) ** 2) / 2

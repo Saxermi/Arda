@@ -55,7 +55,10 @@ void array_set_index(VM *v, Val a, Val b, Val x) {
     Obj *o = asarray(v, a);
     vector(v, o);
     tensor_require_writable(v, o);
-    A(o).data[(size_t)indexnum(v, b, A(o).rows) * A(o).stride[0]] = asnum(v, x);
+    size_t pos = (size_t)indexnum(v, b, A(o).rows) * A(o).stride[0];
+    double value = asnum(v, x);
+    tensor_bump_version(v, A(o).buffer);
+    A(o).data[pos] = value;
 }
 
 void array_print(Obj *o) {
@@ -118,16 +121,9 @@ __attribute__((target("avx2"))) static void matmul_avx2(int m, int n, int k, con
                     }
 }
 #endif
-static Obj *multiply(VM *v, Obj *a, Obj *b) {
-    matrix(v, a);
-    matrix(v, b);
-    int m = A(a).rows, k = A(a).cols, n = A(b).cols;
-    if (k != A(b).rows)
-        vmerror(v, "matmul shape mismatch");
-    Obj *o = array_new(v, 2, m, n);
+void dense_matmul_into(int m, int k, int n, const double *x, const double *y, double *z) {
     if (!m || !k || !n)
-        return o;
-    double *x = A(a).data, *y = A(b).data, *z = A(o).data;
+        return;
 #ifdef ARDA_BLAS
     cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, m, n, k, 1, x, k, y, n, 0, z, n);
 #else
@@ -136,7 +132,7 @@ static Obj *multiply(VM *v, Obj *a, Obj *b) {
 #if defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
     if (__builtin_cpu_supports("avx2")) {
         matmul_avx2(m, n, k, x, y, z);
-        return o;
+        return;
     }
 #endif
     for (int ii = 0; ii < m; ii += block)
@@ -166,18 +162,28 @@ static Obj *multiply(VM *v, Obj *a, Obj *b) {
                             dst[j] += at * src[j];
                     }
 #endif
+}
+Obj *dense_matmul(VM *v, Obj *a, Obj *b) {
+    matrix(v, a);
+    matrix(v, b);
+    int m = A(a).rows, k = A(a).cols, n = A(b).cols;
+    if (k != A(b).rows)
+        vmerror(v, "matmul shape mismatch");
+    Obj *o = array_new(v, 2, m, n);
+    dense_matmul_into(m, k, n, A(a).data, A(b).data, A(o).data);
     return o;
 }
+
 static Obj *solve(VM *v, Obj *a, Obj *b) {
     matrix(v, a);
     vector(v, b);
     return dense_lu_solve(v, a, b);
 }
 
-static const char *names[] = {"array", "zeros", "ones", "linspace", "shape",  "tolist",    "sum",
-                              "mean",  "var",   "std",  "dot",      "matmul", "transpose", "solve",
-                              "sin",   "cos",   "exp",  "log",      "sqrt",   "norm",      "min",
-                              "max",   "get",   "set",  "backend",  "bytes"};
+static const char *names[] = {"array",     "zeros", "ones", "linspace", "shape",   "tolist",
+                              "sum",       "mean",  "var",  "std",      "dot",     "matmul",
+                              "transpose", "solve", "sin",  "cos",      "exp",     "log",
+                              "sqrt",      "norm",  "min",  "max",      "backend", "bytes"};
 enum {
     S_ARRAY,
     S_ZEROS,
@@ -201,8 +207,6 @@ enum {
     S_NORM,
     S_MIN,
     S_MAX,
-    S_GET,
-    S_SET,
     S_BACKEND,
     S_BYTES
 };
@@ -215,11 +219,10 @@ Val scientific_call(VM *v, int id, int argc, Val *a) {
     int k = id - SCI_BASE;
     if (k < 0 || k > S_BYTES)
         vmerror(v, "invalid numeric function");
-    int expected = (k == S_BACKEND)                                ? 0
-                   : (k == S_LINSPACE || k == S_GET)               ? 3
-                   : k == S_SET                                    ? 4
-                   : (k == S_DOT || k == S_MATMUL || k == S_SOLVE) ? 2
-                                                                   : 1;
+    int expected = k == S_BACKEND                                ? 0
+                   : k == S_LINSPACE                             ? 3
+                   : k == S_DOT || k == S_MATMUL || k == S_SOLVE ? 2
+                                                                 : 1;
     if (k == S_ZEROS || k == S_ONES) {
         if (argc < 1 || argc > 8)
             vmerror(v, "%s expects one to eight dimensions", names[k]);
@@ -271,16 +274,6 @@ Val scientific_call(VM *v, int id, int argc, Val *a) {
         return integer((int64_t)(n * sizeof(double)));
     if (k == S_TOLIST)
         return tensor_tolist(v, x);
-    if (k == S_GET || k == S_SET) {
-        matrix(v, x);
-        int i = indexnum(v, a[1], A(x).rows), j = indexnum(v, a[2], A(x).cols);
-        size_t q = (size_t)i * A(x).stride[0] + (size_t)j * A(x).stride[1];
-        if (k == S_GET)
-            return number(p[q]);
-        tensor_require_writable(v, x);
-        p[q] = asnum(v, a[3]);
-        return nil();
-    }
     if (!tensor_contiguous(x)) {
         x = tensor_copy(v, x);
         p = A(x).data;
@@ -297,7 +290,7 @@ Val scientific_call(VM *v, int id, int argc, Val *a) {
     }
     if (k == S_MATMUL) {
         Obj *y = asarray(v, a[1]);
-        return objval(multiply(v, x, tensor_contiguous(y) ? y : tensor_copy(v, y)));
+        return objval(dense_matmul(v, x, tensor_contiguous(y) ? y : tensor_copy(v, y)));
     }
     if (k == S_SOLVE) {
         Obj *y = asarray(v, a[1]);

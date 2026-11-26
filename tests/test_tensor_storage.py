@@ -38,13 +38,13 @@ class TensorStorageTests(unittest.TestCase):
         try:
             t.save("data.atn",x,159)
         catch error:
-            pedo(startswith(error,"tensor file exceeds disk budget") or len(error)>0)
+            pedo(startswith(error["message"],"tensor file exceeds disk budget") or len(error["message"])>0)
         t.save("data.atn",t.array([5,6],"int32"))
         pedo(t.tolist(reverse),t.tolist(t.mmap("data.atn")))
         try:
             t.put(reverse,[0],7)
         catch error:
-            pedo(len(error)>0)
+            pedo(len(error["message"])>0)
         pedo(t.tolist(t.read_block("data.atn",2,0)))
         """, "int64 [4, 2, 3, 1]\n[3, 2]\nnae\n[4, 2, 3, 1] [5, 6]\nnae\n[]", stress=True)
 

@@ -1,4 +1,5 @@
-#include "arda.h"
+#include "autodiff.h"
+#include "activation_store.h"
 void account(VM *v, Obj *o, size_t old, size_t now) {
     if (!o)
         return;
@@ -211,11 +212,14 @@ static void markproto(Proto *p) {
 static void trace(VM *v, Obj *o) {
     switch (o->type) {
     case O_STRING:
+    case O_RANGE:
+    case O_OFFLOAD_PLAN:
     case O_NATIVE:
     case O_RNG:
     case O_MOMENTS:
     case O_COMPLEX:
     case O_BUFFER:
+    case O_TENSOR_BLOCKS:
     case O_SPARSE:
     case O_SPARSE_BUILDER:
     case O_SPARSE_WORKSPACE:
@@ -233,9 +237,24 @@ static void trace(VM *v, Obj *o) {
     case O_TYPED_TENSOR:
         markobj(v, o->as.tensor.buffer);
         break;
+    case O_LOWRANK:
+        markobj(v, o->as.lowrank.coefficients);
+        for (int i = 0; i < o->as.lowrank.rank; i++)
+            markobj(v, o->as.lowrank.factor[i]);
+        break;
+    case O_QUANTITY:
+        markval(v, o->as.quantity.value);
+        markobj(v, o->as.quantity.symbol);
+        break;
     case O_AD:
-        markobj(v, o->as.ad.a);
-        markobj(v, o->as.ad.b);
+        markval(v, o->as.ad->value);
+        markval(v, o->as.ad->grad);
+        markval(v, o->as.ad->left);
+        markval(v, o->as.ad->right);
+        markobj(v, o->as.ad->parents[0]);
+        markobj(v, o->as.ad->parents[1]);
+        markobj(v, o->as.ad->pattern);
+        ad_trace_checkpoint(v, o->as.ad);
         break;
     case O_LIST:
         for (int i = 0; i < o->as.list.n; i++)
@@ -280,6 +299,8 @@ static void trace(VM *v, Obj *o) {
 static void roots(VM *v) {
     markobj(v, v->global);
     markobj(v, v->builtins);
+    markobj(v, v->sensitivity_entry);
+    markval(v, v->thrown);
     marktable(v, &v->modules);
     for (int i = 0; i < v->sp; i++)
         markval(v, v->stack[i]);
@@ -295,7 +316,7 @@ static void roots(VM *v) {
         markobj(v, v->handlers[i].env);
 }
 
-static void release(Obj *o) {
+static void release(VM *v, Obj *o) {
     switch (o->type) {
     case O_STRING:
         free(o->as.str.s);
@@ -305,8 +326,18 @@ static void release(Obj *o) {
     case O_SPARSE_WORKSPACE:
         sparse_release_payload(o);
         break;
+    case O_AD:
+        free(o->as.ad->checkpoint);
+        free(o->as.ad);
+        break;
+    case O_OFFLOAD_PLAN:
+        offload_plan_release(o->as.offload_plan);
+        break;
     case O_BUFFER:
-        o->as.buffer.release(o->as.buffer.allocation, o->as.buffer.allocation_bytes);
+        tensor_buffer_release(v, &o->as.buffer);
+        break;
+    case O_TENSOR_BLOCKS:
+        tensor_blocks_close(o);
         break;
     case O_LIST:
         free(o->as.list.a);
@@ -361,7 +392,7 @@ void gcstep(VM *v, int force) {
                 v->sparse_bytes -= o->bytes - sizeof *o;
             v->bytes -= o->bytes;
             v->live--;
-            release(o);
+            release(v, o);
         }
     }
     /* Sweep code after objects: live closures, parameter environments and
@@ -389,7 +420,7 @@ void destroy_objects(VM *v) {
     Obj *o = v->objects;
     while (o) {
         Obj *next = o->next;
-        release(o);
+        release(v, o);
         o = next;
     }
     free(v->intern);

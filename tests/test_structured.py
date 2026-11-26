@@ -40,7 +40,7 @@ class StructuredTests(unittest.TestCase):
         tol linop as lo
         esta u = nc.array([[1,2],[3,4],[5,6]])
         esta op = lo.lowrank(u,nc.array([[7,8],[9,10]]))
-        nc.set(u,0,0,100)
+        nc.put(u,[0,0],100)
         u = mun
         collect()
         esta x = nc.array([1,2,3])
@@ -82,7 +82,7 @@ class StructuredTests(unittest.TestCase):
         try:
             lo.apply(a,nc.ones(2)*10)
         catch e:
-            pedo(e)
+            pedo(e["message"])
         pedo(sp.memory()["used"] == before)
         pedo(nc.tolist(lo.apply(a,nc.ones(2))))
         """, "nonfinite linear operator input or product\nnae\n[1e+308, 0]")
@@ -107,8 +107,8 @@ class StructuredTests(unittest.TestCase):
             nan (x[0]-2)*(x[0]-2)+(x[1]+1)*(x[1]+1)
         esta start = nc.array([9,-7])
         esta result = opt.zeroth_order(f,start)
-        pedo(nc.tolist(result[0]))
-        pedo(result[1],result[3],result[5] == calls)
+        pedo(nc.tolist(result["solution"]))
+        pedo(result["iterations"],result["converged"],result["evaluations"] == calls)
         pedo(nc.tolist(start))
         """, stress=True).splitlines()
         npfree = ast.literal_eval(output[0])
@@ -125,7 +125,7 @@ class StructuredTests(unittest.TestCase):
             esta delta = x-center
             nan nc.dot(delta,delta)
         esta result = opt.zeroth_order(f,nc.array([5,3]))
-        pedo(nc.norm(result[0]-center)<1e-6 and result[3])
+        pedo(nc.norm(result["solution"]-center)<1e-6 and result["converged"])
         """, 'nae', stress=True)
         self.run_code('tol numc as nc\ntol opt\nopt.zeroth_order(lambda x: x,nc.ones(2))',
                       error='real scalar', stress=True)

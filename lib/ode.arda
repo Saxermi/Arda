@@ -1,7 +1,7 @@
 # Uniform-grid composite Simpson integration and classical RK4.
 caro integrate(f, a, b, n = 100):
     qui type(n) != "int" or n < 2 or n % 2 != 0 or n > 1000000:
-        throw "Simpson needs an even interval count 2..1000000"
+        throw {"code": "user_error", "message": "Simpson needs an even interval count 2..1000000"}
     esta h = (b - a) / n
     esta s = f(a) + f(b)
     esta i = 1
@@ -15,7 +15,7 @@ caro integrate(f, a, b, n = 100):
 
 caro rk4(f, t0, y0, h, steps):
     qui type(steps) != "int" or steps < 1 or steps > 100000:
-        throw "RK4 needs 1..100000 steps"
+        throw {"code": "user_error", "message": "RK4 needs 1..100000 steps"}
     esta t = t0
     esta y = y0
     esta out = [y]
@@ -38,9 +38,9 @@ tol ad as _ad
 tol high as _high
 caro rk45(f, t0, y0, t1, h, rtol = 0.000001, atol = 0.000000001, maxiter = 100000):
     qui (h <= 0 or rtol <= 0 or atol <= 0 or maxiter < 1 or type(maxiter) != "int"):
-        throw "invalid RK45 configuration"
+        throw {"code": "user_error", "message": "invalid RK45 configuration"}
     qui not _high.finite(t0) or not _high.finite(t1) or not _high.finite(h) or not _high.finite(rtol) or not _high.finite(atol) or not _high.finite(y0):
-        throw "nonfinite RK45 configuration"
+        throw {"code": "user_error", "message": "nonfinite RK45 configuration"}
     esta t = t0
     esta y = y0
     esta accepted = 0
@@ -51,11 +51,11 @@ caro rk45(f, t0, y0, t1, h, rtol = 0.000001, atol = 0.000000001, maxiter = 10000
     h = h * direction
     tenna direction * (t1 - t) > 0:
         qui accepted + rejected >= maxiter:
-            throw "RK45 step limit"
+            throw {"code": "user_error", "message": "RK45 step limit"}
         qui abs(h) > abs(t1 - t):
             h = t1 - t
         qui t + h == t:
-            throw "RK45 step underflow"
+            throw {"code": "user_error", "message": "RK45 step underflow"}
         esta k1 = f(t, y)
         esta k2 = f(t + h/5, y + h*(k1/5))
         esta k3 = f(t + 3*h/10, y + h*(3*k1/40 + 9*k2/40))
@@ -67,7 +67,7 @@ caro rk45(f, t0, y0, t1, h, rtol = 0.000001, atol = 0.000000001, maxiter = 10000
         esta low = y + h*(5179*k1/57600 + 7571*k3/16695 + 393*k4/640 - 92097*k5/339200 + 187*k6/2100 + k7/40)
         esta err = _high.rkerror(y,z,low,rtol,atol)
         qui err != err:
-            throw "RK45 nonfinite error"
+            throw {"code": "user_error", "message": "RK45 nonfinite error"}
         qui err <= 1:
             y = z
             t = t + h
@@ -83,4 +83,4 @@ caro rk45(f, t0, y0, t1, h, rtol = 0.000001, atol = 0.000000001, maxiter = 10000
         qui factor > 5:
             factor = 5
         h = h * factor
-    nan [y, accepted, rejected]
+    nan {"solution": y, "accepted_steps": accepted, "rejected_steps": rejected}

@@ -56,6 +56,12 @@ Arda is CPU-first, not CPU-only. Preserve the small portable runtime while enabl
 - Use clear C11 code, existing conventions and `.clang-format`. Avoid unrelated refactors. Keep warnings, errors and public API behavior explicit.
 - Prefer incremental changes over rebuilding the interpreter or adding speculative abstractions. Reuse the existing infrastructure.
 
+## Design decisions and owner review
+
+- Always present major design decisions directly in the final chat reply. For each decision, explain what you implemented and why, the benefits and drawbacks of that choice and a viable alternative, and what would change if the owner chose the alternative. Make clear which choices are open to revision. Record significant decisions in `DECISIONS.md` as well, and give enough detail in chat for the owner to decide without opening a file.
+- Ask the owner directly in chat before making an especially consequential decision, such as an incompatible public API change, a change to scientific defaults, or a difficult-to-reverse architectural change. Continue independent work while the decision is open.
+- If the owner does not reply, leave that decision and its dependent changes pending. Explain in the final chat reply what the proposed alternative would look like and why it could help.
+
 ## Scientific research and provenance
 
 Apply this policy when adding, replacing or substantially optimizing scientific libraries, mathematical algorithms or computational kernels. Routine fixes and unrelated documentation changes need only the research relevant to their impact.

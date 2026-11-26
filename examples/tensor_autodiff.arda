@@ -1,0 +1,14 @@
+import "std:tensor" as tensor
+tol ad
+
+# Both keyword styles refer to the same language.
+def squared_error(x, target):
+    esta error = x - target
+    return tensor.mean(error * error)
+
+let x = ad.variable(tensor.array([1, 2, 3], "float64"))
+esta target = tensor.array([0, 1, 1], "float64")
+let loss = squared_error(x, target)
+ad.backward(loss)
+print("Loss", ad.value(loss))
+pedo("Gradient", tensor.tolist(ad.grad(x)))
