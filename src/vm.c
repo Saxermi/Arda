@@ -36,7 +36,7 @@ int truth(VM *v, Val x) {
     if (isobj(x, O_AD) && ad_disabled(v))
         x = ad_primal(x);
     if (isobj(x, O_ARRAY) || isobj(x, O_TYPED_TENSOR) || isobj(x, O_LOWRANK) ||
-        isobj(x, O_SPARSE) || isobj(x, O_AD) || isobj(x, O_QUANTITY))
+        isobj(x, O_SPARSE) || isobj(x, O_AD) || isobj(x, O_QUANTITY) || isobj(x, O_QUANTIZED))
         vmerror_kind(v, "ambiguous_truth",
                      "tensor, quantity or differentiated value needs an explicit scalar condition");
     if (x.t == V_NIL || x.t == V_MISSING)

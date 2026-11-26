@@ -163,3 +163,11 @@ Expose AVX2 FMA and GNU libmvec as explicit choices. They can improve throughput
 Use compiler-managed OpenMP teams for large packed GEMM and AXPY. A per-VM setting defaults to one thread. Static output partitions preserve per-element arithmetic order and keep VM state and error handling on the caller thread. The runtime can reuse workers, and the implementation stays small. OpenMP adds a build dependency and leaves worker placement and some scheduling behavior to its provider.
 
 A native pool could give Arda direct control of worker lifetime, CPU placement and shutdown. It would require new synchronization, lifecycle management and error tests. Use the linked provider's threading for CBLAS builds to avoid nested Arda and BLAS teams. [Thread controls and measurements](research/implemented/transforms-and-kernels.md#0182-controlled-cpu-parallelism)
+
+## 2026-11-26 — Explicit symmetric Q4 and Q8, with widened arithmetic
+
+**Status** — Implemented for 0.18.3 and open to owner revision
+
+Use immutable weight snapshots with symmetric 32-value row blocks and a Float32 scale. This keeps storage predictable and makes zero easy to represent. Uniform per-block rounding can lose small coefficients near outliers. Asymmetric blocks could use the code range more effectively for skewed inputs, while adding zero-point metadata and arithmetic. Calibrated scales could improve model quality and require representative data and a calibration pass.
+
+Decode one block at a time and multiply Float64 activations. This preserves the caller's activation precision and bounds scratch. Integer products with quantized activations could improve throughput for larger batches. They would introduce activation quantization error and require scale management and overflow analysis. The separate Float16/BFloat16 path widens into Float32 and gives callers explicit control over that trade-off. [Contracts and evidence](research/implemented/quantization.md)

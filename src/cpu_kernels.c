@@ -18,11 +18,21 @@ unsigned cpu_detect(void) {
         flags |= CPU_AVX2;
     if (__builtin_cpu_supports("fma"))
         flags |= CPU_FMA;
+    if (__builtin_cpu_supports("f16c"))
+        flags |= CPU_F16C;
 #elif defined(__aarch64__) && defined(__linux__)
-    if (getauxval(AT_HWCAP) & HWCAP_ASIMD)
+    unsigned long caps = getauxval(AT_HWCAP);
+    if (caps & HWCAP_ASIMD)
         flags |= CPU_NEON;
+#ifdef HWCAP_ASIMDHP
+    if (caps & HWCAP_ASIMDHP)
+        flags |= CPU_ARM_FP16;
+#endif
 #elif defined(__aarch64__) && defined(__ARM_NEON)
     flags |= CPU_NEON;
+#if defined(__ARM_FEATURE_FP16_VECTOR_ARITHMETIC)
+    flags |= CPU_ARM_FP16;
+#endif
 #endif
     return flags;
 }

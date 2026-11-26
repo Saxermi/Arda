@@ -234,6 +234,9 @@ static void trace(VM *v, Obj *o) {
     case O_ARRAY:
         markobj(v, o->as.array.buffer);
         break;
+    case O_QUANTIZED:
+        markobj(v, o->as.quantized.buffer);
+        break;
     case O_TYPED_TENSOR:
         markobj(v, o->as.tensor.buffer);
         break;

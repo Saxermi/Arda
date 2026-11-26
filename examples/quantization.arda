@@ -1,0 +1,16 @@
+import "std:tensor" as t
+tol quant as q
+
+# Quantize each row over successive 32-value blocks.
+esta weights = t.array([7, -7, 0.5, 2, 1, -4], "float64", [2, 3])
+esta packed = q.quantize(weights, "q4")
+esta input = t.array([1, 0, 2], "float64")
+
+pedo("Packed format and shape", q.info(packed)["encoding"], q.info(packed)["shape"])
+print("Reconstructed weights", t.tolist(q.dequantize(packed)))
+pedo("Packed weights times vector", t.tolist(q.gemv(packed, input)))
+
+# FP16 and BF16 inputs use FP32 accumulation and produce Float32 output.
+let half = t.cast(weights, "float16")
+let other = t.cast(t.reshape(input, [3, 1]), "float16")
+print("Float16 product", t.tolist(q.lowp_matmul(half, other)))

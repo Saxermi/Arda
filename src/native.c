@@ -32,12 +32,13 @@ static const char *typename(Val v) {
         return "bool";
     case V_OBJ: {
         static const char *n[] = {
-            "string",           "list",   "map",         "scope",         "function",
-            "native",           "class",  "instance",    "method",        "module",
-            "iterator",         "array",  "ad",          "sparse",        "sparse_builder",
-            "sparse_workspace", "factor", "generator",   "moments",       "complex",
-            "linear_operator",  "buffer", "tensor",      "tensor_blocks", "lowrank",
-            "quantity",         "range",  "offload_plan"};
+            "string",           "list",   "map",          "scope",           "function",
+            "native",           "class",  "instance",     "method",          "module",
+            "iterator",         "array",  "ad",           "sparse",          "sparse_builder",
+            "sparse_workspace", "factor", "generator",    "moments",         "complex",
+            "linear_operator",  "buffer", "tensor",       "tensor_blocks",   "lowrank",
+            "quantity",         "range",  "offload_plan", "quantized_matrix"};
+        _Static_assert(sizeof n / sizeof *n == O_QUANTIZED + 1, "object type names");
         return n[v.o->type];
     }
     }
@@ -183,6 +184,8 @@ int64_t range_element(const Obj *range, uint64_t index) {
 }
 
 Val native_call(VM *v, int id, int argc, Val *a) {
+    if (id >= QUANT_BASE)
+        return quant_call(v, id, argc, a);
     if (id >= UNCERTAINTY_BASE)
         return uncertainty_call(v, id, argc, a);
     if (id >= OPTIMIZER_BASE)
@@ -519,6 +522,8 @@ Obj *named_native_module(VM *v, const char *name, const char *const *names, size
 }
 
 Obj *native_module(VM *v, const char *name) {
+    if (!strcmp(name, "quant"))
+        return quant_module(v);
     if (!strcmp(name, "_uncertainty"))
         return uncertainty_module(v);
     if (!strcmp(name, "_optimizer"))

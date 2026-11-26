@@ -6,6 +6,7 @@ This directory records the mathematics behind Arda's scientific features and com
 | --- | --- |
 | [Dense linear algebra and reductions](implemented/linear-algebra.md) | [Factorizations, statistics, quadrature and special functions](planned/numerical-libraries.md) |
 | [Typed tensors, shared buffers and file storage](implemented/typed-tensors.md) | |
+| [Block quantization and mixed-precision products](implemented/quantization.md) | |
 | [Low-rank tensors](implemented/low-rank-tensors.md) | |
 | [Scientific quantities and shape contracts](implemented/scientific-types.md) | |
 | [Random generation and statistics](implemented/random-and-statistics.md) | |

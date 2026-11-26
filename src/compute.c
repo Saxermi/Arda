@@ -59,6 +59,7 @@ static Val cpu_info(VM *v) {
     field(v, map, "avx2", boolean(!!(v->cpu_features & CPU_AVX2)));
     field(v, map, "fma", boolean(!!(v->cpu_features & CPU_FMA)));
     field(v, map, "neon", boolean(!!(v->cpu_features & CPU_NEON)));
+    field(v, map, "f16c", boolean(!!(v->cpu_features & CPU_F16C)));
     field(v, map, "matmul_kernel", objval(string(v, cpu_matmul_name(v))));
     field(v, map, "auto_matmul", objval(string(v, cpu_matmul_auto(v))));
     field(v, map, "vector_math_available", boolean(cpu_vector_math_available(v)));

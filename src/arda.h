@@ -282,7 +282,8 @@ typedef enum {
     O_LOWRANK,
     O_QUANTITY,
     O_RANGE,
-    O_OFFLOAD_PLAN
+    O_OFFLOAD_PLAN,
+    O_QUANTIZED
 } OType;
 
 typedef struct {
@@ -331,6 +332,13 @@ typedef struct {
     int shape[8], rank;
     LowRankKind kind;
 } LowRankTensor;
+
+typedef struct {
+    Obj *buffer;
+    int rows, columns;
+    size_t blocks_per_row;
+    bool q4;
+} QuantizedMatrix;
 
 typedef struct {
     double scale, offset;
@@ -437,6 +445,7 @@ struct Obj {
         Buffer buffer;
         TypedTensor tensor;
         LowRankTensor lowrank;
+        QuantizedMatrix quantized;
         Quantity quantity;
         struct TensorAD *ad;
         struct ADOffloadPlan *offload_plan;
@@ -630,6 +639,7 @@ void install_tensor(VM *v, Obj *module);
 #define UNITS_BASE 1700
 #define OPTIMIZER_BASE 1800
 #define UNCERTAINTY_BASE 1900
+#define QUANT_BASE 2000
 #define UNCERTAINTY_APPLY_ID UNCERTAINTY_BASE
 #define MATHDOC_SENSITIVITY_ID (MATHDOC_BASE + 6)
 Obj *optimizer_module(VM *v);
@@ -666,6 +676,8 @@ Obj *linop_module(VM *v);
 Val linop_call(VM *v, int id, int argc, Val *a);
 Obj *mathdoc_module(VM *v);
 Val mathdoc_call(VM *v, int id, int argc, Val *a);
+Obj *quant_module(VM *v);
+Val quant_call(VM *v, int id, int argc, Val *args);
 Obj *uncertainty_module(VM *v);
 Val uncertainty_call(VM *v, int id, int argc, Val *args);
 Val special_call(VM *v, int id, int argc, Val *a);

@@ -13,7 +13,14 @@
 enum { GEMM_AUTO, GEMM_REFERENCE, GEMM_SSE2, GEMM_AVX2, GEMM_FMA, GEMM_NEON };
 typedef enum { CPU_SIN, CPU_COS, CPU_EXP } VectorMath;
 
-enum { CPU_SSE2 = 1 << 0, CPU_AVX2 = 1 << 1, CPU_FMA = 1 << 2, CPU_NEON = 1 << 3 };
+enum {
+    CPU_SSE2 = 1 << 0,
+    CPU_AVX2 = 1 << 1,
+    CPU_FMA = 1 << 2,
+    CPU_NEON = 1 << 3,
+    CPU_F16C = 1 << 4,
+    CPU_ARM_FP16 = 1 << 5
+};
 
 unsigned cpu_detect(void);
 const char *cpu_architecture(void);
