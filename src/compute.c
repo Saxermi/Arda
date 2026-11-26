@@ -59,12 +59,48 @@ static Val cpu_info(VM *v) {
     field(v, map, "avx2", boolean(!!(v->cpu_features & CPU_AVX2)));
     field(v, map, "fma", boolean(!!(v->cpu_features & CPU_FMA)));
     field(v, map, "neon", boolean(!!(v->cpu_features & CPU_NEON)));
+    field(v, map, "matmul_kernel", objval(string(v, cpu_matmul_name(v))));
+    field(v, map, "auto_matmul", objval(string(v, cpu_matmul_auto(v))));
+    field(v, map, "vector_math_available", boolean(cpu_vector_math_available(v)));
     return objval(map);
 }
 
-enum { MEMORY_STATS, MEMORY_BUDGET, TRIM_POOL, PLAN, STREAM_STATS, CPU_INFO };
-static const char *const names[] = {"memory_stats", "memory_budget", "trim_pool",
-                                    "plan",         "stream_stats",  "cpu"};
+static Val matmul_kernel(VM *v, int argc, Val *args) {
+    if (argc) {
+        int mode = cpu_matmul_choice(v, asstr(v, args[0]));
+        if (mode < 0)
+            vmerror_kind(v, "backend", "requested Float64 matmul kernel is unavailable");
+        v->matmul_kernel = mode;
+    }
+    return objval(string(v, cpu_matmul_name(v)));
+}
+
+static Val vector_math(VM *v, int argc, Val *args) {
+    if (argc) {
+        if (args[0].t != V_BOOL)
+            vmerror_kind(v, "type", "compute.vector_math expects a Boolean");
+        if (args[0].n && !cpu_vector_math_available(v))
+            vmerror_kind(v, "backend", "vector math is unavailable in this build or on this CPU");
+        v->vector_math = args[0].n != 0;
+    }
+    return boolean(v->vector_math);
+}
+
+enum {
+    MEMORY_STATS,
+    MEMORY_BUDGET,
+    TRIM_POOL,
+    PLAN,
+    STREAM_STATS,
+    CPU_INFO,
+    MATMUL_KERNEL,
+    VECTOR_MATH,
+    COMPUTE_COUNT
+};
+static const char *const names[] = {"memory_stats",  "memory_budget", "trim_pool",
+                                    "plan",          "stream_stats",  "cpu",
+                                    "matmul_kernel", "vector_math"};
+_Static_assert(sizeof names / sizeof *names == COMPUTE_COUNT, "compute names");
 
 Obj *compute_module(VM *v) {
     return named_native_module(v, "compute", names, sizeof names / sizeof *names, COMPUTE_BASE);
@@ -72,6 +108,14 @@ Obj *compute_module(VM *v) {
 
 Val compute_call(VM *v, int id, int argc, Val *args) {
     switch (id - COMPUTE_BASE) {
+    case MATMUL_KERNEL:
+        if (argc <= 1)
+            return matmul_kernel(v, argc, args);
+        break;
+    case VECTOR_MATH:
+        if (argc <= 1)
+            return vector_math(v, argc, args);
+        break;
     case CPU_INFO:
         if (!argc)
             return cpu_info(v);

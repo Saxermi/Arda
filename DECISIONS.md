@@ -147,3 +147,11 @@ Use seeded products and allow independent standard deviations or a supplied cova
 **Status** — Proposal for owner review before any distributed implementation
 
 Use stable logical parameter IDs and aggregate local gradient sums with exact sample counts. Start the design with replicated parameters and optimizer state because this gives each rank local reads and a straightforward comparison with serial training. Each rank pays the full model and optimizer memory cost. Sharded ownership would lower those memory costs and require an explicit map from parameters to ranks, remote reads and coordinated restart. The proposal leaves ownership granularity and the eventual distributed API open. [Draft contract and acceptance cases](research/planned/computing-systems.md#draft-distributed-parameter-and-gradient-ownership-contract)
+
+## 2026-11-26 — Register blocking with separate multiply and add by default
+
+**Status** — Implemented for 0.18.1 and open to owner revision
+
+Use register tiles over the existing row-major Float64 inputs. This reuses right-hand values across rows without an additional packed matrix or tensor workspace. Keeping each dot product's order and leaving contraction disabled preserves the default rounding behavior. Packing panels would improve locality for more shapes and give larger microkernels predictable access. Packing also needs extra storage, data movement and budget checks.
+
+Expose AVX2 FMA and GNU libmvec as explicit choices. They can improve throughput, and vector providers and fused arithmetic can differ in the last bits. Selecting them automatically would broaden their speed benefits and change the default numerical behavior. [Kernel contracts](research/implemented/transforms-and-kernels.md#0181-register-blocked-matrix-multiplication)

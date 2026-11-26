@@ -488,6 +488,8 @@ typedef struct VM {
     size_t ng, gcap, live, bytes, next_gc, cycles;
     int marking, stress;
     unsigned cpu_features;
+    int matmul_kernel;
+    bool vector_math;
     size_t sparse_bytes, sparse_limit;
     TensorMemory tensor_memory;
     Obj *sensitivity_entry;
@@ -581,7 +583,7 @@ void array_set_index(VM *v, Val a, Val b, Val x);
 void array_print(Obj *o);
 Obj *array_new(VM *v, int rank, int rows, int cols);
 Obj *dense_matmul(VM *v, Obj *a, Obj *b);
-void dense_matmul_into(int m, int k, int n, const double *x, const double *y, double *z);
+void dense_matmul_into(VM *v, int m, int k, int n, const double *x, const double *y, double *z);
 #define ARDA_MAX_ELEMENTS 16000000u
 Obj *buffer_new(VM *v, size_t bytes);
 void tensor_bump_version(VM *v, Obj *buffer);

@@ -12,7 +12,7 @@ Its long-term goal is to combine scientifically validated numerical algorithms w
 
 *Development codename: Mithril*
 
-**Development version** — Arda 0.18.0 — High-Performance CPU Execution and Adaptive Planning
+**Development version** — Arda 0.18.1 — High-Performance CPU Execution and Adaptive Planning
 
 **Wiki** — [Quickstart, language and module guides, and AMDE examples](https://github.com/Saxermi/Arda/wiki)
 

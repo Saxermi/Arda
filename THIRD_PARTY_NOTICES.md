@@ -12,6 +12,8 @@ Arda's own source and documentation are distributed under the [MIT License](LICE
 
 The Makefile links libraries installed in the build environment. For a package that bundles libraries, verify the exact binary, upstream revision, transitive components and applicable notices. Keep the notice files required by each component with that distribution. [Build configuration](Makefile)
 
+The optional `VECMATH=1` build links the system GNU C Library vector math library. Arda calls its x86-64 vector ABI through original adapters. Provider versions and redistribution terms follow the installed GNU C Library. [GNU C Library licensing](https://www.gnu.org/software/libc/)
+
 ## Local development and comparison tools
 
 | Component | Use | License source |
