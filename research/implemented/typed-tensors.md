@@ -73,6 +73,12 @@ pedo(plan["fits"],plan["workspace_bytes"],stats["count"],stats["mean"],stats["va
 
 The program prints `nae 16 4 2.5 1.25`.
 
+## Contiguous Float64 matrix products
+
+Vilya dispatches contiguous rank-two Float64 tensors to the same blocked or CBLAS kernel as `numc.matmul`. Mixed dtypes, strided matrices, and batched products retain the typed contraction path.
+
+A local single-core check used an Intel Xeon Platinum 8573C and GCC 14.2 with the default `-O2` build and BLAS disabled. The two input matrices were reshaped linspaces from −1 to 1 and 2 to −3. Each run used two warmups and reported the median of seven products, including output allocation and excluding setup and collection. The 128×128 product took 44.95 ms on 0.16.5 and 0.39 ms with Vilya. The 256×256 product took 370.53 ms and 3.24 ms, respectively. The maximum absolute difference from NumPy across both builds and sizes was 5.69 × 10⁻¹³. The measurements cover these contiguous products on this machine. [Shared numerical kernel](../../src/scientific.c)
+
 ## Local validation
 
 All 203 regression tests passed in the portable and BLAS/LAPACK builds, both with and without ASan, UBSan and leak detection. All 40 NumPy/SciPy reference tests passed with LAPACK. The portable configurations passed 35 and skipped the five LAPACK-dependent cases. Generated headers, formatting and the two documentation examples passed.

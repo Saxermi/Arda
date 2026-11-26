@@ -1,15 +1,67 @@
-#include "arda.h"
+#include "autodiff.h"
 #include "numerics_source.h"
 #include "ode_source.h"
 #include "opt_source.h"
+static _Noreturn void jump_error(VM *v) {
+    if (v->sparse_active)
+        sparse_abort(v);
+    longjmp(v->trap, 1);
+}
+
+_Noreturn void vmerror_kind(VM *v, const char *code, const char *fmt, ...) {
+    va_list a;
+    va_start(a, fmt);
+    vsnprintf(v->error, sizeof v->error, fmt, a);
+    va_end(a);
+    v->error_code = code;
+    v->thrown = nil();
+    jump_error(v);
+}
+
 _Noreturn void vmerror(VM *v, const char *fmt, ...) {
     va_list a;
     va_start(a, fmt);
     vsnprintf(v->error, sizeof v->error, fmt, a);
     va_end(a);
-    if (v->sparse_active)
-        sparse_abort(v);
-    longjmp(v->trap, 1);
+    v->error_code = "runtime_error";
+    v->thrown = nil();
+    jump_error(v);
+}
+
+int truth(VM *v, Val x) {
+    if (isobj(x, O_ARRAY) || isobj(x, O_TYPED_TENSOR) || isobj(x, O_LOWRANK) ||
+        isobj(x, O_SPARSE) || isobj(x, O_AD) || isobj(x, O_QUANTITY))
+        vmerror_kind(v, "ambiguous_truth",
+                     "tensor, quantity or differentiated value needs an explicit scalar condition");
+    if (x.t == V_NIL || x.t == V_MISSING)
+        return 0;
+    if (x.t == V_INT)
+        return x.i != 0;
+    if (x.t == V_BOOL || x.t == V_NUM)
+        return x.n != 0;
+    if (isobj(x, O_COMPLEX))
+        return x.o->as.cplx.re != 0 || x.o->as.cplx.im != 0;
+    if (isobj(x, O_STRING))
+        return x.o->as.str.len != 0;
+    if (isobj(x, O_LIST))
+        return x.o->as.list.n != 0;
+    if (isobj(x, O_MAP))
+        return x.o->as.map.tab.n != 0;
+    if (isobj(x, O_RANGE))
+        return x.o->as.range.count != 0;
+    return 1;
+}
+
+static Val caught_error(VM *v) {
+    if (v->thrown.t != V_NIL)
+        return v->thrown;
+    Obj *out = newobj(v, O_MAP);
+    Table *tab = &out->as.map.tab;
+    tableset(v, out, tab, "code", objval(string(v, v->error_code)));
+    tableset(v, out, tab, "message", objval(string(v, v->error)));
+    tableset(v, out, tab, "file", objval(string(v, v->path ? v->path : "")));
+    tableset(v, out, tab, "line", integer(v->line));
+    return objval(out);
 }
 
 static void reserve(VM *v, int n) {
@@ -237,12 +289,8 @@ static Val binary(VM *v, Op op, Val a, Val b) {
     case OP_MUL:
         return number(x * y);
     case OP_DIV:
-        if (y == 0)
-            vmerror(v, "division by zero");
         return number(x / y);
     case OP_MOD:
-        if (y == 0)
-            vmerror(v, "modulo by zero");
         return number(fmod(x, y));
     case OP_LT:
         return boolean(compare_numeric(a, b) == -1);
@@ -261,6 +309,15 @@ static Val binary(VM *v, Op op, Val a, Val b) {
 static Val indexget(VM *v, Val a, Val b) {
     if (isobj(a, O_ARRAY))
         return array_index(v, a, b);
+    if (isobj(a, O_RANGE)) {
+        if (b.t != V_INT)
+            vmerror_kind(v, "index", "range index must be an integer");
+        uint64_t count = a.o->as.range.count;
+        int64_t i = b.i < 0 ? b.i + (int64_t)count : b.i;
+        if (i < 0 || (uint64_t)i >= count)
+            vmerror_kind(v, "index", "range index out of bounds");
+        return integer(range_element(a.o, (uint64_t)i));
+    }
     if (isobj(a, O_LIST))
         return a.o->as.list.a[indexnum(v, b, a.o->as.list.n)];
     if (isobj(a, O_MAP)) {
@@ -502,22 +559,14 @@ static void addhandler(VM *v, Frame *f, int ip) {
 }
 
 static void module_import(VM *v, Frame *f, const char *name) {
-    char *candidate;
+    bool standard = !strncmp(name, "std:", 4);
+    if (standard)
+        name += 4;
     size_t n = strlen(name);
-    int ext = n >= 5 && !strcmp(name + n - 5, ".arda");
-    const char *slash = strrchr(f->p->path, '/');
-    size_t dir = slash ? (size_t)(slash - f->p->path + 1) : 0;
-    if (name[0] == '/')
-        dir = 0;
-    candidate = mem(dir + n + 6);
-    if (dir)
-        memcpy(candidate, f->p->path, dir);
-    strcpy(candidate + dir, name);
-    if (!ext)
-        strcat(candidate, ".arda");
-    char *path = realpath(candidate, NULL);
-    free(candidate);
+    bool ext = n >= 5 && !strcmp(name + n - 5, ".arda");
+    bool bare = !ext && !strchr(name, '/');
     const char *embedded = NULL;
+    char *path = NULL;
     static const struct {
         const char *name, *path, *source;
     } stdlib[] = {
@@ -525,21 +574,36 @@ static void module_import(VM *v, Frame *f, const char *name) {
         {"opt", "<stdlib:opt>", opt_source},
         {"numerics", "<stdlib:numerics>", numerics_source},
     };
-    if (!path) {
+    if (standard || bare) {
         for (size_t i = 0; i < sizeof stdlib / sizeof *stdlib; i++)
             if (!strcmp(name, stdlib[i].name)) {
                 path = copystr(stdlib[i].path);
                 embedded = stdlib[i].source;
                 break;
             }
+        if (!path) {
+            Obj *mod = native_module(v, name);
+            if (mod) {
+                push(v, objval(mod));
+                return;
+            }
+            if (standard)
+                vmerror_kind(v, "import", "standard module '%s' not found", name);
+        }
     }
     if (!path) {
-        Obj *mod = native_module(v, name);
-        if (mod) {
-            push(v, objval(mod));
-            return;
-        }
-        vmerror(v, "module '%s' not found", name);
+        const char *slash = strrchr(f->p->path, '/');
+        size_t dir = slash && name[0] != '/' ? (size_t)(slash - f->p->path + 1) : 0;
+        char *candidate = mem(dir + n + 6);
+        if (dir)
+            memcpy(candidate, f->p->path, dir);
+        strcpy(candidate + dir, name);
+        if (!ext)
+            strcat(candidate, ".arda");
+        path = realpath(candidate, NULL);
+        free(candidate);
+        if (!path)
+            vmerror_kind(v, "import", "module '%s' not found", name);
     }
     Entry *e = tablefind(&v->modules, path);
     if (e) {
@@ -726,14 +790,16 @@ static void dispatch(VM *v) {
                 push(v, integer(-x.i));
             } else if (isobj(x, O_COMPLEX))
                 push(v, complex_value(v, -x.o->as.cplx.re, -x.o->as.cplx.im));
-            else if (isobj(x, O_ARRAY) || isobj(x, O_AD))
+            else if (isobj(x, O_AD))
+                push(v, ad_unary(v, AD_NEG, x, nil()));
+            else if (isobj(x, O_ARRAY) || isobj(x, O_TYPED_TENSOR))
                 push(v, binary(v, OP_MUL, x, integer(-1)));
             else
                 push(v, number(-asnum(v, x)));
             break;
         }
         case OP_NOT:
-            push(v, boolean(!truth(pop(v))));
+            push(v, boolean(!truth(v, pop(v))));
             break;
         case OP_ADD_INT_CONST:
         case OP_SUB_INT_CONST:
@@ -765,7 +831,7 @@ static void dispatch(VM *v) {
         case OP_JFALSE_LT_CONST: {
             Val x = pop(v);
             int64_t y = f->p->k[in.aux].i;
-            if (x.t == V_INT ? x.i >= y : !truth(binary(v, OP_LT, x, integer(y))))
+            if (x.t == V_INT ? x.i >= y : !truth(v, binary(v, OP_LT, x, integer(y))))
                 f->ip = a;
             break;
         }
@@ -773,11 +839,11 @@ static void dispatch(VM *v) {
             f->ip = a;
             break;
         case OP_JFALSE:
-            if (!truth(pop(v)))
+            if (!truth(v, pop(v)))
                 f->ip = a;
             break;
         case OP_JTRUE:
-            if (truth(pop(v)))
+            if (truth(v, pop(v)))
                 f->ip = a;
             break;
         case OP_CLOSURE: {
@@ -815,8 +881,8 @@ static void dispatch(VM *v) {
                 x = objval(l);
             }
             if (!isobj(x, O_LIST) && !isobj(x, O_STRING) && !isobj(x, O_ARRAY) &&
-                !isobj(x, O_TENSOR_BLOCKS))
-                vmerror(v, "for expects list, string, map, array or tensor blocks");
+                !isobj(x, O_TENSOR_BLOCKS) && !isobj(x, O_RANGE))
+                vmerror(v, "for expects list, string, map, range, array or tensor blocks");
             Obj *it = newobj(v, O_ITER);
             it->as.iter.source = x;
             push(v, objval(it));
@@ -826,7 +892,15 @@ static void dispatch(VM *v) {
             Obj *it = top(v).o;
             Val x = it->as.iter.source;
             size_t i = it->as.iter.index;
-            if (isobj(x, O_TENSOR_BLOCKS)) {
+            if (isobj(x, O_RANGE)) {
+                uint64_t index = it->as.iter.range_index;
+                if (index == x.o->as.range.count)
+                    f->ip = a;
+                else {
+                    it->as.iter.range_index++;
+                    push(v, integer(range_element(x.o, index)));
+                }
+            } else if (isobj(x, O_TENSOR_BLOCKS)) {
                 Val block = tensor_block_next(v, x.o, &it->as.iter.index);
                 if (block.t == V_NIL)
                     f->ip = a;
@@ -888,11 +962,15 @@ static void dispatch(VM *v) {
             break;
         case OP_THROW: {
             Val x = pop(v);
-            char *s = value_string(x);
-            snprintf(v->error, sizeof v->error, "%s", s);
-            free(s);
-            longjmp(v->trap, 1);
-            break;
+            if (!isobj(x, O_MAP))
+                vmerror_kind(v, "type", "throw expects an error map with code and message");
+            const Entry *code = tablefind(&x.o->as.map.tab, "code");
+            const Entry *message = tablefind(&x.o->as.map.tab, "message");
+            if (!code || !message || !isobj(code->val, O_STRING) || !isobj(message->val, O_STRING))
+                vmerror_kind(v, "type", "error map requires string code and message fields");
+            v->thrown = x;
+            snprintf(v->error, sizeof v->error, "%s", asstr(v, message->val));
+            jump_error(v);
         }
         }
         if (v->marking || v->stress || v->bytes >= v->next_gc)
@@ -911,7 +989,8 @@ int vm_run(VM *v, Proto *p) {
             v->sp = h.sp;
             v->frames[h.frame].env = h.env;
             v->frames[h.frame].ip = h.ip;
-            push(v, objval(string(v, v->error)));
+            push(v, caught_error(v));
+            v->thrown = nil();
         } else {
             fprintf(stderr, "%s:%d: %s\n", v->path, v->line, v->error);
             for (int i = v->nf - 1; i >= 0; i--) {
@@ -919,6 +998,7 @@ int vm_run(VM *v, Proto *p) {
                 int ip = f->ip ? f->ip - 1 : 0;
                 fprintf(stderr, "  at %s (%s:%d)\n", f->p->name, f->p->path, f->p->code[ip].line);
             }
+            v->thrown = nil();
             fail_modules(v, 0);
             v->nf = v->sp = v->nh = 0;
             v->path = NULL;

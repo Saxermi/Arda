@@ -97,3 +97,13 @@ Plan for about 30 GB of free SSD space for the 20 GB benchmark alone, 100 GB for
 Use structured CP, Tucker and tensor train inner products and bounded direct evaluation when cancellation threatens the result on small shapes. Use deterministic LAPACK sweeps as the reference for TT approximation. Keep randomized rounding and TT-cross for later comparison. [Low-rank tensor contracts](research/implemented/low-rank-tensors.md)
 
 Represent scientific quantities with SI values and separate display-unit metadata. Check dimensions once per operation and reuse the Float64 kernels. Separate absolute temperatures from temperature differences. Keep 64-bit logical dimensions in specifications and assertions while retaining compact indices in live layouts. MathIR displays source subscripts with unresolved shapes and bounds. [Scientific type contracts](research/implemented/scientific-types.md)
+
+## 2026-11-26 — Vilya runtime and language contracts
+
+**Status** — Accepted
+
+- Use the existing typed tensor layout and shared buffers for tensor AD. Keep the optimized numerical kernels and retire redundant public names where operations have the same contract. Put mutation versions on shared buffers so writes through an owner or an alias invalidate a saved value.
+- Extend `ad` to dense Float64 tensors first. Accumulate contributions within a reverse sweep. Each successful backward call replaces the gradients it visits. Publish gradients only after a successful sweep. Charge gradient payloads against the tensor memory budget and keep MathIR separate from runtime tracing.
+- Use IEEE results for ordinary real floating-point operations and reject nonfinite values in differentiation. Keep checked integer arithmetic. Require an explicit scalar condition for tensors and tracked values.
+- Use maps with named fields for caught errors and iterative solver reports. Migrate in-tree examples and callers directly when an interface changes. Present both English and Elvish-inspired spellings in the main tutorial.
+- Make `range` lazy and make materialization explicit with `list`. Give the standard library an explicit import spelling and resolve bare standard names consistently. Keep quoted paths for local modules.

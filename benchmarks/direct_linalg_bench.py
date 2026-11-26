@@ -28,8 +28,8 @@ esta n = {dense_n}
 esta a = nc.reshape(nc.linspace(-0.001,0.001,n*n),[n,n])
 esta identity = nc.zeros(n,n)
 an i in range(n):
-    nc.set(a,i,i,nc.get(a,i,i)+2)
-    nc.set(identity,i,i,1)
+    nc.put(a,[i,i],nc.at(a,[i,i])+2)
+    nc.put(identity,[i,i],1)
 time_call("det",n,12,lambda: la.det(a),lambda value: value)
 time_call("inverse",n,6,lambda: la.inv(a),lambda value: nc.norm(nc.matmul(a,value)-identity))
 
@@ -53,11 +53,11 @@ time_call("thomas",n,12,lambda: la.solve_tridiag(off,diagonal,off,b),lambda valu
 esta bands = nc.zeros(5,n)
 b = nc.zeros(n)
 an i in range(n):
-    nc.set(bands,0,i,0.125)
-    nc.set(bands,1,i,-0.75)
-    nc.set(bands,2,i,4)
-    nc.set(bands,3,i,-0.5)
-    nc.set(bands,4,i,0.25)
+    nc.put(bands,[0,i],0.125)
+    nc.put(bands,[1,i],-0.75)
+    nc.put(bands,[2,i],4)
+    nc.put(bands,[3,i],-0.5)
+    nc.put(bands,[4,i],0.25)
     esta rhs = 4*x[i]
     qui i+1<n:
         rhs = rhs-0.75*x[i+1]
@@ -68,7 +68,7 @@ an i in range(n):
     qui i>1:
         rhs = rhs+0.25*x[i-2]
     b[i] = rhs
-nc.set(bands,2,0,0)
+nc.put(bands,[2,0],0)
 b[0] = b[0]-4*x[0]
 time_call("banded",n,12,lambda: la.solve_banded(2,2,bands,b),lambda value: nc.norm(value-x)/nc.norm(x))
 """

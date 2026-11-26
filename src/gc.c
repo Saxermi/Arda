@@ -1,4 +1,4 @@
-#include "arda.h"
+#include "autodiff.h"
 void account(VM *v, Obj *o, size_t old, size_t now) {
     if (!o)
         return;
@@ -211,6 +211,7 @@ static void markproto(Proto *p) {
 static void trace(VM *v, Obj *o) {
     switch (o->type) {
     case O_STRING:
+    case O_RANGE:
     case O_NATIVE:
     case O_RNG:
     case O_MOMENTS:
@@ -244,8 +245,12 @@ static void trace(VM *v, Obj *o) {
         markobj(v, o->as.quantity.symbol);
         break;
     case O_AD:
-        markobj(v, o->as.ad.a);
-        markobj(v, o->as.ad.b);
+        markval(v, o->as.ad->value);
+        markval(v, o->as.ad->grad);
+        markval(v, o->as.ad->left);
+        markval(v, o->as.ad->right);
+        markobj(v, o->as.ad->parents[0]);
+        markobj(v, o->as.ad->parents[1]);
         break;
     case O_LIST:
         for (int i = 0; i < o->as.list.n; i++)
@@ -290,6 +295,7 @@ static void trace(VM *v, Obj *o) {
 static void roots(VM *v) {
     markobj(v, v->global);
     markobj(v, v->builtins);
+    markval(v, v->thrown);
     marktable(v, &v->modules);
     for (int i = 0; i < v->sp; i++)
         markval(v, v->stack[i]);
@@ -314,6 +320,9 @@ static void release(VM *v, Obj *o) {
     case O_SPARSE_BUILDER:
     case O_SPARSE_WORKSPACE:
         sparse_release_payload(o);
+        break;
+    case O_AD:
+        free(o->as.ad);
         break;
     case O_BUFFER:
         tensor_buffer_release(v, &o->as.buffer);

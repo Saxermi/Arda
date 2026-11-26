@@ -875,7 +875,7 @@ static Val linalg_eigen(VM *v, Val a, int symmetric) {
 #endif
 }
 
-Val linalg_eigh(VM *v, Val a) {
+static Val linalg_eigh(VM *v, Val a) {
     return linalg_eigen(v, a, 1);
 }
 

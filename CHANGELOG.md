@@ -2,6 +2,12 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
+## 0.17.0 — Vilya runtime and tensor autodiff
+
+- Extended reverse-mode autodiff to dense Float64 tensors. Backward checks saved tensor versions and publishes gradients after a successful sweep.
+- Added lazy Int64 ranges, explicit standard-library imports, structured caught errors, and named reports for iterative solvers.
+- Retired redundant dense access names and the legacy axis sum. Moved SGD and Adam to `opt`. Migrated examples and callbacks to the new contracts. [Vilya runtime contracts](docs/VILYA_RUNTIME.md)
+
 ## 0.16.5 — Scientific Types
 
 - Added SI quantities with dimension-checked arithmetic, explicit conversion, absolute and interval temperatures, and Float64 tensor products and sums.

@@ -122,7 +122,7 @@ class NumericsTests(unittest.TestCase):
         }
         for source, error in cases.items():
             with self.subTest(source=source):
-                prefix = 'tol numerics as n\ncaro callback(x):\n    throw "callback propagated"\n'
+                prefix = 'tol numerics as n\ncaro callback(x):\n    throw {"code": "user_error", "message": "callback propagated"}\n'
                 self.run_code(prefix + source, error=error, stress=True)
 
     def test_interpolation_snapshot_and_edges(self):

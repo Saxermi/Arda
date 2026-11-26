@@ -26,8 +26,8 @@ class ScientificTests(unittest.TestCase):
         pedo(nc.matmul(a, b), nc.shape(b))
         esta row = a[0]
         row[0] = 99
-        nc.set(a, -1, -1, 9)
-        pedo(nc.get(a, 0, 0), nc.tolist(a))
+        nc.put(a,[-1,-1],9)
+        pedo(nc.at(a,[0,0]), nc.tolist(a))
         an r in a:
             pedo(r)
         ''','[[14, 32], [32, 77]] [3, 2]\n1 [[1, 2, 3], [4, 5, 9]]\n[1, 2, 3]\n[4, 5, 9]',stress=True)
@@ -74,7 +74,7 @@ class ScientificTests(unittest.TestCase):
         try:
             nc.solve(nc.zeros(2, 2), nc.ones(2))
         catch e:
-            pedo(e)
+            pedo(e["message"])
         collect()
         pedo(nc.sum(nc.ones(4)))
         ''','singular matrix\n4',stress=True)

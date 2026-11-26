@@ -34,12 +34,12 @@ class TensorTests(unittest.TestCase):
         collect()
         pedo(nc.tolist(m))
         esta c = nc.copy(m)
-        nc.set(c,1,0,9)
-        pedo(nc.get(c,1,0),nc.get(m,1,0))
+        nc.put(c,[1,0],9)
+        pedo(nc.at(c,[1,0]),nc.at(m,[1,0]))
         """, "[[1, 2], [8, 4]]\n9 8", stress=True)
         for code in (
             "esta r = nc.readonly(nc.ones(2))\nr[0] = 9",
-            "esta r = nc.permute(nc.readonly(nc.ones(2,2)),[1,0])\nnc.set(r,0,0,9)",
+            "esta r = nc.permute(nc.readonly(nc.ones(2,2)),[1,0])\nnc.put(r,[0,0],9)",
             "esta r = nc.view(nc.readonly(nc.ones(2)),0,0,2,1)\nnc.put(r,[0],9)",
         ):
             self.run_code("tol numc as nc\n" + code, error="read-only", stress=True)
@@ -112,7 +112,7 @@ class CalculusTests(unittest.TestCase):
         self.check('''
         esta x = nc.array([1,0,-1,0])
         esta y = calc.fft(x)
-        pedo(abs(nc.get(y,1,0)-2)<1e-12, abs(nc.get(y,3,0)-2)<1e-12)
+        pedo(abs(nc.at(y,[1,0])-2)<1e-12, abs(nc.at(y,[3,0])-2)<1e-12)
         esta z = calc.ifft(y)
         pedo(nc.norm(nc.view(z,1,0,1,1) - nc.reshape(x,[4,1]))<1e-12)
         pedo(nc.norm(nc.view(z,1,1,2,1))<1e-12)
@@ -129,7 +129,7 @@ class CalculusTests(unittest.TestCase):
         esta y = ode.rk4(f,0,1,0.01,100)
         esta z = calc.rk4_linear(nc.array([[-1]]),nc.array([1]),0.01,100)
         pedo(abs(y[-1]-0.3678794411714423)<1e-9)
-        pedo(abs(nc.get(z,100,0)-y[-1])<1e-13)
+        pedo(abs(nc.at(z,[100,0])-y[-1])<1e-13)
         ''','nae\nnae',stress=True)
     def test_rk4_vector_oscillator(self):
         self.check('''
@@ -160,11 +160,11 @@ class CalculusTests(unittest.TestCase):
     def test_callback_exception(self):
         self.check('''
         caro f(x):
-            throw "bad callback"
+            throw {"code": "user_error", "message": "bad callback"}
         try:
             ode.integrate(f,0,1)
         catch e:
-            pedo(e)
+            pedo(e["message"])
         pedo(ode.integrate(lambda x: x,0,1))
         ''','bad callback\n0.5',stress=True)
     def test_lapack(self):
@@ -173,13 +173,15 @@ class CalculusTests(unittest.TestCase):
             esta a = nc.array([[2,1],[1,2]])
             esta b = nc.array([3,3])
             pedo(nc.norm(calc.lapack_solve(a,b)-nc.ones(2))<1e-12)
-            esta e = calc.eigh(a)
+            tol linalg as la
+            esta e = la.eigh(a)
             pedo(nc.norm(e[0]-nc.array([1,3]))<1e-12)
             esta v = e[1]
             pedo(nc.norm(nc.matmul(a,v)-v*e[0])<1e-12)
         ai:
             try:
-                calc.eigh(nc.ones(2,2))
+                tol linalg as la
+                la.eigh(nc.ones(2,2))
             catch e:
                 pedo("nae")
             pedo("nae", "nae")
@@ -189,7 +191,7 @@ class ADTests(unittest.TestCase):
     run_code = _Base.run_code
     def check(self,code,expected=None,**kw):
         import textwrap
-        return self.run_code('tol ad\ntol numc as nc\n'+textwrap.dedent(code).lstrip('\n'),expected,**kw)
+        return self.run_code('tol ad\ntol opt\ntol numc as nc\n'+textwrap.dedent(code).lstrip('\n'),expected,**kw)
     def test_shared_graph(self):
         self.check('''
         esta x = ad.variable(3)
@@ -239,10 +241,10 @@ class ADTests(unittest.TestCase):
         self.check('''
         esta p = nc.array([3,-2])
         esta g = nc.array([2,-4])
-        pedo(ad.sgd(p,g,0.5))
-        esta r = ad.adam(p,g,nc.zeros(2),nc.zeros(2),1,0.1)
-        pedo(nc.norm(r[0]-nc.array([2.9,-1.9]))<1e-8)
-        pedo(nc.norm(r[1]-nc.array([0.2,-0.4]))<1e-12)
+        pedo(opt.sgd(p,g,0.5))
+        esta r = opt.adam(p,g,nc.zeros(2),nc.zeros(2),1,0.1)
+        pedo(nc.norm(r["parameters"]-nc.array([2.9,-1.9]))<1e-8)
+        pedo(nc.norm(r["first_moment"]-nc.array([0.2,-0.4]))<1e-12)
         ''','[2, 0]\nnae\nnae',stress=True)
     def test_ad_gc(self):
         self.check('''
@@ -265,7 +267,7 @@ class ADTests(unittest.TestCase):
         pedo(heap_bytes()-before<10000)
         ''','9\nnae',stress=True)
     def test_ad_errors(self):
-        for s,e in [('ad.log(ad.variable(0))','log domain'),('ad.variable(1)/0','division by zero'),('ad.sqrt(ad.variable(0))','sqrt derivative'),('ad.backward(1)','expected autodiff node'),('ad.adam(nc.ones(1),nc.ones(1),nc.zeros(1),nc.zeros(1),0,0.1)','start at 1')]:
+        for s,e in [('ad.log(ad.variable(0))','log domain'),('ad.variable(1)/0','division by zero'),('ad.sqrt(ad.variable(0))','sqrt derivative'),('ad.backward(1)','expected autodiff node'),('opt.adam(nc.ones(1),nc.ones(1),nc.zeros(1),nc.zeros(1),0,0.1)','start at 1')]:
             with self.subTest(s=s): self.check(s,error=e,stress=True)
     def test_learning_example(self):
         from pathlib import Path

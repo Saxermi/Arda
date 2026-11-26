@@ -14,6 +14,6 @@ esta powers = {"Nenya": ring.charge(forge.double(5))}
 pedo(ring.name, powers["Nenya"])
 
 try:
-    pedo(1 / 0)
+    pedo(1 % 0)
 catch error:
-    pedo("Error: " + error)
+    pedo("Error: " + error["message"])

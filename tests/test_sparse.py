@@ -25,7 +25,7 @@ class SparseTests(unittest.TestCase):
         tol sparse as sp
         tol numc as nc
         esta a = sp.coo(0,4,[],[],[])
-        esta b = sp.crs(3,0,[0,0,0,0],[],[])
+        esta b = sp.csr(3,0,[0,0,0,0],[],[])
         pedo(sp.components(sp.to_csr(a)))
         pedo(sp.components(sp.to_coo(b)))
         pedo(nc.shape(sp.todense(a)),nc.shape(sp.todense(b)))
@@ -120,9 +120,9 @@ class SparseTests(unittest.TestCase):
         size = 4*12 + 4*ctypes.sizeof(ctypes.c_size_t)
         self.run_code('''
         tol sparse as sp
-        esta a = sp.crs(3,4,[0,2,2,4],[1,3,0,3],[5,-1,4,7])
+        esta a = sp.csr(3,4,[0,2,2,4],[1,3,0,3],[5,-1,4,7])
         pedo(sp.bytes(a), sp.bytes(sp.to_coo(a)))
-        pedo(sp.components(sp.to_crs(a)))
+        pedo(sp.components(sp.to_csr(a)))
         pedo(sp.get(a,0,0),sp.get(a,0,1),sp.get(a,0,2),sp.get(a,0,3),sp.get(a,2,3))
         esta z = sp.to_csr(sp.coo(2,3,[1,0,1],[2,0,2],[1,0,-1]))
         pedo(sp.components(z))

@@ -69,12 +69,18 @@ void tensor_buffer_release(VM *v, Buffer *buffer) {
     buffer->release(buffer->allocation, buffer->allocation_bytes);
 }
 
+void tensor_bump_version(VM *v, Obj *buffer) {
+    if (buffer->as.buffer.version == UINT64_MAX)
+        vmerror_kind(v, "mutation", "tensor buffer version exhausted");
+    buffer->as.buffer.version++;
+}
+
 Obj *buffer_new(VM *v, size_t bytes) {
     if (bytes > PTRDIFF_MAX)
         vmerror(v, "tensor buffer exceeds addressable size");
     size_t available = tensor_memory_available(v);
     if (bytes > available)
-        vmerror(v, "tensor memory budget exceeded");
+        vmerror_kind(v, "memory_budget", "tensor memory budget exceeded");
     TensorMemory *m = &v->tensor_memory;
     if (m->cached > available - bytes)
         tensor_pool_trim(v);

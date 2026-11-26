@@ -258,7 +258,7 @@ class LapackReferenceTests(unittest.TestCase):
         np.testing.assert_allclose(float(output[0]), np.linalg.cond(a), rtol=3e-7)
         np.testing.assert_allclose(ast.literal_eval(output[2]), expected, rtol=1e-12, atol=1e-13)
 
-    def test_symmetric_eigenpairs_and_legacy_api(self):
+    def test_symmetric_eigenpairs_on_strided_input(self):
         rng = np.random.default_rng(1512)
         basis, _ = np.linalg.qr(rng.normal(size=(6, 6)))
         a = (basis * [-4, -1, -1, 0.25, 2, 5]) @ basis.T
@@ -270,10 +270,8 @@ class LapackReferenceTests(unittest.TestCase):
         tol linalg as la
         esta a = nc.permute(nc.array({(a * scale).tolist()}),[1,0])
         esta p = la.eigh(a)
-        esta legacy = calc.eigh(a)
         pedo(nc.tolist(p[0]))
         pedo(nc.tolist(p[1]))
-        pedo(nc.norm(p[0]-legacy[0]) == 0 and nc.norm(p[1]-legacy[1]) == 0)
         pedo(nc.tolist(a))
         """, stress=True).splitlines()
         values, vectors = (np.array(ast.literal_eval(line)) for line in output[:2])
@@ -282,8 +280,7 @@ class LapackReferenceTests(unittest.TestCase):
         np.testing.assert_allclose(values, expected, atol=1e-13)
         np.testing.assert_allclose(vectors[:, 1:3] @ vectors[:, 1:3].T,
                                    reference[:, 1:3] @ reference[:, 1:3].T, atol=1e-13)
-        np.testing.assert_allclose(np.asarray(ast.literal_eval(output[3])) / scale, a, atol=1e-14)
-        self.assertEqual(output[2], 'nae')
+        np.testing.assert_allclose(np.asarray(ast.literal_eval(output[2])) / scale, a, atol=1e-14)
         residual = np.linalg.norm(a @ vectors - vectors * values) / np.linalg.norm(a)
         orthogonality = np.linalg.norm(vectors.T @ vectors - np.eye(6))
         self.assertLess(residual, 1e-13)

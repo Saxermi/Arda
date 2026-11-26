@@ -13,4 +13,4 @@ esta mat_t=time.monotonic()-t
 esta t=time.monotonic()
 esta c=nc.copy(view)
 esta copy_t=time.monotonic()-t
-pedo(d,nc.get(m,511,511),nc.get(c,1999,999),dot_t,mat_t,copy_t)
+pedo(d,nc.at(m,[511,511]),nc.at(c,[1999,999]),dot_t,mat_t,copy_t)

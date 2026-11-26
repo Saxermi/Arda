@@ -1,4 +1,5 @@
 tol ad
+import opt
 tol numc as nc
 # Fit y = 2*x + 1 from four points using reverse-mode autodiff and Adam.
 esta xs = [0, 1, 2, 3]
@@ -18,10 +19,10 @@ tenna step <= 400:
         i = i + 1
     ad.backward(loss)
     esta g = nc.array([ad.grad(w), ad.grad(b)])
-    esta state = ad.adam(params, g, m, v, step, 0.05)
-    params = state[0]
-    m = state[1]
-    v = state[2]
+    esta state = opt.adam(params, g, m, v, step, 0.05)
+    params = state["parameters"]
+    m = state["first_moment"]
+    v = state["second_moment"]
     step = step + 1
 pedo("Learned slope:", params[0])
 pedo("Learned intercept:", params[1])

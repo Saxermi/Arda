@@ -52,7 +52,7 @@ class TensorMemoryTests(unittest.TestCase):
         try:
             c.stream_stats("values",2)
         catch error:
-            pedo(error)
+            pedo(error["message"])
         esta m = c.memory_stats()
         pedo(m["tensor_heap_bytes"],m["workspace_cached_bytes"],m["workspace_reserved_bytes"])
         c.memory_budget(16)
@@ -68,11 +68,11 @@ class TensorMemoryTests(unittest.TestCase):
         try:
             c.memory_budget(15)
         catch error:
-            pedo(error)
+            pedo(error["message"])
         try:
             t.zeros([1],"uint8")
         catch error:
-            pedo(error)
+            pedo(error["message"])
         pedo(c.memory_budget())
         dense = mun
         collect()
@@ -96,7 +96,7 @@ class TensorMemoryTests(unittest.TestCase):
         try:
             c.stream_stats("bad",1)
         catch error:
-            pedo(error)
+            pedo(error["message"])
         pedo(c.memory_stats()["workspace_reserved_bytes"])
         t.save("large",t.array([9223372036854775804,9223372036854775805,9223372036854775806,9223372036854775807],"int64"))
         x = c.stream_stats("large",3)
@@ -107,7 +107,7 @@ class TensorMemoryTests(unittest.TestCase):
     def test_block_iteration_preserves_old_file_snapshot_and_returns_copies(self):
         self.run_code("""
         tol tensor as t
-        t.save("values",t.array(range(5),"int32"))
+        t.save("values",t.array(list(range(5)),"int32"))
         esta source = t.blocks("values",2)
         esta blocks = []
         an block in source:
@@ -124,14 +124,14 @@ class TensorMemoryTests(unittest.TestCase):
             an block in source:
                 pedo(block)
         catch error:
-            pedo(error)
+            pedo(error["message"])
         """, "[-1, 1] [2, 3] [4]\n[0, 1]\n[2, 3]\n[4]\ntensor blocks are closed", stress=True)
 
     def test_tile_boundaries_quota_and_atomic_replacement(self):
         self.run_code("""
         tol compute as c
         tol tensor as t
-        t.save("values",t.array(range(24),"int32",[2,3,4]))
+        t.save("values",t.array(list(range(24)),"int32",[2,3,4]))
         esta patch = t.permute(t.array([70,71,80,81],"int32",[1,2,2]),[0,2,1])
         esta old = t.mmap("values")
         pedo(t.tolist(t.read_tile("values",[1,1,1],[1,2,2])))
@@ -139,12 +139,12 @@ class TensorMemoryTests(unittest.TestCase):
         try:
             t.write_tile("values",[1,1,1],patch,224)
         catch error:
-            pedo(error)
+            pedo(error["message"])
         c.memory_budget(mun)
         try:
             t.write_tile("values",[1,1,1],patch,223)
         catch error:
-            pedo(error)
+            pedo(error["message"])
         pedo(t.tolist(t.read_tile("values",[1,1,1],[1,2,2])))
         t.write_tile("values",[1,1,1],patch,224)
         pedo(t.tolist(t.read_tile("values",[1,0,0],[1,3,4])))
@@ -170,7 +170,7 @@ tol compute as c
 try:
     t.read_tile("file",[0,0],[4001,4000])
 catch error:
-    pedo(error)
+    pedo(error["message"])
 pedo(c.memory_stats()["tensor_heap_bytes"])
 pedo(t.tolist(t.read_tile("file",[4000,3998],[1,2])))
 """)
@@ -192,7 +192,7 @@ tol compute as c
 try:
     t.write_tile("file",[0],t.array([9],"int64"))
 catch error:
-    pedo(startswith(error,"cannot publish tensor tile"))
+    pedo(startswith(error["message"],"cannot publish tensor tile"))
 pedo(c.memory_stats()["workspace_reserved_bytes"])
 pedo(t.tolist(t.read_tile("file",[0],[2])))
 """)

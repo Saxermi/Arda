@@ -75,7 +75,7 @@ class ReferenceTests(unittest.TestCase):
         results=execute(f'esta a=nc.permute(nc.array({literal(a)}),[2,1,0])\n'
                         f'pedo(nc.cos(a))\npedo(nc.min(a))\npedo(nc.max(a))\n'
                         'pedo(nc.mean(a))\npedo(nc.var(a))\npedo(nc.norm(a))\n'
-                        f'pedo(a+nc.array({literal(b)}))\npedo(high.sum_axis(a,1))\n')
+                        f'pedo(a+nc.array({literal(b)}))\ntol tensor as t\npedo(t.tolist(t.sum(a,1)))\n')
         expected=[np.cos(p),p.min(),p.max(),p.mean(),p.var(),np.linalg.norm(p),p+b,p.sum(axis=1)]
         errors=[self.compare(name,x,y) for name,x,y in zip(('cos','min','max','mean','var','norm','broadcast','sum_axis'),results,expected)]
         print(f'\n8 elementwise/reduction results; max abs error {max(errors):.3g}')
@@ -92,10 +92,10 @@ class ReferenceTests(unittest.TestCase):
 
     def test_cg_and_lstsq(self):
         a=self.rng.normal(size=(12,12)); a=a.T@a+2*np.eye(12); b=self.rng.normal(size=12)
-        r=execute(f'esta r=high.cg(nc.array({literal(a)}),nc.array({literal(b)}),1e-11,100)\npedo(r[0])\npedo(r[3])\n')
+        r=execute(f'esta r=high.cg(nc.array({literal(a)}),nc.array({literal(b)}),1e-11,100)\npedo(r["solution"])\npedo(r["converged"])\n')
         self.assertTrue(r[1]); cg=self.compare('CG',r[0],linalg.solve(a,b),atol=1e-10)
         a=self.rng.normal(size=(30,8)); b=self.rng.normal(size=30)
-        r=execute(f'esta r=high.lstsq(nc.array({literal(a)}),nc.array({literal(b)}),1e-11,100)\npedo(r[0])\npedo(r[3])\n')
+        r=execute(f'esta r=high.lstsq(nc.array({literal(a)}),nc.array({literal(b)}),1e-11,100)\npedo(r["solution"])\npedo(r["converged"])\n')
         self.assertTrue(r[1]); ls=self.compare('CGLS',r[0],linalg.lstsq(a,b)[0],atol=1e-10)
         print(f'\nCG max abs error {cg:.3g}; CGLS {ls:.3g}')
 
@@ -108,7 +108,7 @@ class ReferenceTests(unittest.TestCase):
                 left=int(np.prod(shape[:axis])); right=int(np.prod(shape[axis+1:]))
                 matrix+=sparse.kron(sparse.eye(left),sparse.kron(t,sparse.eye(right)),format='csr')
             b=self.rng.normal(size=shape)
-            x,stencil,ok=execute(f'esta b=nc.array({literal(b)})\nesta r=high.poisson(b,1e-11,500)\npedo(r[0])\npedo(high.laplace(b))\npedo(r[3])\n')
+            x,stencil,ok=execute(f'esta b=nc.array({literal(b)})\nesta r=high.poisson(b,1e-11,500)\npedo(r["solution"])\npedo(high.laplace(b))\npedo(r["converged"])\n')
             self.assertTrue(ok)
             expected=spsolve(matrix,b.ravel()).reshape(shape)
             errors.append(self.compare('poisson',x,expected,atol=1e-10))
@@ -118,7 +118,7 @@ class ReferenceTests(unittest.TestCase):
     def test_rk45_and_quadrature(self):
         rates=np.array([0.5,1.,2.,4.])
         x,=execute(f'esta rate=nc.array({literal(rates)})\ncaro f(t,y):\n    nan 0-rate*y\n'
-                   'esta r=ode.rk45(f,0,nc.ones(4),2,0.5,1e-9,1e-11)\npedo(r[0])\n')
+                   'esta r=ode.rk45(f,0,nc.ones(4),2,0.5,1e-9,1e-11)\npedo(r["solution"])\n')
         expected=integrate.solve_ivp(lambda t,y:-rates*y,(0,2),np.ones(4),rtol=1e-12,atol=1e-14).y[:,-1]
         err=self.compare('rk45',x,expected,rtol=1e-7,atol=1e-10)
         y=np.sin(np.linspace(0,np.pi,101)); h=np.pi/100
@@ -128,8 +128,8 @@ class ReferenceTests(unittest.TestCase):
 
     def test_lbfgs(self):
         x,ok=execute('caro f(x):\n    esta a=x[0]\n    esta b=x[1]\n    esta d=b-a*a\n'
-                     '    nan [(1-a)*(1-a)+100*d*d,nc.array([2*(a-1)-400*a*d,200*d]) ]\n'
-                     'esta r=opt.lbfgs(f,nc.array([-1.2,1]),1e-7,1000,10)\npedo(r[0])\npedo(r[3])\n')
+                     '    nan {"value": (1-a)*(1-a)+100*d*d, "gradient": nc.array([2*(a-1)-400*a*d,200*d])}\n'
+                     'esta r=opt.lbfgs(f,nc.array([-1.2,1]),1e-7,1000,10)\npedo(r["solution"])\npedo(r["converged"])\n')
         self.assertTrue(ok)
         ref=optimize.minimize(optimize.rosen,[-1.2,1],jac=optimize.rosen_der,method='BFGS',options={'gtol':1e-9})
         e=self.compare('lbfgs',x,ref.x,atol=1e-6,rtol=1e-6)

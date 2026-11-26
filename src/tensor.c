@@ -126,7 +126,7 @@ static Obj *view(VM *v, Obj *x, int r, const int *s, const size_t *st, size_t of
 
 void tensor_require_writable(VM *v, Obj *x) {
     if (A(x).readonly || A(x).buffer->as.buffer.readonly)
-        vmerror(v, "tensor is read-only");
+        vmerror_kind(v, "readonly", "tensor is read-only");
 }
 
 static void infer(VM *v, Val a, int depth, int *r, int *s) {
@@ -384,6 +384,8 @@ Val tensor_call(VM *v, int id, int argc, Val *a) {
     if (k == 4)
         return number(A(x).data[off]);
     tensor_require_writable(v, x);
-    A(x).data[off] = asnum(v, a[2]);
+    double value = asnum(v, a[2]);
+    tensor_bump_version(v, A(x).buffer);
+    A(x).data[off] = value;
     return nil();
 }

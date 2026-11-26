@@ -60,9 +60,9 @@ class ScientificTypesTests(unittest.TestCase):
         tol units as u
         esta data = nc.array([[1,2,3],[4,5,6]])
         esta q = u.quantity(data,"m")
-        nc.set(data,0,0,99)
+        nc.put(data,[0,0],99)
         esta copy = u.value(q)
-        nc.set(copy,0,0,99)
+        nc.put(copy,[0,0],99)
         data = mun
         copy = mun
         collect()
@@ -127,7 +127,7 @@ class ScientificTypesTests(unittest.TestCase):
             catch error:
                 pedo("rejected")
             qui c.memory_stats()["workspace_reserved_bytes"] != 0:
-                throw "retained workspace"
+                throw {"code": "user_error", "message": "retained workspace"}
             collect()
         pedo(lr.shape(train))
         """, "rejected\n" * 8 + "[1, 1]", stress=True)

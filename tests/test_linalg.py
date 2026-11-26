@@ -13,12 +13,12 @@ class LinalgTests(unittest.TestCase):
         tol linalg as la
         esta a = nc.array([[0,2],[1,3]])
         esta f = la.lu(a)
-        nc.set(a,0,1,100)
+        nc.put(a,[0,1],100)
         a = mun
         collect()
         esta parts = la.parts(f)
         pedo(type(f),parts[0],nc.tolist(parts[1]),nc.tolist(parts[2]))
-        nc.set(parts[2],0,0,0)
+        nc.put(parts[2],[0,0],0)
         parts[0][0] = 0
         collect()
         esta rhs = nc.permute(nc.array([[4,7],[2,5]]),[1,0])

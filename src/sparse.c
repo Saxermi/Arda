@@ -11,9 +11,7 @@ typedef struct {
 typedef enum {
     SP_COO,
     SP_CSR,
-    SP_CRS,
     SP_TO_CSR,
-    SP_TO_CRS,
     SP_TO_COO,
     SP_SHAPE,
     SP_NNZ,
@@ -49,14 +47,13 @@ typedef enum {
 } SparseOp;
 
 static const char *names[] = {
-    "coo",        "csr",     "crs",      "to_csr",    "to_crs",     "to_coo",     "shape",
-    "nnz",        "bytes",   "format",   "get",       "components", "from_dense", "todense",
-    "describe",   "builder", "append",   "extend",    "finish",     "eye",        "diags",
-    "tridiag",    "matvec",  "spmm",     "transpose", "add",        "scale",      "diagonal",
-    "estimate",   "read_mm", "write_mm", "cg",        "pcg",        "verify",     "workspace",
-    "set_budget", "memory"};
-static const int nargs[] = {5, 5, 5, 1, 1, 1, 1, 1, 1, 1, 3, 1, 1, 1, 1, 2, 4, 4, 1,
-                            1, 4, 4, 2, 2, 1, 2, 2, 1, 1, 1, 2, 4, 4, 3, 1, 1, 0};
+    "coo",      "csr",       "to_csr",     "to_coo",     "shape",     "nnz",        "bytes",
+    "format",   "get",       "components", "from_dense", "todense",   "describe",   "builder",
+    "append",   "extend",    "finish",     "eye",        "diags",     "tridiag",    "matvec",
+    "spmm",     "transpose", "add",        "scale",      "diagonal",  "estimate",   "read_mm",
+    "write_mm", "cg",        "pcg",        "verify",     "workspace", "set_budget", "memory"};
+static const int nargs[] = {5, 5, 1, 1, 1, 1, 1, 1, 3, 1, 1, 1, 1, 2, 4, 4, 1, 1,
+                            4, 4, 2, 2, 1, 2, 2, 1, 1, 1, 2, 4, 4, 3, 1, 1, 0};
 _Static_assert(sizeof names / sizeof *names == sizeof nargs / sizeof *nargs,
                "sparse dispatch arity table");
 
@@ -699,7 +696,7 @@ static Obj *todense(VM *v, Obj *x) {
 /* Versioned, static descriptors are independent of numerical execution. */
 static Val describe(VM *v, Val name) {
     const char *s = asstr(v, name);
-    if (!strcmp(s, "to_csr") || !strcmp(s, "to_crs"))
+    if (!strcmp(s, "to_csr"))
         return objval(
             string(v, "v1: A[r,c] = sum of COO values at (r,c) in input order; count rows, prefix "
                       "sum, stable column sort, merge duplicates, omit exact zeros. O(rows + nnz + "
@@ -761,7 +758,7 @@ static Val sparse_dispatch(VM *v, int id, int argc, Val *a) {
     }
     if (argc != nargs[op])
         vmerror(v, "sparse.%s expects %d arguments, got %d", names[op], nargs[op], argc);
-    if (op == SP_COO || op == SP_CSR || op == SP_CRS)
+    if (op == SP_COO || op == SP_CSR)
         return objval(construct(v, a, op != SP_COO));
     if (op == SP_SET_BUDGET) {
         size_t limit = a[0].t == V_NIL ? SIZE_MAX : nonnegative_size(v, a[0]);
@@ -812,7 +809,6 @@ static Val sparse_dispatch(VM *v, int id, int argc, Val *a) {
     Sparse *s = &S(o);
     switch (op) {
     case SP_TO_CSR:
-    case SP_TO_CRS:
         return objval(sparse_as_csr(v, o));
     case SP_TO_COO:
         return objval(to_coo(v, o));

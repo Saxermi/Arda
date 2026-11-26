@@ -280,7 +280,8 @@ typedef enum {
     O_TYPED_TENSOR,
     O_TENSOR_BLOCKS,
     O_LOWRANK,
-    O_QUANTITY
+    O_QUANTITY,
+    O_RANGE
 } OType;
 
 typedef struct {
@@ -288,6 +289,7 @@ typedef struct {
     void *allocation;
     size_t bytes, allocation_bytes, alignment;
     void (*release)(void *, size_t);
+    uint64_t version;
     bool readonly, mapped;
 } Buffer;
 
@@ -408,7 +410,12 @@ struct Obj {
         struct {
             Val source;
             size_t index;
+            uint64_t range_index;
         } iter;
+        struct {
+            int64_t start, step;
+            uint64_t count;
+        } range;
         struct {
             int fd, block;
             size_t elements;
@@ -428,11 +435,7 @@ struct Obj {
         TypedTensor tensor;
         LowRankTensor lowrank;
         Quantity quantity;
-        struct {
-            double value, grad, da, db;
-            Obj *a, *b;
-            unsigned char visited;
-        } ad;
+        struct TensorAD *ad;
         struct {
             Obj *packed;
             int kind;
@@ -487,6 +490,8 @@ typedef struct VM {
     int np, pcap;
     jmp_buf trap;
     char error[1024];
+    const char *error_code;
+    Val thrown;
     int line;
     const char *path;
     int failed;
@@ -515,23 +520,8 @@ static inline int isobj(Val v, OType t) {
     return v.t == V_OBJ && v.o->type == t;
 }
 
-static inline int truth(Val v) {
-    if (v.t == V_NIL || v.t == V_MISSING)
-        return 0;
-    if (v.t == V_INT)
-        return v.i != 0;
-    if (v.t == V_BOOL || v.t == V_NUM)
-        return v.n != 0;
-    if (isobj(v, O_COMPLEX))
-        return v.o->as.cplx.re != 0 || v.o->as.cplx.im != 0;
-    if (isobj(v, O_STRING))
-        return v.o->as.str.len != 0;
-    if (isobj(v, O_LIST))
-        return v.o->as.list.n != 0;
-    if (isobj(v, O_MAP))
-        return v.o->as.map.tab.n != 0;
-    return 1;
-}
+int truth(VM *v, Val value);
+int64_t range_element(const Obj *range, uint64_t index);
 
 Obj *newobj(VM *v, OType t);
 Obj *newobj_extra(VM *v, OType t, size_t extra);
@@ -552,6 +542,7 @@ Obj *string(VM *v, const char *s);
 Obj *list(VM *v);
 void append(VM *v, Obj *o, Val x);
 _Noreturn void vmerror(VM *v, const char *fmt, ...);
+_Noreturn void vmerror_kind(VM *v, const char *code, const char *fmt, ...);
 void vm_init(VM *v, int stress);
 void vm_destroy(VM *v);
 int vm_run(VM *v, Proto *p);
@@ -579,8 +570,10 @@ void array_set_index(VM *v, Val a, Val b, Val x);
 void array_print(Obj *o);
 Obj *array_new(VM *v, int rank, int rows, int cols);
 Obj *dense_matmul(VM *v, Obj *a, Obj *b);
+void dense_matmul_into(int m, int k, int n, const double *x, const double *y, double *z);
 #define ARDA_MAX_ELEMENTS 16000000u
 Obj *buffer_new(VM *v, size_t bytes);
+void tensor_bump_version(VM *v, Obj *buffer);
 size_t tensor_memory_available(VM *v);
 size_t tensor_pool_trim(VM *v);
 unsigned char *tensor_workspace_acquire(VM *v, size_t bytes);
@@ -621,6 +614,9 @@ void install_tensor(VM *v, Obj *module);
 #define COMPUTE_BASE 1500
 #define LOWRANK_BASE 1600
 #define UNITS_BASE 1700
+#define OPTIMIZER_BASE 1800
+Obj *optimizer_module(VM *v);
+Val optimizer_call(VM *v, int id, int argc, Val *args);
 Obj *units_module(VM *v);
 Val units_call(VM *v, int id, int argc, Val *args);
 Val units_binary(VM *v, Op op, Val a, Val b);
@@ -637,7 +633,6 @@ Val linalg_call(VM *v, int id, int argc, Val *a);
 void linalg_reduced_svd(VM *v, Obj *input, Obj **u, Obj **s, Obj **vt);
 #endif
 const char *linalg_name(int id);
-Val linalg_eigh(VM *v, Val a);
 Obj *linalg_module(VM *v);
 Obj *named_native_module(VM *v, const char *name, const char *const *names, size_t count, int base);
 Obj *random_module(VM *v);

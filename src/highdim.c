@@ -121,12 +121,14 @@ static LinearOperator poisson_operator(Obj *grid) {
 }
 
 static Val report(VM *v, Obj *x, int it, double residual, int ok) {
-    Obj *l = list(v);
-    append(v, l, objval(x));
-    append(v, l, integer(it));
-    append(v, l, number(residual));
-    append(v, l, boolean(ok));
-    return objval(l);
+    Obj *out = newobj(v, O_MAP);
+    Table *tab = &out->as.map.tab;
+    tableset(v, out, tab, "solution", objval(x));
+    tableset(v, out, tab, "iterations", integer(it));
+    tableset(v, out, tab, "residual", number(residual));
+    tableset(v, out, tab, "converged", boolean(ok));
+    tableset(v, out, tab, "reason", objval(string(v, ok ? "converged" : "iteration_limit")));
+    return objval(out);
 }
 /* Jacobi-preconditioned conjugate gradients for SPD dense systems; constant
  * diagonal for the stencil. True residual recomputed before reporting success. */
@@ -166,7 +168,7 @@ static Val cg(VM *v, Obj *matrix, Obj *b, double tol, int maxit) {
             z[i] = matrix ? r[i] / A(matrix).data[i * n + i] : r[i];
         long double rho = linear_dot(n, r, z);
         if (!(rho > 0) || !isfinite(rho))
-            vmerror(v, "CG numerical breakdown");
+            vmerror_kind(v, "solver_breakdown", "CG numerical breakdown");
         if (restart)
             memcpy(p, z, n * sizeof(double));
         else {
@@ -177,7 +179,7 @@ static Val cg(VM *v, Obj *matrix, Obj *b, double tol, int maxit) {
         op.apply(op.context, p, 1, ap, 1);
         long double den = linear_dot(n, p, ap);
         if (!(den > 0) || !isfinite(den))
-            vmerror(v, "CG nonpositive curvature (matrix may not be SPD)");
+            vmerror_kind(v, "solver_breakdown", "CG nonpositive curvature (matrix may not be SPD)");
         double alpha = (double)(rho / den);
         if (!isfinite(alpha))
             vmerror(v, "CG nonfinite step");
@@ -236,7 +238,7 @@ static Val cgls(VM *v, Obj *mat, Obj *b, double tol, int maxit) {
         op.apply(op.context, p, 1, q, 1);
         long double d = linear_dot(m, q, q);
         if (!(d > 0) || !isfinite(d))
-            vmerror(v, "CGLS numerical breakdown");
+            vmerror_kind(v, "solver_breakdown", "CGLS numerical breakdown");
         double alpha = (double)(gamma / d);
         for (int j = 0; j < n; j++)
             x[j] += alpha * p[j];
@@ -276,14 +278,14 @@ static Val cgls(VM *v, Obj *mat, Obj *b, double tol, int maxit) {
     return report(v, out, it, rel, rel <= tol);
 }
 
-static const char *names[] = {"cg",    "poisson",  "laplace", "lstsq", "axpy",
-                              "inner", "sum_axis", "rkerror", "finite"};
+static const char *const names[] = {"cg",   "poisson", "laplace", "lstsq",
+                                    "axpy", "inner",   "rkerror", "finite"};
 Val high_call(VM *v, int id, int argc, Val *a) {
     int k = id - HIGH_BASE;
-    const int ar[] = {4, 3, 1, 4, 3, 2, 2, 5, 1};
-    if (k < 0 || k >= 9 || argc != ar[k])
+    const int ar[] = {4, 3, 1, 4, 3, 2, 5, 1};
+    if (k < 0 || k >= 8 || argc != ar[k])
         vmerror(v, "invalid highdim function arity");
-    if (k == 8) {
+    if (k == 7) {
         if (!isobj(a[0], O_ARRAY))
             return boolean(isfinite(asnum(v, a[0])));
         Obj *x = arr(v, a[0]);
@@ -292,7 +294,7 @@ Val high_call(VM *v, int id, int argc, Val *a) {
                 return boolean(0);
         return boolean(1);
     }
-    if (k == 7) {
+    if (k == 6) {
         double rt = finite_num(v, a[3]), at = finite_num(v, a[4]);
         if (rt <= 0 || at <= 0)
             vmerror(v, "invalid RK45 tolerance");
@@ -331,30 +333,6 @@ Val high_call(VM *v, int id, int argc, Val *a) {
             laplace(x, A(x).data, 1, A(o).data, 1);
         return objval(o);
     }
-    if (k == 6) {
-        int axis = indexnum(v, a[1], A(x).rank);
-        size_t inner = A(x).stride[axis], len = A(x).shape[axis];
-        int shape[8], r = 0;
-        for (int j = 0; j < A(x).rank; j++)
-            if (j != axis)
-                shape[r++] = A(x).shape[j];
-        if (!r) {
-            long double s = 0;
-            for (size_t i = 0; i < A(x).n; i++)
-                s += A(x).data[i];
-            return number((double)s);
-        }
-        Obj *o = tensor_new(v, r, shape);
-        if (len && inner)
-            for (size_t i = 0; i < A(o).n; i++) {
-                size_t base = (i / inner) * inner * len + i % inner;
-                long double s = 0;
-                for (size_t j = 0; j < len; j++)
-                    s += A(x).data[base + j * inner];
-                A(o).data[i] = (double)s;
-            }
-        return objval(o);
-    }
     Obj *y = arr(v, a[1]);
     if (!same(x, y))
         vmerror(v, "highdim shape mismatch");
@@ -368,20 +346,5 @@ Val high_call(VM *v, int id, int argc, Val *a) {
 }
 
 Obj *high_module(VM *v) {
-    const char *key = "<native:high>";
-    Entry *e = tablefind(&v->modules, key);
-    if (e)
-        return e->val.o;
-    Obj *o = newobj(v, O_MODULE);
-    o->as.mod.path = copystr(key);
-    account(v, o, 0, strlen(key) + 1);
-    o->as.mod.state = 1;
-    o->as.mod.env = environment(v, NULL);
-    for (int i = 0; i < 9; i++) {
-        Obj *f = newobj(v, O_NATIVE);
-        f->as.native.id = HIGH_BASE + i;
-        tableset(v, o->as.mod.env, &o->as.mod.env->as.env.tab, names[i], objval(f));
-    }
-    tableset(v, NULL, &v->modules, key, objval(o));
-    return o;
+    return named_native_module(v, "high", names, sizeof names / sizeof *names, HIGH_BASE);
 }

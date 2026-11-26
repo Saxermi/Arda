@@ -41,7 +41,7 @@ class MathDocTests(unittest.TestCase):
         esta calls = 0
         caro effect(x):
             calls = calls+1
-            throw "executed target"
+            throw {"code": "user_error", "message": "executed target"}
         esta ask = effect.getTex
         effect = mun
         collect()
@@ -286,7 +286,7 @@ class MathDocTests(unittest.TestCase):
         esta calls = 0
         caro effect(x):
             calls = calls+1
-            throw "executed target"
+            throw {"code": "user_error", "message": "executed target"}
         caro sum(n):
             esta s = 0
             an i in range(n):
