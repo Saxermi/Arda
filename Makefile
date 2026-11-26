@@ -3,6 +3,7 @@ PYTHON ?= python3
 BLAS ?= 0
 LAPACK ?= 0
 SANITIZE ?= 0
+LTO ?= 0
 override CPPFLAGS += -D_XOPEN_SOURCE=700
 CFLAGS ?= -std=c11 -O2 -g -Wall -Wextra -Wpedantic
 override LDLIBS += -lm
@@ -14,12 +15,16 @@ ifeq ($(LAPACK),1)
 override CPPFLAGS += -DARDA_LAPACK
 override LDLIBS += -llapack -lblas
 endif
+ifeq ($(LTO),1)
+override CFLAGS += -flto
+override LDFLAGS += -flto
+endif
 ifeq ($(SANITIZE),1)
 override CFLAGS += -O1 -fsanitize=address,undefined -fno-omit-frame-pointer -fno-pie
 override LDFLAGS += -fsanitize=address,undefined -no-pie
 endif
 
-BUILD := build/blas$(BLAS)-lapack$(LAPACK)-sanitize$(SANITIZE)
+BUILD := build/blas$(BLAS)-lapack$(LAPACK)-sanitize$(SANITIZE)$(if $(filter 1,$(LTO)),-lto)
 SRC := $(wildcard src/*.c)
 OBJ := $(patsubst src/%.c,$(BUILD)/%.o,$(SRC))
 BIN := $(BUILD)/arda

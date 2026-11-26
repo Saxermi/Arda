@@ -487,6 +487,7 @@ typedef struct VM {
     Obj **gray;
     size_t ng, gcap, live, bytes, next_gc, cycles;
     int marking, stress;
+    unsigned cpu_features;
     size_t sparse_bytes, sparse_limit;
     TensorMemory tensor_memory;
     Obj *sensitivity_entry;

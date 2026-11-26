@@ -2,6 +2,11 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
+## 0.18.0 — CPU Kernel Baselines
+
+- Added a reproducible dense Float64 GEMM comparison against Eigen and NumPy, plus CPU microbenchmarks for GEMV, SpMV, AXPY, reductions, math, copies and VM loops.
+- Added `compute.cpu()` for CPU feature reporting and an optional LTO build. [Measurements and build recipes](research/implemented/transforms-and-kernels.md#0180-cpu-baseline)
+
 ## 0.17.4 — Sensitivity and Uncertainty
 
 - Added local scalar-output sensitivity reports and static symbolic derivative TeX for supported MathIR expressions.

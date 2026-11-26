@@ -1,5 +1,6 @@
 #include "autodiff.h"
 #include "activation_store.h"
+#include "cpu_kernels.h"
 #include "numerics_source.h"
 #include "ode_source.h"
 #include "opt_source.h"
@@ -465,6 +466,7 @@ void remember_proto(VM *v, Proto *p) {
 
 void vm_init(VM *v, int stress) {
     v->stress = stress;
+    v->cpu_features = cpu_detect();
     v->next_gc = 65536;
     v->sparse_limit = SIZE_MAX;
     v->tensor_memory.limit = tensor_memory_unlimited();
