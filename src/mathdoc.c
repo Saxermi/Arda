@@ -23,7 +23,7 @@ typedef struct {
 #define MATMUL_BACKEND "cblas"
 #else
 #define MATMUL_ALGORITHM                                                                           \
-    "Row-major cache tiles and runtime-selected register blocking when available. The kernel "     \
+    "Blocked row-major matrix multiply with runtime-selected register tiles. The kernel "          \
     "depends on CPU features and the selected compute mode."
 #define MATMUL_TEX "C_{ij}\\gets C_{ij}+A_{it}B_{tj}\\quad\\text{over row-major blocks}"
 #define MATMUL_BACKEND "portable-c"

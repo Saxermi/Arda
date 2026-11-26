@@ -125,7 +125,7 @@ static const struct {
 };
 
 static int auto_kernel(const VM *v) {
-    for (int i = GEMM_NEON; i > GEMM_REFERENCE; i--)
+    for (int i = (int)(sizeof kernels / sizeof *kernels) - 1; i > GEMM_REFERENCE; i--)
         if (i != GEMM_FMA && kernels[i].tile &&
             (v->cpu_features & kernels[i].required) == kernels[i].required)
             return i;
