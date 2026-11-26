@@ -42,6 +42,6 @@ Val tensor_save(VM *v, Val path, Val input, Val budget);
 Val tensor_blocks(VM *v, Val path, Val block);
 Val tensor_read_tile(VM *v, Val path, Val origin, Val shape);
 Val tensor_write_tile(VM *v, Val path, Val origin, Val tile, Val budget);
-Val tensor_stream_stats(VM *v, Val path, Val block, bool plan_only);
+Val tensor_stream_stats(VM *v, Val path, Val block, bool plan_only, bool prefetch);
 
 #endif

@@ -1,4 +1,4 @@
-#include "typed_tensor.h"
+#include "compute_ops.h"
 #include "cpu_kernels.h"
 
 static Val budget_value(const TensorMemory *m) {
@@ -100,6 +100,18 @@ static Val native_threads(VM *v, int argc, Val *args) {
     return integer(v->native_threads);
 }
 
+static bool prefetch_option(VM *v, Val value) {
+    if (value.t == V_NIL)
+        return false;
+    if (!isobj(value, O_MAP))
+        vmerror_kind(v, "type", "stream options must be a map");
+    Table *table = &value.o->as.map.tab;
+    Entry *prefetch = tablefind(table, "prefetch");
+    if (table->n != (prefetch != NULL) || (prefetch && prefetch->val.t != V_BOOL))
+        vmerror_kind(v, "type", "stream options accept a Boolean prefetch field");
+    return prefetch && prefetch->val.n != 0;
+}
+
 enum {
     MEMORY_STATS,
     MEMORY_BUDGET,
@@ -110,11 +122,17 @@ enum {
     MATMUL_KERNEL,
     VECTOR_MATH,
     THREADS,
+    TILED,
+    AXPY,
+    MUL_ADD,
+    FUSED_PRODUCTS,
+    MAP_REDUCE,
     COMPUTE_COUNT
 };
-static const char *const names[] = {"memory_stats",  "memory_budget", "trim_pool",
-                                    "plan",          "stream_stats",  "cpu",
-                                    "matmul_kernel", "vector_math",   "threads"};
+static const char *const names[] = {
+    "memory_stats", "memory_budget", "trim_pool",      "plan",      "stream_stats",
+    "cpu",          "matmul_kernel", "vector_math",    "threads",   "tiled_matmul",
+    "axpy",         "mul_add",       "fused_products", "map_reduce"};
 _Static_assert(sizeof names / sizeof *names == COMPUTE_COUNT, "compute names");
 
 Obj *compute_module(VM *v) {
@@ -123,6 +141,21 @@ Obj *compute_module(VM *v) {
 
 Val compute_call(VM *v, int id, int argc, Val *args) {
     switch (id - COMPUTE_BASE) {
+    case TILED:
+        if (argc == 2 || argc == 3)
+            return compute_tiled(v, args[0], args[1],
+                                 argc == 3 ? compute_tile_size(v, args[2]) : COMPUTE_TILE_DEFAULT);
+        break;
+    case AXPY:
+    case MUL_ADD:
+    case FUSED_PRODUCTS:
+        if (argc == (id - COMPUTE_BASE == FUSED_PRODUCTS ? 5 : 3))
+            return compute_fusion(v, (Fusion)(id - COMPUTE_BASE - AXPY), args);
+        break;
+    case MAP_REDUCE:
+        if (argc == 2)
+            return compute_map_reduce(v, args[0], args[1]);
+        break;
     case THREADS:
         if (argc <= 1)
             return native_threads(v, argc, args);
@@ -152,15 +185,17 @@ Val compute_call(VM *v, int id, int argc, Val *args) {
             return integer((int64_t)tensor_pool_trim(v));
         break;
     case PLAN:
-        if (argc == 2 || argc == 3) {
+        if (argc >= 2 && argc <= 4) {
             if (strcmp(asstr(v, args[0]), "stream_stats"))
                 vmerror(v, "compute.plan currently supports stream_stats");
-            return tensor_stream_stats(v, args[1], argc == 3 ? args[2] : nil(), true);
+            return tensor_stream_stats(v, args[1], argc >= 3 ? args[2] : nil(), true,
+                                       prefetch_option(v, argc == 4 ? args[3] : nil()));
         }
         break;
     case STREAM_STATS:
-        if (argc == 1 || argc == 2)
-            return tensor_stream_stats(v, args[0], argc == 2 ? args[1] : nil(), false);
+        if (argc >= 1 && argc <= 3)
+            return tensor_stream_stats(v, args[0], argc >= 2 ? args[1] : nil(), false,
+                                       prefetch_option(v, argc == 3 ? args[2] : nil()));
         break;
     }
     vmerror(v, "invalid compute API arity");

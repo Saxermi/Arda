@@ -139,9 +139,9 @@ bool cpu_parallel_available(void) {
 #endif
 }
 
-int cpu_parallel_team(const VM *v, int partitions) {
+int cpu_team_size(int requested, int partitions) {
 #if defined(_OPENMP) && !defined(ARDA_BLAS)
-    if (v->native_threads < 2 || partitions < 2 || omp_in_parallel())
+    if (requested < 2 || partitions < 2 || omp_in_parallel())
         return 1;
     int maximum = omp_get_num_procs();
     int limit = omp_get_thread_limit();
@@ -149,9 +149,9 @@ int cpu_parallel_team(const VM *v, int partitions) {
         maximum = limit;
     if (partitions < maximum)
         maximum = partitions;
-    return v->native_threads < maximum ? v->native_threads : maximum;
+    return requested < maximum ? requested : maximum;
 #else
-    (void)v;
+    (void)requested;
     (void)partitions;
     return 1;
 #endif

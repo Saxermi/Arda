@@ -8,7 +8,8 @@ VECMATH ?= 0
 OPENMP ?= 0
 override CPPFLAGS += -D_XOPEN_SOURCE=700
 CFLAGS ?= -std=c11 -O2 -g -Wall -Wextra -Wpedantic
-override LDLIBS += -lm
+override CFLAGS += -pthread
+override LDLIBS += -lm -pthread
 ifeq ($(BLAS),1)
 override CPPFLAGS += -DARDA_BLAS
 override LDLIBS += -lblas

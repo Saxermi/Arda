@@ -28,7 +28,10 @@ int cpu_matmul_choice(const VM *v, const char *name);
 const char *cpu_matmul_name(const VM *v);
 const char *cpu_matmul_auto(const VM *v);
 bool cpu_parallel_available(void);
-int cpu_parallel_team(const VM *v, int partitions);
+int cpu_team_size(int requested, int partitions);
+static inline int cpu_parallel_team(const VM *v, int partitions) {
+    return cpu_team_size(v->native_threads, partitions);
+}
 bool cpu_vector_math_available(const VM *v);
 bool cpu_vector_unary(const VM *v, VectorMath op, size_t count, const double *in, double *out);
 

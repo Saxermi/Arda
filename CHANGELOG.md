@@ -2,6 +2,11 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
+## 0.18.4 — Tiled and Fused Float64 Kernels
+
+- Added tiled GEMM/GEMV for ordinary Float64 tensors, including strided views with bounded panel scratch.
+- Added opt-in two-buffer prefetch for file statistics and explicit fused elementwise and reduction kernels with ordered Float64 arithmetic. [Compute contracts](research/implemented/cpu-compute.md#0184-bounded-kernels)
+
 ## 0.18.3 — Block Quantization and Mixed-Precision CPU Products
 
 - Added symmetric Q4/Q8 matrix snapshots, per-block Float32 scales, payload metadata and explicit dequantization.
