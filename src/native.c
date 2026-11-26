@@ -183,6 +183,8 @@ int64_t range_element(const Obj *range, uint64_t index) {
 }
 
 Val native_call(VM *v, int id, int argc, Val *a) {
+    if (id >= UNCERTAINTY_BASE)
+        return uncertainty_call(v, id, argc, a);
     if (id >= OPTIMIZER_BASE)
         return optimizer_call(v, id, argc, a);
     if (id >= UNITS_BASE)
@@ -272,6 +274,8 @@ Val native_call(VM *v, int id, int argc, Val *a) {
     }
     case 5: {
         arity(v, id, argc, 1);
+        if (isobj(a[0], O_AD) && ad_primal(a[0]).t == V_NUM)
+            return ad_unary(v, AD_SQRT, a[0], nil());
         double x = asnum(v, a[0]);
         return number(sqrt(x));
     }
@@ -394,11 +398,13 @@ Val native_call(VM *v, int id, int argc, Val *a) {
         }
         return number(fabs(asnum(v, a[0])));
     case 18:
+    case 19: {
         arity(v, id, argc, 1);
-        return number(sin(asnum(v, a[0])));
-    case 19:
-        arity(v, id, argc, 1);
-        return number(cos(asnum(v, a[0])));
+        if (isobj(a[0], O_AD) && ad_primal(a[0]).t == V_NUM)
+            return ad_unary(v, id == 18 ? AD_SIN : AD_COS, a[0], nil());
+        double x = asnum(v, a[0]);
+        return number(id == 18 ? sin(x) : cos(x));
+    }
     case 20:
     case 21: {
         arity(v, id, argc, 1);
@@ -513,6 +519,8 @@ Obj *named_native_module(VM *v, const char *name, const char *const *names, size
 }
 
 Obj *native_module(VM *v, const char *name) {
+    if (!strcmp(name, "_uncertainty"))
+        return uncertainty_module(v);
     if (!strcmp(name, "_optimizer"))
         return optimizer_module(v);
     if (!strcmp(name, "units"))

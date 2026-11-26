@@ -299,6 +299,7 @@ static void trace(VM *v, Obj *o) {
 static void roots(VM *v) {
     markobj(v, v->global);
     markobj(v, v->builtins);
+    markobj(v, v->sensitivity_entry);
     markval(v, v->thrown);
     marktable(v, &v->modules);
     for (int i = 0; i < v->sp; i++)

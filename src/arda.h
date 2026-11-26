@@ -489,6 +489,7 @@ typedef struct VM {
     int marking, stress;
     size_t sparse_bytes, sparse_limit;
     TensorMemory tensor_memory;
+    Obj *sensitivity_entry;
     struct ADReadCache *ad_read_cache;
     unsigned char *ad_read_memory;
     uint64_t ad_replay_operations;
@@ -625,6 +626,9 @@ void install_tensor(VM *v, Obj *module);
 #define LOWRANK_BASE 1600
 #define UNITS_BASE 1700
 #define OPTIMIZER_BASE 1800
+#define UNCERTAINTY_BASE 1900
+#define UNCERTAINTY_APPLY_ID UNCERTAINTY_BASE
+#define MATHDOC_SENSITIVITY_ID (MATHDOC_BASE + 6)
 Obj *optimizer_module(VM *v);
 Val optimizer_call(VM *v, int id, int argc, Val *args);
 Obj *units_module(VM *v);
@@ -659,10 +663,13 @@ Obj *linop_module(VM *v);
 Val linop_call(VM *v, int id, int argc, Val *a);
 Obj *mathdoc_module(VM *v);
 Val mathdoc_call(VM *v, int id, int argc, Val *a);
+Obj *uncertainty_module(VM *v);
+Val uncertainty_call(VM *v, int id, int argc, Val *args);
 Val special_call(VM *v, int id, int argc, Val *a);
 Obj *special_module(VM *v);
 int vm_uses_builtin(VM *v, Obj *env, const char *name);
 Val mathdoc_attribute(VM *v, Val target, const char *name);
+int mathir_derivative_tex(VM *v, Obj *function, const char *parameter, char *out, size_t size);
 Obj *dense_lu_solve(VM *v, Obj *a, Obj *b);
 Val sparse_call(VM *v, int id, int argc, Val *a);
 const char *sparse_name(int id);

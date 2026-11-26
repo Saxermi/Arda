@@ -525,3 +525,151 @@ class VilyaRuntimeTests(unittest.TestCase):
         print(t.shape(ad.value(empty_result)),ad.offload_stats(empty)["live_files"])
         """, "io\ndisk_budget\nshape\nautodiff\ndtype\nautodiff\n[[1, 3], [2, 4]] [[2, 4], [6, 8]]\n[[6, 6], [14, 14]]\n[0, 2] 0",
             stress=True)
+
+    def test_sensitivity_reports_scalar_and_tensor_inputs_and_executes_once(self):
+        self.run_code("""
+        import tensor as t
+        import mathdoc
+        let calls = 0
+        def model(m, x):
+            calls = calls+1
+            return m + t.sum(x*x)
+        let first = model.getSensitivity([2,t.array([0,2],"float64")])
+        let second = mathdoc.getSensitivity(model,[-4,t.array([0,2],"float64")])
+        let derivatives = first["absolute"]
+        let relative = first["relative"]
+        print(first["value"], derivatives[0], t.tolist(derivatives[1]))
+        print(relative[0] == 1/3,t.tolist(relative[1]["defined"]),t.at(relative[1]["values"],[1]) == 8/6)
+        print(second["relative"],calls)
+        print(sin.getSensitivity([0])["absolute"],sin.getSensitivity([0])["relative"])
+        try:
+            model.getSensitivity([2])
+        catch issue:
+            print(issue["code"])
+        def constant(x):
+            return 3
+        try:
+            constant.getSensitivity([2])
+        catch issue:
+            print(issue["code"])
+        """, "6 1 [0, 4]\nnae [law, nae] nae\n[mun, mun] 2\n[1] [mun]\nruntime_error\nautodiff",
+            stress=True)
+
+    def test_static_derivative_tex_uses_chain_rule_and_checks_shadowing(self):
+        text = self.run_code(r"""
+        import mathdoc
+        def nested(x):
+            let y = x*x
+            return sqrt(sin(y)+2)
+        print(nested.getDerivativeTex("x"))
+        def quotient(x,a):
+            return a/x
+        print(mathdoc.getDerivativeTex(quotient,"a"))
+        print(nested.getTex(0) != mun)
+        try:
+            nested.getDerivativeTex("missing")
+        catch issue:
+            print(issue["code"])
+        def fake(y):
+            return y
+        let sin = fake
+        print(nested.getDerivativeTex("x"))
+        def shadow(x, sqrt):
+            return sqrt(x)
+        print(shadow.getDerivativeTex("x"))
+        """, stress=True).splitlines()
+        self.assertIn(r"\mathrm{cos}", text[0])
+        self.assertIn(r"\mathrm{sqrt}", text[0])
+        self.assertIn("x+x", text[0])
+        self.assertIn(r"\frac", text[1])
+        self.assertEqual(text[2:], ["nae", "domain", "mun", "mun"])
+
+    def test_uncertainty_covariance_products_and_reproducible_sampling(self):
+        self.run_code("""
+        import ad
+        import tensor as t
+        import uncertainty as u
+        import random as r
+        let mean = t.array([1,2],"float64")
+        let x = ad.variable(mean)
+        let factor = {"factor":t.array([1,2],"float64",[2,1])}
+        let diagonal = {"stddev":t.array([1,2],"float64")}
+        let direction = t.array([3,-1],"float64")
+        print(t.tolist(u.covariance_product(x*x,x,factor,direction)))
+        print(t.tolist(u.covariance_product(x*x,x,diagonal,direction)))
+        let result = u.linear(t.sum(x),x,factor)
+        print(result["value"],result["variance"],result["stddev"])
+        def deterministic(y):
+            return t.sum(y)
+        let s = u.monte_carlo(deterministic,mean,factor,r.generator(91),12)
+        let s2 = u.monte_carlo(deterministic,mean,factor,r.generator(91),12)
+        print(s["count"],s["variance"] > 0,s["mean"] == s2["mean"],s["variance"] == s2["variance"])
+        let zeros = {"factor":t.zeros([2,0],"float64")}
+        let deterministic_result = u.monte_carlo(deterministic,mean,zeros,r.generator(3),3)
+        print(deterministic_result["mean"],deterministic_result["stddev"])
+        try:
+            u.linear(t.sum(x),x,{"stddev":t.array([1,-2],"float64")})
+        catch issue:
+            print(issue["code"])
+        try:
+            u.linear(t.sum(x),x,{"factor":t.zeros([3,0],"float64")})
+        catch issue:
+            print(issue["code"])
+        """, "[-4, -16]\n[12, -64]\n3 9 3\n12 nae nae nae\n3 0\ndomain\nshape", stress=True)
+
+    def test_hvp_fits_linear_budget_and_checks_direction_and_saved_versions(self):
+        self.run_code("""
+        import ad
+        import tensor as t
+        import compute as c
+        let raw = t.zeros([1024],"float64")
+        let x = ad.variable(raw)
+        let y = t.sum(x*x + 2*x)
+        let vector = t.zeros([1024],"float64")+1
+        let unused = ad.variable(t.zeros([0],"float64"))
+        collect()
+        c.memory_budget(c.memory_stats()["tensor_heap_bytes"] + 102400)
+        print(t.sum(ad.hvp(y,x,vector)),t.shape(ad.hvp(y,unused,t.zeros([0],"float64"))))
+        try:
+            ad.hessian(y,x)
+        catch issue:
+            print(issue["code"])
+        try:
+            ad.hvp(y,x,3)
+        catch issue:
+            print(issue["code"])
+        t.put(raw,[0],2)
+        try:
+            ad.hvp(y,x,vector)
+        catch issue:
+            print(issue["code"],ad.grad(x))
+        """, "2048 [0]\nmemory_budget\nshape\nmutation mun", stress=True)
+
+    def test_numerical_sensitivity_remains_available_without_static_metadata(self):
+        self.run_code("""
+        def body(x):
+            return x*x
+        print(body.getDerivativeTex("x"),body.getSensitivity([3])["absolute"])
+        """, "mun [6]", flags=("--mathdoc=none",), stress=True)
+
+    def test_factored_sampling_checks_workspace_before_drawing(self):
+        self.run_code("""
+        import tensor as t
+        import uncertainty as u
+        import random as r
+        import compute as c
+        let mean = t.array([1,2],"float64")
+        let covariance = {"factor":t.array([1,2],"float64",[2,1])}
+        let rng = r.generator(37)
+        let control = r.generator(37)
+        def model(draw):
+            return t.sum(draw)
+        collect()
+        let base = c.memory_stats()["tensor_heap_bytes"]
+        c.memory_budget(base+16)
+        try:
+            u.monte_carlo(model,mean,covariance,rng,3)
+        catch issue:
+            print(issue["code"],r.uint32(rng)==r.uint32(control))
+        print(c.memory_stats()["tensor_heap_bytes"]==base)
+        """, "memory_budget nae\nnae")

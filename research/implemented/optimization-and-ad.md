@@ -75,3 +75,57 @@ The medians come from five fresh processes per mode after one warm-up per mode. 
 | 0.17.3 spilled checkpoints | 66.23 | 53.36 | 3.13 | 11.88 | 0.75 / 0.63 | 2,359,296 |
 
 Full spilling brought budgeted tensor memory down by 96% in this graph. Process RSS rose slightly because the mapped pages could remain resident. The checkpoint modes reduced RSS and spent more time replaying operations. File I/O figures count logical traffic through Arda on the local overlay filesystem. Device throughput and larger-than-RAM RSS behavior require separate measurements.
+
+## Structured uncertainty propagation
+
+The elementary linear uncertainty law uses the gradient $g = \nabla f(x)$ for a scalar output. An independent standard deviation vector $s$ gives $u^2(f)=\sum_i (s_i g_i)^2$. For a covariance factor $L$, $u^2(f)=\|L^T g\|_2^2$. For a tensor output the Jacobian $J$ is treated as an operator. Applying $J(LL^T)J^T v$ uses one VJP, one covariance product and one JVP. The product extends to diagonal covariance by componentwise multiplication. Covariance work is $O(n)$ for the diagonal and $O(nk)$ for an $n$-by-$k$ factor, with at most $O(n+k)$ extra storage plus the derivative work. `src/uncertainty.c` accumulates the projections in extended precision and uses a running Euclidean norm for scalar uncertainty. The tape carries independent local inputs. A future distributed layer would need to assign parameter ownership and reduce contributions explicitly.
+
+`lib/uncertainty.arda` runs the Gaussian prototype with $x = \mu+Lz$ or independent scaled components, using Arda's PCG generator, Box–Muller draws and online moments. For $M$ simulations it adds $M$ forward calls and retains constant-size statistics plus a single sample and model workspace. The sample variance uses a denominator of $M-1$. For the force example, the linearized standard uncertainty is $\sqrt{(9.81\cdot0.2)^2+(10\cdot0.05)^2}=2.02470837406\,\mathrm{N}$. The product of independent Gaussian inputs adds $(0.2\cdot0.05)^2$ to the exact variance. Tests check both that case and a correlated quadratic with a zero first derivative against analytic moments and SciPy. [JCGM 100](https://doi.org/10.59161/jcgm100-2008e) · [JCGM 101](https://doi.org/10.59161/JCGM101-2008) · [JCGM GUM-5:2026](https://doi.org/10.59161/YNLY8209) · [Reference tests](../../tests/reference_uncertainty.py)
+
+## Hessian-vector products
+
+`hessian_product` in `src/autodiff.c` computes unseeded scalar adjoints, propagates the supplied tangent forward and then runs the directional adjoint recurrence. This is the same local second-order rule used for a column of the dense Hessian. Three sweeps suffice for one direction. If $T$ is the active work of one tape traversal and $S$ its materialized payload, one product takes $O(T)$ work and $O(S)$ derivative workspace. A dense Hessian obtained by basis directions takes $O(nT)$ work and $8n^2$ output bytes for Float64. A CPU JAX reference differentiates a model with interactions between inputs and checks a chosen direction across checkpointed and offloaded Arda tapes. [Pearlmutter 1994](https://doi.org/10.1162/neco.1994.6.1.147) · [JAX higher-order autodiff](https://docs.jax.dev/en/latest/advanced-autodiff.html) · [Reference test](../../tests/reference_vilya_jax.py)
+
+### Local Hessian-vector product benchmark
+
+The objective was the sum of `sin(x) * x` at entries of 0.3, with a direction of 2 in every coordinate. The benchmark timed the derivative query and, for the dense case, its multiplication by the direction. A pinned single core on an Intel Xeon Platinum 8573C ran GCC 14.2 portable `-O2` builds. Results are medians of five fresh processes after one warm-up for each case. Each first and last component matched the analytic value 3.64403383250562 within a relative tolerance of 2 × 10⁻¹⁴. Budgeted peak includes the inputs, tape and work buffers. Process RSS uses Linux `wait4` and includes interpreter overhead.
+
+| Method | Inputs | Median query (ms) | Peak budgeted memory (MiB) | Peak RSS (MiB) |
+| --- | ---: | ---: | ---: | ---: |
+| Dense Hessian and multiply | 512 | 22.462 | 2.05 | 11.50 |
+| Hessian-vector product | 512 | 0.073 | 0.051 | 11.50 |
+| Hessian-vector product | 1,000,000 | 167.578 | 99.18 | 100.46 |
+
+The million-entry product ran with a 128 MiB tensor budget. An explicitly materialized Float64 Hessian of that shape would use 8 TB for its values. The one-million-entry comparison uses theoretical dense storage.
+
+## Vilya A1 checkpoint benchmark
+
+A 1,000-step nonlinear recurrence applied `state = sin(state)` in Float64. Each row repeated eight different initial values from 0.008 to 0.045. The objective summed the final states. Both modes used retained-gradient backward with tape consumption. The checkpoint mode retained a boundary every 50 steps and collected the unpacked interval. The ordinary mode kept the forward tape.
+
+The runner checks every gradient element against the independent scalar recurrence $d_{k+1}=d_k\cos(x_k)$ with $d_0=1$. It also checks the loss and compares the two gradient vectors directly. The absolute gradient and relative loss tolerances are both `2e-12` for this workload. The gradient export and verification take place outside the timed intervals.
+
+Reproduce the Linux runs with the portable default build.
+
+```sh
+make -j2
+python3 benchmarks/vilya_a1.py --cpu 0
+(ulimit -v 7980000 && python3 benchmarks/vilya_a1.py --cpu 0 --rows 125000 --rounds 1 --warmups 0)
+```
+
+Runs used one pinned core of an Intel Xeon Platinum 8573C, Linux 6.18.57 and GCC 14.2 with the portable `-O2` build. The cloud container had an 8 GiB memory limit and no swap. For the 65,536-entry case, the table gives medians of five fresh processes after one warm-up per mode. Mode order alternated. Forward includes the loop, final reduction and collection. Backward includes tape release. Process RSS is the maximum from Linux `wait4`. The tensor peak is Arda's budget counter.
+
+| Mode, 65,536 entries | Forward median and range (s) | Backward median and range (s) | Peak tensor memory (MiB) | Peak RSS (MiB) | Scalar replay operations |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Ordinary tape | 2.716 [1.915, 2.950] | 1.441 [1.437, 1.510] | 501.50 | 503.84 | 0 |
+| 50-step checkpoints | 1.770 [1.745, 1.815] | 1.770 [1.740, 1.788] | 35.00 | 36.83 | 65,536,000 |
+
+The maximum absolute gradient difference between modes was `1.44e-15`. Maximum error against the independent reference was `1.78e-15` on the ordinary tape and `1.44e-15` with checkpoints. Checkpoint replay raised median backward time by about 23% and cut median peak RSS by about 93%. Forward timings for the ordinary tape varied across repetitions, so speed conclusions are specific to this run and workload. [Benchmark runner](../../benchmarks/vilya_a1.py)
+
+The full-size check ran the same 1,000 steps with 1,000,000 Float64 entries, or 8 MB per state. It used one fresh process per mode without warm-up because the ordinary tape consumed nearly the container's memory limit. These are single measurements. The run used a per-process virtual memory limit of 7,980,000 KiB, and the container recorded zero OOM events.
+
+| Mode, 1,000,000 entries | Forward (s) | Backward (s) | Peak tensor memory (MiB) | Peak RSS (MiB) | Scalar replay operations |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Ordinary tape | 34.033 | 22.655 | 7,652.28 | 7,654.60 | 0 |
+| 50-step checkpoints | 28.000 | 26.966 | 534.06 | 542.97 | 1,000,000,000 |
+
+Peak RSS fell by 92.9%. Backward took 19.0% longer and replayed one billion scalar sine operations. The maximum absolute gradient difference was `1.44e-15`. Both modes satisfied the same analytic reference checks as the smaller case.

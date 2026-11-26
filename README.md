@@ -12,7 +12,7 @@ Its long-term goal is to combine scientifically validated numerical algorithms w
 
 *Development codename: Mithril*
 
-**Development version** — Arda 0.17.3 — Memory-Efficient Differentiable Programming
+**Development version** — Arda 0.17.4 — Memory-Efficient Differentiable Programming
 
 **Wiki** — [Quickstart, language and module guides, and AMDE examples](https://github.com/Saxermi/Arda/wiki)
 
@@ -317,6 +317,10 @@ The output is `15 8 3`. The same module tracks dense Float64 tensors. Use `tenso
 Use `ad.vjp` and `ad.jvp` for seeded derivative products and `ad.jacobian` or `ad.hessian` for small dense derivatives. `ad.zero_grad` clears the stored gradient. `ad.detach` exposes a primal alias, and `ad.no_grad(f, ...)` runs a callable with recording disabled. Canonical CSR matrix-vector products can differentiate an explicit vector of stored values. [Vilya 0.17.1 API](docs/VILYA_RUNTIME.md#gradient-queries-and-sparse-matvec)
 
 For training loops, an optional backward mode releases temporary adjoints after their last use and publishes gradients only for selected nodes. Use `ad.checkpoint` to retain the boundaries of a pure elementwise segment and recompute its intermediates. Use `ad.offload` to store selected activations in temporary files under an explicit disk quota. [Memory-efficient backward, checkpoints, and activation offloading](docs/VILYA_RUNTIME.md#activation-offloading)
+
+### Sensitivity and uncertainty
+
+Use `f.getSensitivity([arg1,arg2])` for signed absolute and relative sensitivities of a scalar model at a supplied point. `f.getDerivativeTex("arg1")` shows a formal derivative for supported scalar MathIR expressions. The `uncertainty` module propagates diagonal and factored covariances and supports seeded Gaussian Monte Carlo. Use `ad.hvp(loss,x,direction)` for a Hessian-vector product on the recorded tape. [Runtime contracts](docs/VILYA_RUNTIME.md#sensitivity-and-uncertainty) · [Runnable example](examples/sensitivity_uncertainty.arda)
 
 ### `high`: structured and high-dimensional numerical methods
 

@@ -1,8 +1,10 @@
 #include "arda.h"
 
-enum { TEX, ALGORITHM, ASSUMPTIONS, COMPLEXITY, COST };
-static const char *const methods[] = {"getTex", "getAlgorithm", "getAssumptions", "getComplexity",
-                                      "getCost"};
+enum { TEX, ALGORITHM, ASSUMPTIONS, COMPLEXITY, COST, DERIVATIVE_TEX, SENSITIVITY };
+static const char *const methods[] = {"getTex",        "getAlgorithm", "getAssumptions",
+                                      "getComplexity", "getCost",      "getDerivativeTex",
+                                      "getSensitivity"};
+_Static_assert(MATHDOC_BASE + SENSITIVITY == MATHDOC_SENSITIVITY_ID, "sensitivity method ID");
 
 typedef enum { NO_COST, DENSE_SOLVE, DENSE_MATMUL, DENSE_DOT, CSR_MATVEC } CostModel;
 
@@ -280,10 +282,18 @@ Val mathdoc_call(VM *v, int id, int argc, Val *args) {
     int method = id - MATHDOC_BASE;
     if (method < 0 || (size_t)method >= sizeof methods / sizeof *methods)
         vmerror(v, "unknown mathdoc query");
-    if (argc != (method == COST ? 2 : 1) && !(method == TEX && argc == 2))
+    if (argc != (method >= COST ? 2 : 1) && !(method == TEX && argc == 2))
         vmerror(v, "invalid mathdoc.%s arity", methods[method]);
     if (!documented_target(args[0]))
         vmerror(v, "mathdoc expects a function or bound method");
+    if (method == DERIVATIVE_TEX) {
+        const char *parameter = asstr(v, args[1]);
+        if (!isobj(args[0], O_FUNC))
+            return nil();
+        char tex[MATHIR_TEX_LIMIT];
+        return mathir_derivative_tex(v, args[0].o, parameter, tex, sizeof tex) ? text_or_nil(v, tex)
+                                                                               : nil();
+    }
     int level = 0;
     if (method == TEX && argc == 2) {
         if (args[1].t != V_INT || args[1].i < 0 || args[1].i > 3)

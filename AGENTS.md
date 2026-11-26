@@ -58,9 +58,9 @@ Arda is CPU-first, not CPU-only. Preserve the small portable runtime while enabl
 
 ## Design decisions and owner review
 
-- At the end of the run, call out any major design decisions made during the work. For each one, explain what you implemented and why. Give the benefits and drawbacks of both the implementation and a viable alternative, and explain what would change if the owner chose the alternative. Leave the owner free to revise the decision.
-- Ask the owner before making an especially consequential decision, such as an incompatible public API change, a change to scientific defaults, or a difficult-to-reverse architectural change. Continue independent work while the decision is open.
-- If the owner does not reply, leave that decision and its dependent changes pending. Describe the alternative, what it would look like, and why it could help.
+- Always present major design decisions directly in the final chat reply. For each decision, explain what you implemented and why, the benefits and drawbacks of that choice and a viable alternative, and what would change if the owner chose the alternative. Make clear which choices are open to revision. Record significant decisions in `DECISIONS.md` as well, and give enough detail in chat for the owner to decide without opening a file.
+- Ask the owner directly in chat before making an especially consequential decision, such as an incompatible public API change, a change to scientific defaults, or a difficult-to-reverse architectural change. Continue independent work while the decision is open.
+- If the owner does not reply, leave that decision and its dependent changes pending. Explain in the final chat reply what the proposed alternative would look like and why it could help.
 
 ## Scientific research and provenance
 

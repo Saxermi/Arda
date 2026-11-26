@@ -196,3 +196,24 @@ class JaxAutodiffTests(unittest.TestCase):
         np.testing.assert_allclose(grad, expected_grad, rtol=3e-13, atol=3e-14)
         np.testing.assert_allclose(tangent, expected_tangent, rtol=3e-13, atol=3e-14)
         np.testing.assert_allclose(hessian, jax.hessian(loss)(x), rtol=3e-13, atol=3e-14)
+
+    def test_hessian_vector_product_matches_jax_with_spilled_checkpoints(self):
+        output = self.run_code("""
+        import ad
+        import tensor as t
+        let x = ad.variable(t.array([0.1,0.3,0.7],"float64"))
+        let plan = ad.offload_plan(".",1024,2)
+        let state = ad.offload(t.exp(x),plan)
+        let activation = ad.offload(ad.checkpoint(t.sin(state*state+0.2),state),plan)
+        let loss = t.sum(activation*t.exp(activation)) + t.sum(activation)*t.sum(state)
+        print(t.tolist(ad.hvp(loss,x,t.array([1,2,-1],"float64"))))
+        """, stress=True)
+        x = jnp.array([0.1, 0.3, 0.7])
+
+        def loss(x):
+            state = jnp.exp(x)
+            activation = jnp.sin(state * state + 0.2)
+            return (activation * jnp.exp(activation)).sum() + activation.sum() * state.sum()
+
+        expected = jax.jvp(jax.grad(loss), (x,), (jnp.array([1.0, 2.0, -1.0]),))[1]
+        np.testing.assert_allclose(ast.literal_eval(output), expected, rtol=4e-13, atol=3e-14)

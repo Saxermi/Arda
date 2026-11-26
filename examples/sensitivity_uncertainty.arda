@@ -1,0 +1,27 @@
+import "std:tensor" as t
+tol ad
+tol uncertainty as u
+import random as r
+
+caro force(mass, acceleration):
+    nan mass * acceleration
+
+let report = force.getSensitivity([10, 9.81])
+pedo("Nominal force", report["value"])
+print("Absolute sensitivities", report["absolute"])
+pedo("Relative sensitivities", report["relative"])
+print("Symbolic derivative", force.getDerivativeTex("mass"))
+
+# Use a single parameter vector for structured covariance propagation.
+caro model(point):
+    nan t.at(point, [0]) * t.at(point, [1])
+
+let mean = t.array([10,9.81],"float64")
+let covariance = {"stddev": t.array([0.2,0.05],"float64")}
+let input = ad.variable(mean)
+let output = model(input)
+let propagated = u.linear(output, input, covariance)
+pedo("First-order standard uncertainty", propagated["stddev"])
+let simulation = u.monte_carlo(model, mean, covariance, r.generator(14), 10000)
+print("Monte Carlo mean and standard deviation", simulation["mean"], simulation["stddev"])
+pedo("Hessian-vector product", t.tolist(ad.hvp(output, input, t.array([1,2],"float64"))))

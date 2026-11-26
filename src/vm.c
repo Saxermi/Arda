@@ -3,6 +3,7 @@
 #include "numerics_source.h"
 #include "ode_source.h"
 #include "opt_source.h"
+#include "uncertainty_source.h"
 static _Noreturn void jump_error(VM *v) {
     offload_read_finish(v);
     if (v->sparse_active)
@@ -518,8 +519,65 @@ static void insert_self(VM *v, int base, int argc, Obj *fn, Val self) {
     v->sp++;
 }
 
+static void invoke(VM *v, int argc);
+
+static void enter_sensitivity(VM *v, int base, int argc) {
+    if (argc != 2)
+        vmerror(v, "getSensitivity expects a function and an argument list");
+    if (!v->sensitivity_entry) {
+        static const char wrapper[] = "def sensitivity(target, args):\n"
+                                      "    import \"std:uncertainty\" as uncertainty\n"
+                                      "    return uncertainty.sensitivity(target, args)\n";
+        Proto *root = NULL;
+        char error[256];
+        if (prepare_source(wrapper, "<stdlib:getSensitivity>", 0, &root, error, sizeof error))
+            vmerror(v, "%s", error);
+        remember_proto(v, root);
+        for (int i = 0; i < root->nk; i++) {
+            if (root->k[i].type != K_PROTO)
+                continue;
+            Obj *entry = newobj(v, O_FUNC);
+            entry->as.func.p = root->k[i].p;
+            entry->as.func.env = v->builtins;
+            v->sensitivity_entry = entry;
+            break;
+        }
+        if (!v->sensitivity_entry)
+            vmerror(v, "missing getSensitivity wrapper");
+    }
+    enter_fn(v, v->sensitivity_entry, base, argc, nil());
+}
+
+static void call_with_list(VM *v, int base, int argc) {
+    if (argc != 2 || !isobj(v->stack[base + 2], O_LIST))
+        vmerror_kind(v, "type", "uncertainty callback requires a function and an argument list");
+    Val target = v->stack[base + 1];
+    if (!(isobj(target, O_FUNC) || isobj(target, O_BOUND) ||
+          (isobj(target, O_NATIVE) && target.o->as.native.id != UNCERTAINTY_APPLY_ID &&
+           target.o->as.native.id != AD_NO_GRAD_ID)))
+        vmerror_kind(v, "type", "uncertainty requires a callable model");
+    Obj *arguments = v->stack[base + 2].o;
+    int count = arguments->as.list.n;
+    if (count > 1000000 - base - 1)
+        vmerror(v, "operand stack limit");
+    reserve(v, base + 1 + count);
+    v->stack[base] = target;
+    if (count)
+        memcpy(v->stack + base + 1, arguments->as.list.a, (size_t)count * sizeof(Val));
+    v->sp = base + 1 + count;
+    invoke(v, count);
+}
+
 static void call_native(VM *v, Obj *function, int base, int argc) {
     int id = function->as.native.id;
+    if (id == MATHDOC_SENSITIVITY_ID) {
+        enter_sensitivity(v, base, argc);
+        return;
+    }
+    if (id == UNCERTAINTY_APPLY_ID) {
+        call_with_list(v, base, argc);
+        return;
+    }
     Val *args = &v->stack[base + 1];
     if (ad_disabled(v) && (id < AD_BASE || id >= HIGH_BASE))
         for (int i = 0; i < argc; i++)
@@ -610,6 +668,7 @@ static void module_import(VM *v, Frame *f, const char *name) {
         {"ode", "<stdlib:ode>", ode_source},
         {"opt", "<stdlib:opt>", opt_source},
         {"numerics", "<stdlib:numerics>", numerics_source},
+        {"uncertainty", "<stdlib:uncertainty>", uncertainty_source},
     };
     if (standard || bare) {
         for (size_t i = 0; i < sizeof stdlib / sizeof *stdlib; i++)

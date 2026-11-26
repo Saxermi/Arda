@@ -1128,6 +1128,26 @@ static void seed_basis(Val *seed, size_t i) {
         *seed = number(1);
 }
 
+static Val hessian_product(VM *v, Obj *root, Obj *input, Val direction) {
+    TypedTensor x = layout(v, input->as.ad->value), y = layout(v, root->as.ad->value);
+    if (y.rank)
+        vmerror_kind(v, "shape", "hvp requires a scalar output");
+    TypedTensor seed = validate_seed(v, &x, direction, "hvp", false);
+    Obj *order = prepare(v, root, input, 3, 0);
+    if (!connected(order, input))
+        return zero(v, &x);
+    Val *adjoints = allocate_work(v, order);
+    Val *tangents = allocate_work(v, order);
+    Val *product = allocate_work(v, order);
+    int source = input->as.ad->slot, sink = root->as.ad->slot;
+    adjoints[sink] = number(1);
+    reverse_sweep(v, order, input, adjoints, NULL, NULL);
+    assign_seed(v, &tangents[source], direction, &seed);
+    forward_sweep(v, order, input, tangents);
+    reverse_sweep(v, order, input, product, adjoints, tangents);
+    return product[source];
+}
+
 static Val derivative_matrix(VM *v, Obj *root, Obj *input, bool hessian) {
     TypedTensor x = layout(v, input->as.ad->value), y = layout(v, root->as.ad->value);
     if (hessian && y.rank)
@@ -1204,13 +1224,14 @@ enum {
     CHECKPOINT,
     OFFLOAD_PLAN,
     OFFLOAD,
-    OFFLOAD_STATS
+    OFFLOAD_STATS,
+    HVP
 };
 static const char *const names[] = {
-    "variable", "value",   "grad",       "backward",     "sin",     "cos",          "exp", "log",
-    "sqrt",     "tanh",    "pow",        "zero_grad",    "detach",  "no_grad",      "vjp", "jvp",
-    "jacobian", "hessian", "checkpoint", "offload_plan", "offload", "offload_stats"};
-static const int arities[] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 2, 3, 2, 2, 2, 2, 2, 1};
+    "variable", "value",   "grad",       "backward",     "sin",     "cos",           "exp", "log",
+    "sqrt",     "tanh",    "pow",        "zero_grad",    "detach",  "no_grad",       "vjp", "jvp",
+    "jacobian", "hessian", "checkpoint", "offload_plan", "offload", "offload_stats", "hvp"};
+static const int arities[] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 2, 3, 2, 2, 2, 2, 2, 1, 3};
 _Static_assert(sizeof names / sizeof *names == sizeof arities / sizeof *arities, "ad arities");
 _Static_assert(AD_BASE + NO_GRAD == AD_NO_GRAD_ID, "no_grad native ID");
 
@@ -1241,7 +1262,8 @@ Val ad_call(VM *v, int id, int argc, Val *args) {
         return offload_plan_new(v, args[0], args[1], argc == 3 ? args[2] : integer(8192));
     if (op == OFFLOAD_STATS)
         return offload_stats(v, offload_plan(v, args[0]));
-    if (!isobj(args[0], O_AD) || (op >= VJP && op <= CHECKPOINT && !isobj(args[1], O_AD)))
+    if (!isobj(args[0], O_AD) ||
+        (((op >= VJP && op <= CHECKPOINT) || op == HVP) && !isobj(args[1], O_AD)))
         vmerror(v, "expected autodiff node");
     Obj *root = args[0].o;
     if (op == CHECKPOINT)
@@ -1270,6 +1292,8 @@ Val ad_call(VM *v, int id, int argc, Val *args) {
     }
     if (op == VJP || op == JVP)
         return single_sweep(v, root, args[1].o, argc == 3 ? args[2] : nil(), op == JVP);
+    if (op == HVP)
+        return hessian_product(v, root, args[1].o, args[2]);
     return derivative_matrix(v, root, args[1].o, op == HESSIAN);
 }
 

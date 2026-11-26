@@ -133,3 +133,17 @@ Pack pure dense elementwise operations between one or two explicit boundary node
 Use an explicit disk quota and let callers name the dense Float64 intermediates to spill. This makes placement auditable and lets applications choose activations or checkpoint boundaries according to their workloads. Callers have to select and rebind those intermediates. A graph planner could choose placements automatically and reduce that work, at the cost of liveness and I/O estimates and new scheduling behavior.
 
 Use immutable snapshots in immediately unlinked files. Mapping the snapshot preserves the ordinary tensor interfaces for forward reads, while chunked reads bound derivative workspace. Forward page-cache residency depends on the OS, and strided access can reread chunks. Reloading each whole activation would simplify read management and may help random access. It would make derivative workspace proportional to the largest reloaded tensor. [Runtime contract](docs/VILYA_RUNTIME.md#activation-offloading)
+
+## 2026-11-26 — Local sensitivity products and factored covariance
+
+**Status** — Adopted for the 0.17.4 development implementation and open to owner revision
+
+Evaluate numerical sensitivity on a concrete tape and keep formal derivative TeX in MathIR. Execution captures the current arguments and control flow. Symbolic output works independently for a bounded subset under real differentiability assumptions. A shared symbolic graph could expose more numerical internals for explanation, at the cost of preserving effects, closure bindings, tensor shapes and dynamic dispatch in the symbolic representation.
+
+Use seeded products and allow independent standard deviations or a supplied covariance factor. This bounds memory and lets a rectangular factor express rank-deficient covariance directly. The caller prepares a factor for general correlated inputs. A dense covariance overload could accept the original matrix and factor it internally for convenience. It would require quadratic storage, factorization work, and an explicit policy for symmetry, small negative eigenvalues and singular inputs. [Runtime contracts](docs/VILYA_RUNTIME.md#sensitivity-and-uncertainty)
+
+## 2026-11-26 — Draft ownership for distributed training
+
+**Status** — Proposal for owner review before any distributed implementation
+
+Use stable logical parameter IDs and aggregate local gradient sums with exact sample counts. Start the design with replicated parameters and optimizer state because this gives each rank local reads and a straightforward comparison with serial training. Each rank pays the full model and optimizer memory cost. Sharded ownership would lower those memory costs and require an explicit map from parameters to ranks, remote reads and coordinated restart. The proposal leaves ownership granularity and the eventual distributed API open. [Draft contract and acceptance cases](research/planned/computing-systems.md#draft-distributed-parameter-and-gradient-ownership-contract)

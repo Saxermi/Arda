@@ -1,0 +1,53 @@
+tol ad as _ad
+tol stats as _stats
+tol high as _high
+tol _uncertainty as _native
+
+caro _scalar(value):
+    qui type(value) != "float" and type(value) != "int":
+        throw {"code": "shape", "message": "uncertainty requires a scalar model result"}
+    nan value
+
+# Execute once on fresh tracked arguments. The report is local at that point.
+caro sensitivity(model, args):
+    qui type(args) != "list":
+        throw {"code": "type", "message": "sensitivity arguments must be a list"}
+    esta inputs = []
+    for value in args:
+        qui type(value) != "int" and type(value) != "float" and type(value) != "tensor" and type(value) != "array":
+            throw {"code": "dtype", "message": "sensitivity requires real scalars or Float64 tensors"}
+        push(inputs, _ad.variable(value))
+    esta output = _native.apply(model, inputs)
+    qui type(output) != "ad":
+        throw {"code": "autodiff", "message": "sensitivity requires a tracked scalar result"}
+    esta value = _scalar(_ad.value(output))
+    esta absolute = []
+    esta relative = []
+    for input in inputs:
+        esta gradient = _ad.vjp(output, input)
+        push(absolute, gradient)
+        push(relative, _native.relative(value, _ad.value(input), gradient))
+    nan {"value": value, "absolute": absolute, "relative": relative}
+
+caro linear(output, input, covariance):
+    esta value = _scalar(_ad.value(output))
+    esta result = _native.spread(covariance, _ad.vjp(output, input))
+    nan {"value": value, "variance": result["variance"], "stddev": result["stddev"]}
+
+caro covariance_product(output, input, covariance, cotangent):
+    esta back = _ad.vjp(output, input, cotangent)
+    nan _ad.jvp(output, input, _native.multiply(covariance, back))
+
+# The model receives an ordinary sampled vector and returns a finite scalar.
+caro monte_carlo(model, mean, covariance, generator, samples):
+    qui type(samples) != "int" or samples < 2:
+        throw {"code": "domain", "message": "Monte Carlo requires at least two samples"}
+    esta state = _stats.online()
+    for i in range(samples):
+        esta draw = _native.draw(covariance, mean, generator)
+        _stats.update(state, _scalar(_ad.no_grad(model, draw)))
+    esta summary = _stats.summary(state)
+    esta variance = summary[2] / (1.0 - 1.0 / samples)
+    qui not _high.finite(variance):
+        throw {"code": "nonfinite", "message": "Monte Carlo sample variance exceeds finite Float64 range"}
+    nan {"count": samples, "mean": summary[1], "variance": variance, "stddev": sqrt(variance)}

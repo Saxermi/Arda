@@ -2,6 +2,13 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
+## 0.17.4 — Sensitivity and Uncertainty
+
+- Added local scalar-output sensitivity reports and static symbolic derivative TeX for supported MathIR expressions.
+- Added Hessian-vector products and linear propagation with diagonal or factored covariance, including covariance-vector products for tensor outputs.
+- Added seeded streaming Gaussian Monte Carlo estimates of scalar output moments. [Runtime contracts](docs/VILYA_RUNTIME.md#sensitivity-and-uncertainty)
+- Validated the 1,000-step checkpoint benchmark and documented a proposed ownership and reduction contract for distributed training. [Benchmark results](research/implemented/optimization-and-ad.md#vilya-a1-checkpoint-benchmark) · [Draft contract](research/planned/computing-systems.md#draft-distributed-parameter-and-gradient-ownership-contract)
+
 ## 0.17.3 — Budgeted Activation Offloading
 
 - Added opt-in snapshots of selected dense Float64 activations in temporary files under an explicit disk quota.
