@@ -16,6 +16,11 @@ The optional `VECMATH=1` build links the system GNU C Library vector math librar
 
 The optional `OPENMP=1` build uses the compiler-supplied OpenMP runtime. The GCC build links GNU libgomp. Its runtime terms include the GCC Runtime Library Exception. [GNU libgomp](https://gcc.gnu.org/projects/gomp/) · [GCC Runtime Library Exception](https://www.gnu.org/licenses/gcc-exception-3.1.html)
 
+The optional `HWLOC=1` build links the installed hwloc 2.x library for topology discovery.
+Arda does not vendor hwloc source. Preserve the upstream BSD 3-Clause notices when distributing
+the library. The prefetch worker uses the platform POSIX threading implementation.
+[hwloc license](https://www.open-mpi.org/projects/hwloc/license.php)
+
 ## Local development and comparison tools
 
 | Component | Use | License source |

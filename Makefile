@@ -6,6 +6,7 @@ SANITIZE ?= 0
 LTO ?= 0
 VECMATH ?= 0
 OPENMP ?= 0
+HWLOC ?= 0
 override CPPFLAGS += -D_XOPEN_SOURCE=700
 CFLAGS ?= -std=c11 -O2 -g -Wall -Wextra -Wpedantic
 override CFLAGS += -pthread
@@ -22,6 +23,10 @@ ifeq ($(OPENMP),1)
 override CFLAGS += -fopenmp
 override LDFLAGS += -fopenmp
 endif
+ifeq ($(HWLOC),1)
+override CPPFLAGS += -DARDA_HWLOC
+override LDLIBS += -lhwloc
+endif
 ifeq ($(VECMATH),1)
 override CPPFLAGS += -DARDA_VECMATH
 override LDLIBS += -lmvec
@@ -35,7 +40,7 @@ override CFLAGS += -O1 -fsanitize=address,undefined -fno-omit-frame-pointer -fno
 override LDFLAGS += -fsanitize=address,undefined -no-pie
 endif
 
-BUILD := build/blas$(BLAS)-lapack$(LAPACK)-sanitize$(SANITIZE)$(if $(filter 1,$(LTO)),-lto)$(if $(filter 1,$(VECMATH)),-vecmath)$(if $(filter 1,$(OPENMP)),-openmp)
+BUILD := build/blas$(BLAS)-lapack$(LAPACK)-sanitize$(SANITIZE)$(if $(filter 1,$(LTO)),-lto)$(if $(filter 1,$(VECMATH)),-vecmath)$(if $(filter 1,$(OPENMP)),-openmp)$(if $(filter 1,$(HWLOC)),-hwloc)
 SRC := $(wildcard src/*.c)
 OBJ := $(patsubst src/%.c,$(BUILD)/%.o,$(SRC))
 BIN := $(BUILD)/arda

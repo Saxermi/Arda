@@ -150,9 +150,10 @@ def vm_loop():
         setup = args.setup
         if label == "AXPY_large":
             setup += "\nlet w = nc.ones(1048576)"
+        script_rounds = 1 if args.interleave else args.rounds
         program.write_text(preamble + setup + f"""
 let result = {operation}
-for round in range({args.rounds}):
+for round in range({script_rounds}):
     let elapsed = 0.0
     for i in range({repeat}):
         collect()
@@ -163,12 +164,18 @@ for round in range({args.rounds}):
 if not ({check}):
     throw {{"code":"benchmark","message":"{label} produced an unexpected result"}}
 """, encoding="utf-8")
-        for name, binary in args.arda:
-            samples = arda_times([binary, program], root, args.perf)
+        runs = {name: [] for name, _ in args.arda}
+        for round_index in range(args.rounds if args.interleave else 1):
+            shift = round_index % len(args.arda)
+            for name, binary in args.arda[shift:] + args.arda[:shift]:
+                runs[name].extend(arda_times([binary, program], root, args.perf))
+        for name, samples in runs.items():
             middle = median(samples)
             suffix = ""
             if label.endswith("_copy"):
                 suffix = f"  {2*256*256*8/middle/1e9:.3f} GB/s logical read plus write"
+            if args.interleave:
+                suffix += f"  samples_ms={[round(sample*1000, 6) for sample in samples]}"
             print(f"{name:16s} {label:14s} {middle*1e3:8.4f} ms{suffix}", flush=True)
 
 
@@ -191,6 +198,8 @@ def main():
     parser.add_argument("--rounds", type=int, default=7)
     parser.add_argument("--micro", action="store_true")
     parser.add_argument("--micro-only", action="store_true")
+    parser.add_argument("--interleave", action="store_true",
+                        help="Rotate executable order each CPU microbenchmark round")
     parser.add_argument("--perf", action="store_true")
     parser.add_argument("--setup", default="", help="Optional Arda source before each workload")
     args = parser.parse_args()

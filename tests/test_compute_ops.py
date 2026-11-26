@@ -1,7 +1,12 @@
 """Explicit Float64 kernels, arithmetic order and bounded file prefetch."""
+from pathlib import Path
+import struct
+import subprocess
+import tempfile
 import unittest
 
 import test_arda
+from test_tensor_storage import tensor_header
 
 
 class ComputeOpsTests(unittest.TestCase):
@@ -66,3 +71,21 @@ class ComputeOpsTests(unittest.TestCase):
         pedo(c.stream_stats("data.atn",3,o)["count"])
         pedo(c.memory_stats()["workspace_reserved_bytes"])
         """, "nae 48 law 56\nnae nae nae\nmemory_budget\n7\n0", stress=True)
+
+    def test_prefetch_joins_worker_when_reduction_rejects_first_chunk(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "bad.atn").write_bytes(
+                tensor_header([4], dtype=8) + struct.pack("<4d", float("nan"), 2, 3, 4))
+            (root / "check.arda").write_text("""
+import compute as c
+try:
+    c.stream_stats("bad.atn",2,{"prefetch":true})
+catch err:
+    print(err["message"])
+print(c.memory_stats()["workspace_reserved_bytes"])
+""")
+            result = subprocess.run([test_arda.BIN, "--gc-stress", "check.arda"], cwd=root,
+                                    capture_output=True, text=True, check=True, timeout=10)
+            self.assertIn("stream_stats requires finite values", result.stdout)
+            self.assertTrue(result.stdout.endswith("\n0\n"))

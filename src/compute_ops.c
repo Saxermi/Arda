@@ -156,8 +156,8 @@ Val compute_tiled(VM *v, Val left, Val right, int block) {
     if (scratch && !work)
         vmerror_kind(v, "memory_budget", "unable to reserve tiled matmul workspace");
     Obj *out = typed_new(v, DT_F64, p.output.rank, p.output.shape);
-    compute_tiled_into(&p, block, v->native_threads, (double *)typed_element(&out->as.tensor, 0),
-                       (double *)work);
+    compute_tiled_into(&p, block, cpu_thread_cap(v, v->native_threads),
+                       (double *)typed_element(&out->as.tensor, 0), (double *)work);
     if (work)
         tensor_workspace_release(v, work);
     return objval(out);

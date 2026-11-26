@@ -1,3 +1,4 @@
+#include "compute_topology.h"
 #include "autodiff.h"
 #include "activation_store.h"
 #include "cpu_kernels.h"
@@ -480,6 +481,7 @@ void vm_destroy(VM *v) {
     destroy_objects(v);
     tensor_pool_trim(v);
     free(v->compute_state);
+    compute_release_affinity(v);
     for (int i = 0; i < v->np; i++)
         freeproto(v->programs[i]);
     free(v->programs);

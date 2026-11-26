@@ -318,6 +318,7 @@ int cpu_matmul_run(const VM *v, int kernel, int threads, int m, int k, int n, co
 
 void dense_matmul_into(VM *v, int m, int k, int n, const double *a, const double *b, double *c) {
     int kernel = cpu_matmul_resolve(v, v->matmul_kernel, m, n);
-    int threads = cpu_matmul_run(v, kernel, v->native_threads, m, k, n, a, b, c);
+    int requested = cpu_thread_cap(v, v->native_threads);
+    int threads = cpu_matmul_run(v, kernel, requested, m, k, n, a, b, c);
     v->last_matmul_threads = threads ? threads : 1;
 }

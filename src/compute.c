@@ -1,4 +1,5 @@
 #include "compute_plan.h"
+#include "compute_topology.h"
 #include "cpu_kernels.h"
 
 static Val budget_value(const TensorMemory *m) {
@@ -130,12 +131,17 @@ enum {
     EXPLAIN,
     EXECUTE,
     LAST_RUN,
+    COMPARE,
+    TOPOLOGY,
+    AFFINITY,
+    FIRST_TOUCH,
     COMPUTE_COUNT
 };
 static const char *const names[] = {
-    "memory_stats",   "memory_budget", "trim_pool", "plan",         "stream_stats", "cpu",
-    "matmul_kernel",  "vector_math",   "threads",   "tiled_matmul", "axpy",         "mul_add",
-    "fused_products", "map_reduce",    "explain",   "execute",      "last_run"};
+    "memory_stats",   "memory_budget", "trim_pool",  "plan",         "stream_stats", "cpu",
+    "matmul_kernel",  "vector_math",   "threads",    "tiled_matmul", "axpy",         "mul_add",
+    "fused_products", "map_reduce",    "explain",    "execute",      "last_run",     "compare",
+    "topology",       "affinity",      "first_touch"};
 _Static_assert(sizeof names / sizeof *names == COMPUTE_COUNT, "compute names");
 
 Obj *compute_module(VM *v) {
@@ -205,6 +211,22 @@ Val compute_call(VM *v, int id, int argc, Val *args) {
     case EXECUTE:
         if (argc == 3)
             return compute_execute(v, args[0], args[1], args[2]);
+        break;
+    case COMPARE:
+        if (argc == 2 || argc == 3)
+            return compute_compare(v, args[0], args[1], argc == 3 ? args[2] : nil());
+        break;
+    case TOPOLOGY:
+        if (!argc)
+            return compute_topology(v);
+        break;
+    case AFFINITY:
+        if (argc <= 1)
+            return compute_affinity(v, argc, args);
+        break;
+    case FIRST_TOUCH:
+        if (argc == 1)
+            return compute_first_touch(v, args[0]);
         break;
     case LAST_RUN:
         if (!argc)

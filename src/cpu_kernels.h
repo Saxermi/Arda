@@ -35,8 +35,12 @@ int cpu_matmul_run(const VM *v, int kernel, int threads, int m, int k, int n, co
                    const double *b, double *c);
 bool cpu_parallel_available(void);
 int cpu_team_size(int requested, int partitions);
+static inline int cpu_thread_cap(const VM *v, int requested) {
+    int cap = v->compute_thread_cap;
+    return cap && cap < requested ? cap : requested;
+}
 static inline int cpu_parallel_team(const VM *v, int partitions) {
-    return cpu_team_size(v->native_threads, partitions);
+    return cpu_team_size(cpu_thread_cap(v, v->native_threads), partitions);
 }
 bool cpu_vector_math_available(const VM *v);
 bool cpu_vector_unary(const VM *v, VectorMath op, size_t count, const double *in, double *out);

@@ -503,6 +503,8 @@ typedef struct VM {
     size_t sparse_bytes, sparse_limit;
     TensorMemory tensor_memory;
     struct ComputeState *compute_state;
+    struct ComputeAffinity *compute_affinity;
+    int compute_thread_cap;
     Obj *sensitivity_entry;
     struct ADReadCache *ad_read_cache;
     unsigned char *ad_read_memory;

@@ -1,5 +1,6 @@
 #include "compute_plan.h"
 #include "cpu_kernels.h"
+#include <float.h>
 #include <time.h>
 
 enum { KERNEL_TILED = -1, TUNE_CACHE_SIZE = 8 };
@@ -154,13 +155,13 @@ static Run run_into(const MatmulProblem *p, VM *v, const Plan *plan, double *out
     int threads = 1;
     if (!empty) {
         if (plan->kernel == KERNEL_TILED)
-            threads = compute_tiled_into(p, plan->block, plan->threads, out,
+            threads = compute_tiled_into(p, plan->block, cpu_thread_cap(v, plan->threads), out,
                                          plan->workspace ? workspace : NULL);
         else
-            threads =
-                cpu_matmul_run(v, plan->kernel, plan->threads, d[AXIS_ROWS], d[AXIS_DEPTH],
-                               d[AXIS_COLUMNS], (const double *)typed_element(&p->a, p->a.offset),
-                               (const double *)typed_element(&p->b, p->b.offset), out);
+            threads = cpu_matmul_run(v, plan->kernel, cpu_thread_cap(v, plan->threads),
+                                     d[AXIS_ROWS], d[AXIS_DEPTH], d[AXIS_COLUMNS],
+                                     (const double *)typed_element(&p->a, p->a.offset),
+                                     (const double *)typed_element(&p->b, p->b.offset), out);
     }
     return (Run){.kernel = plan->kernel,
                  .block = plan->block,
@@ -182,16 +183,22 @@ static int compare_time(const void *a, const void *b) {
     return (x > y) - (x < y);
 }
 
+static double timed_run(VM *v, const MatmulProblem *p, const Plan *plan, double *out, double *work,
+                        Run *report) {
+    double start = wall_seconds();
+    memset(out, 0, plan->output);
+    *report = run_into(p, v, plan, out, work);
+    return wall_seconds() - start;
+}
+
 static double trial(VM *v, const MatmulProblem *p, const Plan *plan, double *out, double *work) {
     enum { SAMPLES = 3 };
     double times[SAMPLES];
     memset(out, 0, plan->output);
     run_into(p, v, plan, out, work);
     for (int i = 0; i < SAMPLES; i++) {
-        double start = wall_seconds();
-        memset(out, 0, plan->output);
-        run_into(p, v, plan, out, work);
-        times[i] = wall_seconds() - start;
+        Run report;
+        times[i] = timed_run(v, p, plan, out, work, &report);
         if (!isfinite(times[i]))
             return NAN;
     }
@@ -360,10 +367,11 @@ static Val estimate(const Plan *p, bool include_overhead) {
 Val compute_explain(VM *v, Val value) {
     const Plan *p = as_plan(v, value);
     const int *d = p->shape.dimensions;
+    int threads = cpu_thread_cap(v, p->threads);
     int team = p->kernel == KERNEL_TILED
                    ? compute_tiled_team(d[AXIS_ROWS], p->shape.rhs_rank, p->flops / 2, p->block,
-                                        p->threads, p->workspace != 0)
-                   : cpu_matmul_team(p->threads, d[AXIS_ROWS], d[AXIS_DEPTH], d[AXIS_COLUMNS]);
+                                        threads, p->workspace != 0)
+                   : cpu_matmul_team(threads, d[AXIS_ROWS], d[AXIS_DEPTH], d[AXIS_COLUMNS]);
     Obj *map = newobj(v, O_MAP);
     field(v, map, "kernel", objval(string(v, kernel_name(p->kernel))));
     field(v, map, "block", p->block ? integer(p->block) : nil());
@@ -400,4 +408,119 @@ Val compute_execute(VM *v, Val value, Val a, Val b) {
 Val compute_last_run(VM *v) {
     return v->compute_state && v->compute_state->last.valid ? run_report(v, v->compute_state->last)
                                                             : nil();
+}
+
+void compute_clear_tuning(VM *v) {
+    if (v->compute_state) {
+        memset(v->compute_state->cache, 0, sizeof v->compute_state->cache);
+        v->compute_state->next = 0;
+    }
+}
+
+enum { COMPARE_MAX_REPEATS = 9 };
+
+static int sample_count(VM *v, Val value, int fallback, int minimum, int maximum) {
+    if (value.t == V_NIL)
+        return fallback;
+    if (value.t != V_INT || value.i < minimum || value.i > maximum)
+        vmerror_kind(v, "domain", "compute comparison sample count is outside its bounds");
+    return (int)value.i;
+}
+
+static double tolerance(VM *v, Val value, double fallback, const char *name) {
+    return value.t == V_NIL ? fallback : rate(v, value, name, true);
+}
+
+typedef struct {
+    Plan plan;
+    Obj *result;
+    double samples[COMPARE_MAX_REPEATS];
+    Run last;
+} Comparison;
+
+static Val comparison_report(VM *v, Comparison *c, int repeats) {
+    qsort(c->samples, (size_t)repeats, sizeof *c->samples, compare_time);
+    double middle = c->samples[repeats / 2];
+    if (!(repeats % 2))
+        middle = (middle + c->samples[repeats / 2 - 1]) / 2;
+    Obj *map = run_report(v, c->last).o;
+    field(v, map, "median_seconds", number(middle));
+    return objval(map);
+}
+
+static bool check_outputs(const double *a, const double *b, size_t count, double atol, double rtol,
+                          long double *max_error) {
+    bool equivalent = true;
+    for (size_t i = 0; i < count; i++) {
+        if (!isfinite(a[i]) || !isfinite(b[i])) {
+            *max_error = INFINITY;
+            equivalent = false;
+            continue;
+        }
+        long double x = a[i], y = b[i], error = fabsl(x - y);
+        long double scale = fmaxl(fabsl(x), fabsl(y));
+        *max_error = fmaxl(*max_error, error);
+        if (error <= atol)
+            continue;
+        long double relative = isfinite(error) ? error / scale : fabsl(x / scale - y / scale);
+        if (relative > (long double)rtol + (long double)atol / scale)
+            equivalent = false;
+    }
+    return equivalent;
+}
+
+Val compute_compare(VM *v, Val a, Val b, Val options) {
+    Table *table = options_table(v, options);
+    int seen = 0;
+    Val first = option(table, "first", &seen), second = option(table, "second", &seen);
+    int warmups = sample_count(v, option(table, "warmup", &seen), 1, 0, 5);
+    int repeats = sample_count(v, option(table, "repeats", &seen), 5, 1, COMPARE_MAX_REPEATS);
+    double atol = tolerance(v, option(table, "atol", &seen), 1e-12, "atol");
+    double rtol = tolerance(v, option(table, "rtol", &seen), 1e-10, "rtol");
+    check_options(v, table, seen);
+    MatmulProblem p = compute_matmul_problem(v, a, b);
+    Comparison sides[2] = {0};
+    sides[0].plan = make_plan(v, &p, first);
+    sides[1].plan = make_plan(v, &p, second);
+    size_t workspace = sides[0].plan.workspace > sides[1].plan.workspace ? sides[0].plan.workspace
+                                                                         : sides[1].plan.workspace;
+    size_t output = sides[0].plan.output;
+    checked_workspace(v, 2 * output, workspace);
+    double *work = reserve(v, workspace);
+    for (int i = 0; i < 2; i++)
+        sides[i].result = typed_new(v, DT_F64, p.output.rank, p.output.shape);
+    bool clock_ok = true;
+    for (int trial = 0; trial < warmups + repeats; trial++) {
+        for (int order = 0; order < 2; order++) {
+            Comparison *side = &sides[(trial + order) % 2];
+            double *out = output_data(side->result);
+            if (trial < warmups) {
+                memset(out, 0, output);
+                run_into(&p, v, &side->plan, out, work);
+            } else {
+                double seconds = timed_run(v, &p, &side->plan, out, work, &side->last);
+                side->samples[trial - warmups] = seconds;
+                clock_ok &= isfinite(seconds);
+            }
+        }
+    }
+    long double max_error = 0;
+    bool equivalent = check_outputs(output_data(sides[0].result), output_data(sides[1].result),
+                                    p.output.n, atol, rtol, &max_error);
+    for (int i = 0; i < 2; i++)
+        tensor_buffer_discard(v, sides[i].result->as.tensor.buffer);
+    if (work)
+        tensor_workspace_release(v, (unsigned char *)work);
+    if (!clock_ok)
+        vmerror_kind(v, "backend", "monotonic clock unavailable for compute comparison");
+    Obj *map = newobj(v, O_MAP);
+    field(v, map, "first", comparison_report(v, &sides[0], repeats));
+    field(v, map, "second", comparison_report(v, &sides[1], repeats));
+    field(v, map, "equivalent", boolean(equivalent));
+    field(v, map, "max_abs_error", max_error <= DBL_MAX ? number((double)max_error) : nil());
+    field(v, map, "warmup", integer(warmups));
+    field(v, map, "repeats", integer(repeats));
+    field(v, map, "atol", number(atol));
+    field(v, map, "rtol", number(rtol));
+    return objval(map);
 }

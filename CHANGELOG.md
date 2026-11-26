@@ -2,10 +2,15 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
+## 0.18.6 — CPU Topology, Placement and Backend Comparison
+
+- Added optional hwloc discovery, Linux caller affinity and explicit first-touch tensor initialization.
+- Added backend comparison with common tolerance, warm-up and repeated timings, plus actual kernel and worker reports. [Controls and validation](research/implemented/cpu-compute.md#0186-topology-and-backend-comparison)
+
 ## 0.18.5 — Explainable CPU Execution Plans
 
 - Added reusable Float64 GEMM/GEMV plans, workspace estimates, explicit backend overrides and execution reports.
-- Added a calibrated lower-bound model and bounded, opt-in thread-locality-sensitive kernel tuning with a per-VM cache. [Plan contracts](research/implemented/cpu-compute.md#0185-ace-v1-plans)
+- Added a calibrated lower-bound model and bounded, opt-in kernel tuning with a per-VM cache. [Plan contracts](research/implemented/cpu-compute.md#0185-ace-v1-plans)
 
 ## 0.18.4 — Tiled and Fused Float64 Kernels
 
