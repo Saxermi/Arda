@@ -1,4 +1,7 @@
 """Vilya runtime behavior and transactional tensor gradients."""
+import json
+import pathlib
+import tempfile
 import unittest
 
 import test_arda
@@ -415,3 +418,110 @@ class VilyaRuntimeTests(unittest.TestCase):
         print(t.shape(ad.grad(x)),type(ad.no_grad(ad.checkpoint,packed,x)))
         print(c.memory_stats()["tensor_heap_bytes"])
         """, "[0, 2] tensor\n0", stress=True)
+
+    def test_offloaded_snapshot_budget_contents_and_gc(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.run_code("""
+            tol ad
+            import "std:tensor" as t
+            import compute as c
+            let plan = ad.offload_plan(SPILL_DIRECTORY,144,1)
+            let x = ad.variable(t.array([0,0],"float64"))
+            let y = t.exp(x)
+            let z = ad.offload(y,plan)
+            let snapshot = ad.value(z)
+            print(type(plan),t.tolist(snapshot),c.memory_stats()["mapped_bytes"])
+            try:
+                ad.offload(t.exp(x),plan)
+            catch issue:
+                print(issue["code"],ad.offload_stats(plan)["files_written"])
+            try:
+                t.put(snapshot,[0],7)
+            catch issue:
+                print(issue["code"])
+            t.put(ad.value(y),[0],7)
+            try:
+                ad.offload(y,plan)
+            catch issue:
+                print(issue["code"])
+            print(t.tolist(ad.vjp(t.sum(z),x)))
+            let stats = ad.offload_stats(plan)
+            print(stats["bytes_written"],stats["bytes_read"],stats["read_chunks"],stats["peak_disk_bytes"])
+            z = mun
+            collect()
+            print(ad.offload_stats(plan)["live_files"])
+            snapshot = mun
+            collect()
+            print(ad.offload_stats(plan)["live_files"],ad.offload_stats(plan)["live_disk_bytes"])
+            """.replace("SPILL_DIRECTORY", json.dumps(directory)),
+                "offload_plan [1, 1] 144\ndisk_budget 1\nreadonly\nmutation\n[1, 1]\n"
+                "144 16 2 144\n1\n0 0", stress=True)
+            self.assertEqual(list(pathlib.Path(directory).iterdir()), [])
+
+    def test_offload_failures_preserve_gradients_and_release_read_workspace(self):
+        self.run_code("""
+        import ad
+        import tensor as t
+        import compute as c
+        let x = ad.variable(t.array([700,700],"float64"))
+        let plan = ad.offload_plan(".",144,1)
+        let z = ad.offload(t.exp(x),plan)
+        ad.backward(t.sum(x*2),mun,{"retain":[x]})
+        let seed = t.array([1e10,1e10],"float64")
+        collect()
+        let base = c.memory_stats()["tensor_heap_bytes"]
+        c.memory_budget(base+32)
+        try:
+            ad.backward(z,seed,{"retain":[x],"consume":true})
+        catch issue:
+            print(issue["code"],c.memory_stats()["workspace_reserved_bytes"],t.tolist(ad.grad(x)))
+        c.memory_budget(mun)
+        try:
+            ad.backward(z,seed,{"retain":[x],"consume":true})
+        catch issue:
+            print(issue["code"],c.memory_stats()["workspace_reserved_bytes"],t.tolist(ad.grad(x)))
+        ad.backward(z,t.array([1,1],"float64"),{"retain":[x],"consume":true})
+        print(t.at(ad.grad(x),[0]) > 1e300)
+        """, "memory_budget 0 [2, 2]\nnonfinite 0 [2, 2]\nnae", stress=True)
+
+    def test_offload_checks_inputs_and_packs_logical_tensor_order(self):
+        self.run_code("""
+        import ad
+        import tensor as t
+        import compute as c
+        try:
+            ad.offload_plan("./missing",10)
+        catch issue:
+            print(issue["code"])
+        try:
+            ad.offload_plan(".",-1)
+        catch issue:
+            print(issue["code"])
+        try:
+            ad.offload_plan(".",160,0)
+        catch issue:
+            print(issue["code"])
+        let plan = ad.offload_plan(".",160,1)
+        let x = ad.variable(t.array([1,2,3,4],"float64",[2,2]))
+        try:
+            ad.offload(x,plan)
+        catch issue:
+            print(issue["code"])
+        try:
+            ad.offload(t.sum(x),plan)
+        catch issue:
+            print(issue["code"])
+        try:
+            ad.offload(t.view(x,[4],[-1],3),plan)
+        catch issue:
+            print(issue["code"])
+        let y = ad.offload(t.permute(x,[1,0]),plan)
+        print(t.tolist(ad.value(y)),t.tolist(ad.vjp(t.sum(y*y),x)))
+        print(t.tolist(ad.vjp(t.sum(t.matmul(y,x)),x)))
+        collect()
+        let empty = ad.offload_plan(".",0)
+        let e = ad.variable(t.zeros([0,2],"float64"))
+        let empty_result = ad.offload(e+1,empty)
+        print(t.shape(ad.value(empty_result)),ad.offload_stats(empty)["live_files"])
+        """, "io\ndisk_budget\nshape\nautodiff\ndtype\nautodiff\n[[1, 3], [2, 4]] [[2, 4], [6, 8]]\n[[6, 6], [14, 14]]\n[0, 2] 0",
+            stress=True)

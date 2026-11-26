@@ -1,4 +1,5 @@
 #include "autodiff.h"
+#include "activation_store.h"
 
 static bool is_tensor(Val x) {
     return isobj(x, O_ARRAY) || isobj(x, O_TYPED_TENSOR);
@@ -12,19 +13,24 @@ static TypedTensor layout(VM *v, Val x) {
     if (!is_tensor(x))
         return (TypedTensor){.n = 1};
     TypedTensor t = typed_tensor(v, x);
-    if (t.dtype != DT_F64 || t.buffer->as.buffer.mapped)
-        vmerror_kind(v, "dtype", "autodiff requires dense heap-backed Float64 tensors");
+    if (t.dtype != DT_F64 || (t.buffer->as.buffer.mapped && !t.buffer->as.buffer.offload))
+        vmerror_kind(
+            v, "dtype",
+            "autodiff requires dense Float64 tensors backed by the heap or an activation offload");
     return t;
 }
 
-static double entry(const TypedTensor *t, ptrdiff_t position) {
-    double x;
-    memcpy(&x, typed_element(t, position), sizeof x);
-    return x;
+static double item(const TypedTensor *t, size_t i) {
+    double value;
+    memcpy(&value, typed_element(t, typed_offset(t, i)), sizeof value);
+    return value;
 }
 
-static double item(const TypedTensor *t, size_t i) {
-    return entry(t, typed_offset(t, i));
+static double saved_item(VM *v, const TypedTensor *t, size_t i) {
+    const Buffer *buffer = &t->buffer->as.buffer;
+    return buffer->offload
+               ? offload_read_float64(v, buffer, (size_t)typed_offset(t, i) * sizeof(double))
+               : item(t, i);
 }
 
 static double checked(VM *v, double x) {
@@ -36,11 +42,11 @@ static double checked(VM *v, double x) {
 void ad_validate(VM *v, Val value) {
     value = ad_primal(value);
     TypedTensor t = layout(v, value);
-    if (t.rank) {
+    if (!t.rank)
+        checked(v, asnum(v, value));
+    else if (!t.buffer->as.buffer.offload)
         for (size_t i = 0; i < t.n; i++)
             checked(v, item(&t, i));
-    } else
-        checked(v, asnum(v, value));
 }
 
 static unsigned saved_values(ADOperation op, bool left, bool right) {
@@ -275,7 +281,7 @@ static void add(VM *v, Val *gradient, size_t index, double value) {
 }
 
 static double read_value(VM *v, const TypedTensor *t, Val val, size_t index) {
-    return t->rank ? item(t, index) : asnum(v, val);
+    return t->rank ? saved_item(v, t, index) : asnum(v, val);
 }
 
 static double grad_value(Val grad, size_t i) {
@@ -432,6 +438,55 @@ static Val checkpoint(VM *v, Obj *root, Val input, Val other) {
     return out;
 }
 
+static Val offload_activation(VM *v, Obj *source, Val plan_value) {
+    ADOffloadPlan *plan = offload_plan(v, plan_value);
+    const TensorAD *old = source->as.ad;
+    if (old->operation == AD_LEAF || old->operation == AD_CONSUMED)
+        vmerror_kind(v, "autodiff", "offload requires a tensor intermediate with a live tape");
+    if (old->operation == AD_VIEW)
+        vmerror_kind(v, "autodiff",
+                     "offload a materialized result of a strided view, such as view + 0");
+    TypedTensor input = layout(v, old->value);
+    if (!input.rank)
+        vmerror_kind(v, "dtype", "offload requires a tensor activation");
+    if (input.buffer->as.buffer.version != old->versions[2])
+        vmerror_kind(v, "mutation", "activation changed before it could be offloaded");
+    if (!input.n)
+        return objval(source);
+
+    Val value = offload_snapshot(v, plan, &input);
+    Obj *out = newobj(v, O_AD);
+    TensorAD *node = mem(sizeof *node);
+    *node = *old;
+    node->value = value;
+    node->grad = nil();
+    node->batch_examples = 0;
+    node->versions[2] = version(v, value);
+    node->slot = 0;
+    node->visit = 0;
+    node->active = node->retain = false;
+    out->as.ad = node;
+    account(v, out, 0, sizeof *node);
+    barrier(v, out, value);
+    barrier(v, out, node->left);
+    barrier(v, out, node->right);
+    for (int i = 0; i < 2; i++)
+        if (node->parents[i])
+            barrier(v, out, objval(node->parents[i]));
+    if (node->pattern)
+        barrier(v, out, objval(node->pattern));
+    if (old->checkpoint) {
+        size_t bytes = recipe_bytes(old->checkpoint);
+        node->checkpoint = mem(bytes);
+        memcpy(node->checkpoint, old->checkpoint, bytes);
+        account(v, out, 0, bytes);
+        for (int i = 0; i < node->checkpoint->count; i++)
+            for (int j = 0; j < 2; j++)
+                barrier(v, out, node->checkpoint->steps[i].constant[j]);
+    }
+    return objval(out);
+}
+
 typedef struct {
     double value, tangent;
     double derivative[2], change[2];
@@ -548,6 +603,8 @@ static void replay_edges(const Sweep *s, const TypedTensor *x, const TypedTensor
         edge(s, 0, xi, i, result->derivative[0], result->change[0]);
         edge(s, 1, yi, i, result->derivative[1], result->change[1]);
     }
+    size_t boundaries = s->node->parents[1] ? 2 : 1;
+    offload_record_replay(s->vm, z->n, (size_t)c->count - boundaries);
     tensor_buffer_discard(s->vm, buffer);
 }
 
@@ -619,9 +676,9 @@ static void matrix_edges(const Sweep *s, const TypedTensor *x, const TypedTensor
             matrix_index(y, z->rank, index, k, index[z->rank - 1], right);
             size_t xi = linear_index(x, left), yi = linear_index(y, right);
             if (s->parents[0])
-                edge(s, 0, xi, i, item(y, yi), tangent_at(s->tangents[1], yi));
+                edge(s, 0, xi, i, saved_item(s->vm, y, yi), tangent_at(s->tangents[1], yi));
             if (s->parents[1])
-                edge(s, 1, yi, i, item(x, xi), tangent_at(s->tangents[0], xi));
+                edge(s, 1, yi, i, saved_item(s->vm, x, xi), tangent_at(s->tangents[0], xi));
         }
     }
 }
@@ -670,13 +727,46 @@ static void sparse_edges(const Sweep *s, const TypedTensor *values, const TypedT
         for (size_t i = pattern->offset[row]; i < pattern->offset[row + 1]; i++) {
             uint32_t col = pattern->col[i];
             if (s->parents[0])
-                edge(s, 0, i, row, item(input, col), tangent_at(s->tangents[1], col));
+                edge(s, 0, i, row, saved_item(s->vm, input, col), tangent_at(s->tangents[1], col));
             if (s->parents[1]) {
-                double value = values->rank ? item(values, i) : pattern->values[i];
+                double value = values->rank ? saved_item(s->vm, values, i) : pattern->values[i];
                 edge(s, 1, col, row, value, tangent_at(s->tangents[0], i));
             }
         }
     }
+}
+
+static void add_saved_read(VM *v, ADReadSpec *spec, Val value) {
+    if (is_tensor(value))
+        offload_add_read(spec, &layout(v, value).buffer->as.buffer);
+}
+
+static ADReadSpec node_reads(VM *v, const TensorAD *n, unsigned mask) {
+    ADReadSpec spec = {0};
+    if (!mask || !v->tensor_memory.mapped)
+        return spec;
+    // A checkpoint reconstructs its result from the boundaries and constants.
+    if (n->checkpoint) {
+        mask &= 3;
+        for (int i = 0; i < n->checkpoint->count; i++)
+            for (int j = 0; j < 2; j++)
+                add_saved_read(v, &spec, n->checkpoint->steps[i].constant[j]);
+    }
+    Val saved[] = {n->left, n->right, n->value};
+    for (unsigned i = 0; i < 3; i++)
+        if (mask & (1u << i))
+            add_saved_read(v, &spec, saved[i]);
+    return spec;
+}
+
+static size_t sweep_workspace(VM *v, const TensorAD *n, const TypedTensor *t, unsigned mask) {
+    if (!mask || !t->n)
+        return 0;
+    size_t windows = offload_read_bytes(node_reads(v, n, mask));
+    size_t replay = n->checkpoint ? replay_bytes(v, n->checkpoint) : 0;
+    if (windows > PTRDIFF_MAX - replay)
+        vmerror_kind(v, "memory_budget", "autodiff workspace exceeds addressable storage");
+    return windows + replay;
 }
 
 static void visit_node(VM *v, TensorAD *n, Obj *stop, Val *work, bool forward, Val *adjoints,
@@ -700,6 +790,11 @@ static void visit_node(VM *v, TensorAD *n, Obj *stop, Val *work, bool forward, V
     }
 
     TypedTensor x = layout(v, n->left), y = layout(v, n->right), z = layout(v, n->value);
+    ADReadCache cache;
+    if (z.n && v->tensor_memory.mapped) {
+        unsigned mask = saved_values(n->operation, s.parents[0] != NULL, s.parents[1] != NULL);
+        offload_read_start(v, &cache, node_reads(v, n, mask));
+    }
     switch (n->operation) {
     case AD_SUM:
     case AD_MEAN:
@@ -723,6 +818,8 @@ static void visit_node(VM *v, TensorAD *n, Obj *stop, Val *work, bool forward, V
         elementwise(&s, &x, &y, &z);
         break;
     }
+    if (v->ad_read_cache)
+        offload_read_finish(v);
 }
 
 static bool connected(const Obj *order, const Obj *node) {
@@ -731,7 +828,7 @@ static bool connected(const Obj *order, const Obj *node) {
 }
 
 static Obj *prepare(VM *v, Obj *root, Obj *stop, size_t buffers, size_t output_bytes) {
-    size_t available = tensor_memory_available(v), checkpoint_space = 0;
+    size_t available = tensor_memory_available(v), scratch_peak = 0;
     if (output_bytes > available)
         vmerror_kind(v, "memory_budget", "autodiff result exceeds the tensor memory budget");
     available -= output_bytes;
@@ -753,14 +850,11 @@ static Obj *prepare(VM *v, Obj *root, Obj *stop, size_t buffers, size_t output_b
                 vmerror_kind(v, "mutation",
                              "tensor saved for differentiation was modified through an alias");
         TypedTensor t = layout(v, n->value);
-        if (object != stop && n->checkpoint) {
+        if (object != stop && n->checkpoint)
             checkpoint_versions(v, n->checkpoint);
-            if (t.n) {
-                size_t bytes = replay_bytes(v, n->checkpoint);
-                if (bytes > checkpoint_space)
-                    checkpoint_space = bytes;
-            }
-        }
+        size_t scratch = sweep_workspace(v, n, &t, saved_mask);
+        if (scratch > scratch_peak)
+            scratch_peak = scratch;
         if (t.rank && buffers) {
             size_t per_entry = buffers * sizeof(double);
             if (t.n > available / per_entry)
@@ -769,8 +863,9 @@ static Obj *prepare(VM *v, Obj *root, Obj *stop, size_t buffers, size_t output_b
             available -= t.n * per_entry;
         }
     }
-    if (checkpoint_space > available)
-        vmerror_kind(v, "memory_budget", "checkpoint workspace exceeds the tensor memory budget");
+    if (scratch_peak > available)
+        vmerror_kind(v, "memory_budget",
+                     "autodiff read and replay workspace exceeds the tensor memory budget");
     return order;
 }
 
@@ -992,9 +1087,13 @@ static Val retained_backward(VM *v, Obj *root, Val seed, Val options_value) {
             if (parent && work[parent->as.ad->slot].t == V_NIL)
                 work[parent->as.ad->slot] = live_gradient(v, parent->as.ad->value, &cache);
         }
-        if (node->checkpoint && layout(v, node->value).n &&
-            replay_bytes(v, node->checkpoint) > tensor_memory_available(v))
-            discard_cached(v, &cache);
+        if (cache && (node->checkpoint || v->tensor_memory.mapped)) {
+            TypedTensor primal = layout(v, node->value);
+            unsigned mask =
+                saved_values(node->operation, node->parents[0] != NULL, node->parents[1] != NULL);
+            if (sweep_workspace(v, node, &primal, mask) > tensor_memory_available(v))
+                discard_cached(v, &cache);
+        }
         visit_node(v, node, NULL, work, false, NULL, NULL);
         // All contributions from downstream nodes have reached this slot.
         if (node->retain)
@@ -1102,13 +1201,16 @@ enum {
     JVP,
     JACOBIAN,
     HESSIAN,
-    CHECKPOINT
+    CHECKPOINT,
+    OFFLOAD_PLAN,
+    OFFLOAD,
+    OFFLOAD_STATS
 };
-static const char *const names[] = {"variable", "value",     "grad",    "backward",  "sin",
-                                    "cos",      "exp",       "log",     "sqrt",      "tanh",
-                                    "pow",      "zero_grad", "detach",  "no_grad",   "vjp",
-                                    "jvp",      "jacobian",  "hessian", "checkpoint"};
-static const int arities[] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 2, 3, 2, 2, 2};
+static const char *const names[] = {
+    "variable", "value",   "grad",       "backward",     "sin",     "cos",          "exp", "log",
+    "sqrt",     "tanh",    "pow",        "zero_grad",    "detach",  "no_grad",      "vjp", "jvp",
+    "jacobian", "hessian", "checkpoint", "offload_plan", "offload", "offload_stats"};
+static const int arities[] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 2, 3, 2, 2, 2, 2, 2, 1};
 _Static_assert(sizeof names / sizeof *names == sizeof arities / sizeof *arities, "ad arities");
 _Static_assert(AD_BASE + NO_GRAD == AD_NO_GRAD_ID, "no_grad native ID");
 
@@ -1116,7 +1218,7 @@ Val ad_call(VM *v, int id, int argc, Val *args) {
     int op = id - AD_BASE;
     if (op < 0 || (size_t)op >= sizeof names / sizeof *names ||
         (argc != arities[op] && !(op == BACKWARD && (argc == 2 || argc == 3)) &&
-         !((op == VJP || op == CHECKPOINT) && argc == 3)))
+         !((op == VJP || op == CHECKPOINT || op == OFFLOAD_PLAN) && argc == 3)))
         vmerror(v, "invalid autodiff function arity");
     if (op == VARIABLE) {
         if (ad_disabled(v))
@@ -1135,12 +1237,18 @@ Val ad_call(VM *v, int id, int argc, Val *args) {
     }
     if (op == NO_GRAD)
         vmerror(v, "ad.no_grad must be invoked as a callable");
-    if (!isobj(args[0], O_AD) || (op >= VJP && !isobj(args[1], O_AD)))
+    if (op == OFFLOAD_PLAN)
+        return offload_plan_new(v, args[0], args[1], argc == 3 ? args[2] : integer(8192));
+    if (op == OFFLOAD_STATS)
+        return offload_stats(v, offload_plan(v, args[0]));
+    if (!isobj(args[0], O_AD) || (op >= VJP && op <= CHECKPOINT && !isobj(args[1], O_AD)))
         vmerror(v, "expected autodiff node");
     Obj *root = args[0].o;
     if (op == CHECKPOINT)
         return ad_disabled(v) ? root->as.ad->value
                               : checkpoint(v, root, args[1], argc == 3 ? args[2] : nil());
+    if (op == OFFLOAD)
+        return ad_disabled(v) ? root->as.ad->value : offload_activation(v, root, args[1]);
     if (op == ZERO_GRAD) {
         root->as.ad->grad = nil();
         root->as.ad->batch_examples = 0;

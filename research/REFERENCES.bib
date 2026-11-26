@@ -1112,7 +1112,7 @@
   author = {{PyTorch contributors}},
   title = {Autograd Mechanics},
   url = {https://docs.pytorch.org/docs/stable/notes/autograd.html},
-  note = {Section on in-place correctness checks, consulted 2026-11-26}
+  note = {Sections on in-place correctness and saved tensor hooks, consulted 2026-11-26}
 }
 
 
@@ -1155,4 +1155,20 @@
   title = {Torch Utils Checkpoint},
   url = {https://docs.pytorch.org/docs/stable/checkpoint.html},
   note = {Consulted 2026-11-26 for deterministic RNG replay tradeoffs}
+}
+
+@misc{Rajbhandari2021ZeROInfinity,
+  author = {Rajbhandari, Samyam and Ruwase, Olatunji and Rasley, Jeff and Smith, Shaden and He, Yuxiong},
+  title = {{ZeRO-Infinity: Breaking the GPU Memory Wall for Extreme Scale Deep Learning}},
+  year = {2021},
+  url = {https://arxiv.org/abs/2104.07857},
+  note = {Consulted for storage tiers and overlap in distributed training}
+}
+
+@misc{PyTorchCPUOffloading2026,
+  author = {{PyTorch contributors}},
+  title = {CPU Offloading},
+  year = {2026},
+  url = {https://docs.pytorch.org/devlogs/distributed/2026-06-23-cpu-offloading/},
+  note = {Consulted 2026-11-26 for graph-based activation placement and asynchronous transfers}
 }

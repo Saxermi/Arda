@@ -32,12 +32,12 @@ static const char *typename(Val v) {
         return "bool";
     case V_OBJ: {
         static const char *n[] = {
-            "string",           "list",   "map",       "scope",         "function",
-            "native",           "class",  "instance",  "method",        "module",
-            "iterator",         "array",  "ad",        "sparse",        "sparse_builder",
-            "sparse_workspace", "factor", "generator", "moments",       "complex",
-            "linear_operator",  "buffer", "tensor",    "tensor_blocks", "lowrank",
-            "quantity",         "range"};
+            "string",           "list",   "map",         "scope",         "function",
+            "native",           "class",  "instance",    "method",        "module",
+            "iterator",         "array",  "ad",          "sparse",        "sparse_builder",
+            "sparse_workspace", "factor", "generator",   "moments",       "complex",
+            "linear_operator",  "buffer", "tensor",      "tensor_blocks", "lowrank",
+            "quantity",         "range",  "offload_plan"};
         return n[v.o->type];
     }
     }

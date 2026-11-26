@@ -1,4 +1,5 @@
 #include "autodiff.h"
+#include "activation_store.h"
 void account(VM *v, Obj *o, size_t old, size_t now) {
     if (!o)
         return;
@@ -212,6 +213,7 @@ static void trace(VM *v, Obj *o) {
     switch (o->type) {
     case O_STRING:
     case O_RANGE:
+    case O_OFFLOAD_PLAN:
     case O_NATIVE:
     case O_RNG:
     case O_MOMENTS:
@@ -326,6 +328,9 @@ static void release(VM *v, Obj *o) {
     case O_AD:
         free(o->as.ad->checkpoint);
         free(o->as.ad);
+        break;
+    case O_OFFLOAD_PLAN:
+        offload_plan_release(o->as.offload_plan);
         break;
     case O_BUFFER:
         tensor_buffer_release(v, &o->as.buffer);

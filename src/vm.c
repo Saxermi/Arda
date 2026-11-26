@@ -1,8 +1,10 @@
 #include "autodiff.h"
+#include "activation_store.h"
 #include "numerics_source.h"
 #include "ode_source.h"
 #include "opt_source.h"
 static _Noreturn void jump_error(VM *v) {
+    offload_read_finish(v);
     if (v->sparse_active)
         sparse_abort(v);
     longjmp(v->trap, 1);

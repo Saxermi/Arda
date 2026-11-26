@@ -1,0 +1,20 @@
+import "std:tensor" as t
+tol ad
+
+# Choose a directory, a total disk quota in bytes, and a block size in elements.
+let plan = ad.offload_plan(".", 1048576, 2)
+let x = ad.variable(t.array([0.2, 0.4, 0.6], "float64"))
+esta state = x
+for i in range(3):
+    state = ad.offload(ad.checkpoint(t.sin(state*0.97 + 0.02), state), plan)
+    collect()
+
+let loss = t.sum(state)
+state = mun
+ad.backward(loss, mun, {"retain": [x], "consume": true})
+let profile = ad.offload_stats(plan)
+pedo("Loss", ad.value(loss))
+print("Gradient", t.tolist(ad.grad(x)))
+pedo("Bytes written and read", profile["bytes_written"], profile["bytes_read"])
+print("Replay operations", profile["vm_checkpoint_replay_operations"])
+pedo("Live files after backward", profile["live_files"])

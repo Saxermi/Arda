@@ -51,3 +51,27 @@ A Float64 vector of 16,384 entries started at 0.2. The program applied `sin(stat
 | Checkpoint every eight steps with retained backward | 3.75 MiB | 0.25 MiB | 52.2 ms |
 
 The peak is Arda's tensor budget counter across forward and backward. Timing starts after forward and includes work done inside backward, including consumption. The final column excludes collection called separately after backward. [JAX checkpoint comparison](../../tests/reference_vilya_jax.py) · [Failure and memory-budget regressions](../../tests/test_vilya_runtime.py)
+
+## Activation offloading
+
+`offload_activation` in `src/autodiff.c` replaces a selected activation with an immutable, logically contiguous Float64 snapshot while preserving its parent edges. `offload_snapshot` in `src/tensor_storage.c` writes it with the existing little-endian tensor format and maps the unlinked file. Derivative rules request their saved operands through `src/activation_store.c`. A sweep holds up to three aligned read windows for a tape node and reuses the reservation across nodes. A snapshot of $N$ values writes $8N + 128$ bytes. With $B$ entries per window, a sequential traversal of one snapshot needs $\lceil N/B\rceil$ chunk fills. Interleaved or strided accesses can refill evicted windows. Forward builds each activation normally before spilling. The runtime accounts for disk, tensor heap and scratch separately from the OS page cache.
+
+PyTorch saved tensor hooks demonstrate explicit packing and unpacking of activations that backward needs. A newer PyTorch CPU offloading design schedules transfers with graphs and supports prefetching. ZeRO-Infinity addresses GPU, CPU and storage tiering in distributed training. Arda reuses its own tensor file format and uses synchronous transfers and user-selected placement in its single-process CPU runtime. No source code was reused from these references. [PyTorch autograd mechanics](https://docs.pytorch.org/docs/stable/notes/autograd.html#hooks-for-saved-tensors) · [PyTorch CPU offloading](https://docs.pytorch.org/devlogs/distributed/2026-06-23-cpu-offloading/) · [ZeRO-Infinity](https://arxiv.org/abs/2104.07857)
+
+A CPU JAX Float64 reference checks the loss, VJP, JVP and Hessian for mixed spill and checkpoint graphs. Runtime tests check exact storage boundaries, mutation, read-only aliasing, strided inputs, collection and transactional gradient failures. [JAX reference](../../tests/reference_vilya_jax.py) · [Runtime regressions](../../tests/test_vilya_runtime.py)
+
+### Local activation storage benchmark
+
+A 16,384-entry Float64 vector started at 0.2 and ran `sin(state * 0.97 + 0.02)` for 48 steps. The loss was the sum of the final vector. Every run used retained-gradient backward with tape consumption. The full spill mode offloaded all three intermediates per step and collected after each step. The checkpoint mode packed eight steps per segment and collected after each segment. The combined mode spilled only those checkpoint boundaries. The spill plan used a 32 MiB disk quota and 64 KiB windows.
+
+The medians come from five fresh processes per mode after one warm-up per mode. The process was pinned to one core on an Intel Xeon Platinum 8573C. Both versions used GCC 14.2, the default portable `-O2` build and one thread. Timing covers the forward loop and the backward call separately, with collection and file activity inside those intervals. Process peak RSS is Linux `wait4`'s maximum resident set size. All loss and gradient comparisons against 0.17.2 satisfied a relative tolerance of 2 × 10⁻¹³.
+
+| Mode | Forward (ms) | Backward (ms) | Peak budgeted memory (MiB) | Peak process RSS (MiB) | Written / read (MiB) | Scalar replay operations |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0.17.2 retained | 67.91 | 22.55 | 18.38 | 19.71 | 0 / 0 | 0 |
+| 0.17.3 retained | 66.73 | 23.66 | 18.38 | 19.73 | 0 / 0 | 0 |
+| 0.17.3 spill every intermediate | 71.53 | 31.22 | 0.75 | 20.66 | 18.02 / 6.00 | 0 |
+| 0.17.3 checkpoints | 65.27 | 53.88 | 3.75 | 11.88 | 0 / 0 | 2,359,296 |
+| 0.17.3 spilled checkpoints | 66.23 | 53.36 | 3.13 | 11.88 | 0.75 / 0.63 | 2,359,296 |
+
+Full spilling brought budgeted tensor memory down by 96% in this graph. Process RSS rose slightly because the mapped pages could remain resident. The checkpoint modes reduced RSS and spent more time replaying operations. File I/O figures count logical traffic through Arda on the local overlay filesystem. Device throughput and larger-than-RAM RSS behavior require separate measurements.

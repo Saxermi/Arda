@@ -1,4 +1,4 @@
-#include "typed_tensor.h"
+#include "activation_store.h"
 #include "moments.h"
 
 #include <fcntl.h>
@@ -314,6 +314,81 @@ static bool write_tensor(int fd, const void *context) {
     for (int i = 0; i < t->rank; i++)
         put_u64(header + 32 + 8 * i, (uint64_t)t->shape[i]);
     return write_exact(fd, header, sizeof header) && write_payload(fd, t);
+}
+
+bool offload_read_chunk(const Buffer *buffer, size_t byte_offset, unsigned char *dst,
+                        size_t bytes) {
+    return read_exact(buffer->spill_fd, dst, bytes, (off_t)(HEADER_SIZE + byte_offset));
+}
+
+Val offload_snapshot(VM *v, ADOffloadPlan *plan, const TypedTensor *input) {
+    require_little_endian(v);
+    if (input->n > (PTRDIFF_MAX - HEADER_SIZE) / sizeof(double))
+        vmerror_kind(v, "disk_budget", "activation file exceeds addressable storage");
+    size_t bytes = input->n * sizeof(double);
+    if (bytes + HEADER_SIZE > plan->limit - plan->live_bytes)
+        vmerror_kind(v, "disk_budget", "activation file would exceed its offload disk budget");
+    size_t total = bytes + HEADER_SIZE;
+    if (total > tensor_memory_unlimited() - v->tensor_memory.mapped)
+        vmerror_kind(v, "memory_budget", "activation mapping byte count overflow");
+
+    TypedTensor out = typed_layout(v, DT_F64, input->rank, input->shape);
+    static const char suffix[] = "/.arda-activation.XXXXXX";
+    size_t length = strlen(plan->directory);
+    if (length > SIZE_MAX - sizeof suffix)
+        vmerror_kind(v, "io", "activation directory path is too long");
+    char *path = mem(length + sizeof suffix);
+    memcpy(path, plan->directory, length);
+    memcpy(path + length, suffix, sizeof suffix);
+    int fd = mkstemp(path);
+    if (fd < 0) {
+        int cause = errno;
+        free(path);
+        vmerror_kind(v, "io", "cannot create activation file: %s", strerror(cause));
+    }
+    if (unlink(path)) {
+        int cause = errno;
+        close(fd);
+        unlink(path);
+        free(path);
+        vmerror_kind(v, "io", "cannot unlink activation file: %s", strerror(cause));
+    }
+    free(path);
+    if (fcntl(fd, F_SETFD, FD_CLOEXEC) < 0 || !write_tensor(fd, input)) {
+        int cause = errno;
+        close(fd);
+        vmerror_kind(v, "io", "cannot write activation file: %s", strerror(cause));
+    }
+    void *mapping = mmap(NULL, total, PROT_READ, MAP_PRIVATE, fd, 0);
+    if (mapping == MAP_FAILED) {
+        int cause = errno;
+        close(fd);
+        vmerror_kind(v, "io", "cannot map activation file: %s", strerror(cause));
+    }
+
+    out.buffer = newobj(v, O_BUFFER);
+    out.readonly = true;
+    out.buffer->as.buffer = (Buffer){.data = (unsigned char *)mapping + HEADER_SIZE,
+                                     .allocation = mapping,
+                                     .bytes = bytes,
+                                     .allocation_bytes = total,
+                                     .alignment = _Alignof(max_align_t),
+                                     .release = release_mapping,
+                                     .readonly = true,
+                                     .mapped = true,
+                                     .offload = plan,
+                                     .spill_fd = fd};
+    plan->references++;
+    plan->live_bytes += total;
+    plan->live_files++;
+    if (plan->live_bytes > plan->peak_bytes)
+        plan->peak_bytes = plan->live_bytes;
+    plan->written_bytes =
+        total > (uint64_t)INT64_MAX - plan->written_bytes ? INT64_MAX : plan->written_bytes + total;
+    if (plan->written_files < INT64_MAX)
+        plan->written_files++;
+    v->tensor_memory.mapped += total;
+    return objval(typed_wrap(v, out));
 }
 
 /* The writer uses ordinary error returns so the temporary is always removed

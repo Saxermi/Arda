@@ -2,6 +2,12 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
+## 0.17.3 — Budgeted Activation Offloading
+
+- Added opt-in snapshots of selected dense Float64 activations in temporary files under an explicit disk quota.
+- Derivative sweeps read saved activations in bounded chunks and can combine spilling with elementwise checkpoint replay.
+- Added counters for disk usage, writes, reads, and checkpoint replay work. [Runtime contracts](docs/VILYA_RUNTIME.md#activation-offloading)
+
 ## 0.17.2 — Memory-Efficient Backward and Checkpoints
 
 - Added selected-gradient backward with last-use scratch recycling and explicit release of the output's tape after a successful sweep.

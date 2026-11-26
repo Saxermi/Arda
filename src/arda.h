@@ -281,7 +281,8 @@ typedef enum {
     O_TENSOR_BLOCKS,
     O_LOWRANK,
     O_QUANTITY,
-    O_RANGE
+    O_RANGE,
+    O_OFFLOAD_PLAN
 } OType;
 
 typedef struct {
@@ -290,6 +291,8 @@ typedef struct {
     size_t bytes, allocation_bytes, alignment;
     void (*release)(void *, size_t);
     uint64_t version;
+    struct ADOffloadPlan *offload;
+    int spill_fd;
     bool readonly, mapped;
 } Buffer;
 
@@ -436,6 +439,7 @@ struct Obj {
         LowRankTensor lowrank;
         Quantity quantity;
         struct TensorAD *ad;
+        struct ADOffloadPlan *offload_plan;
         struct {
             Obj *packed;
             int kind;
@@ -485,6 +489,9 @@ typedef struct VM {
     int marking, stress;
     size_t sparse_bytes, sparse_limit;
     TensorMemory tensor_memory;
+    struct ADReadCache *ad_read_cache;
+    unsigned char *ad_read_memory;
+    uint64_t ad_replay_operations;
     Obj *sparse_checkpoint;
     FILE *sparse_file;
     int sparse_active;

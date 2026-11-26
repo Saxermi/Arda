@@ -125,3 +125,11 @@ Use selected-gradient backward as an opt-in mode. Reuse one private gradient buf
 Interpret `samples` as the weight of a batch-mean gradient. The published result is the full weighted mean, including unequal batch sizes. Callers must know the sample count and clear an unweighted gradient before mixing conventions. Accumulating raw sums would support custom normalization and weighting, with additional bookkeeping and a separate division step for callers.
 
 Pack pure dense elementwise operations between one or two explicit boundary nodes. Replay their numerical recipe while retaining the already sampled random values. This makes side effects and generator state independent of recomputation. It limits checkpoint coverage to supported operations and adds compute time. Callback replay would cover more workloads and could save and restore RNG state, with stronger requirements for effect tracking, generator ownership and error recovery. Broader replay needs owner approval. [Contracts and measurements](docs/VILYA_RUNTIME.md#memory-efficient-backward-and-checkpoints)
+
+## 2026-11-26 — Explicit activation offloading with bounded reads
+
+**Status** — Adopted for the 0.17.3 development implementation and open to owner revision
+
+Use an explicit disk quota and let callers name the dense Float64 intermediates to spill. This makes placement auditable and lets applications choose activations or checkpoint boundaries according to their workloads. Callers have to select and rebind those intermediates. A graph planner could choose placements automatically and reduce that work, at the cost of liveness and I/O estimates and new scheduling behavior.
+
+Use immutable snapshots in immediately unlinked files. Mapping the snapshot preserves the ordinary tensor interfaces for forward reads, while chunked reads bound derivative workspace. Forward page-cache residency depends on the OS, and strided access can reread chunks. Reloading each whole activation would simplify read management and may help random access. It would make derivative workspace proportional to the largest reloaded tensor. [Runtime contract](docs/VILYA_RUNTIME.md#activation-offloading)

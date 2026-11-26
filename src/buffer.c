@@ -1,4 +1,4 @@
-#include "arda.h"
+#include "activation_store.h"
 
 static void free_buffer(void *allocation, size_t bytes) {
     (void)bytes;
@@ -69,6 +69,7 @@ void tensor_buffer_release(VM *v, Buffer *buffer) {
     else
         m->heap -= buffer->bytes;
     buffer->release(buffer->allocation, buffer->allocation_bytes);
+    offload_file_release(buffer);
     buffer->release = NULL;
 }
 

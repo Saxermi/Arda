@@ -163,3 +163,36 @@ class JaxAutodiffTests(unittest.TestCase):
         np.testing.assert_allclose(h_bias, jax.hessian(loss, argnums=1)(x, bias),
                                    rtol=3e-13, atol=3e-14)
         np.testing.assert_allclose(jvp, dx @ jnp.array([1, 2, -1]), rtol=3e-13, atol=3e-14)
+
+    def test_offload_and_checkpoints_match_cpu_jax(self):
+        output = self.run_code("""
+        import ad
+        import tensor as t
+        let plan = ad.offload_plan(".",1024,2)
+        let x = ad.variable(t.array([0.1,0.3,0.7],"float64"))
+        let state = ad.offload(t.exp(x),plan)
+        let activation = ad.offload(ad.checkpoint(t.sin(state*state + 0.2),state),plan)
+        let result = t.sum(activation*t.exp(activation))
+        collect()
+        print(ad.value(result))
+        print(t.tolist(ad.vjp(result,x)))
+        print(ad.jvp(result,x,t.array([1,2,-1],"float64")))
+        print(t.tolist(ad.hessian(result,x)))
+        let stats = ad.offload_stats(plan)
+        print(stats["files_written"],stats["bytes_read"] > 0,stats["vm_checkpoint_replay_operations"])
+        """, stress=True).splitlines()
+        value, grad, tangent, hessian = map(ast.literal_eval, output[:4])
+        self.assertEqual(output[4], "2 nae 81")
+        x = jnp.array([0.1, 0.3, 0.7])
+
+        def loss(x):
+            state = jnp.exp(x)
+            activation = jnp.sin(state * state + 0.2)
+            return (activation * jnp.exp(activation)).sum()
+
+        expected_value, expected_grad = jax.value_and_grad(loss)(x)
+        expected_tangent = jax.jvp(loss, (x,), (jnp.array([1.0, 2.0, -1.0]),))[1]
+        np.testing.assert_allclose(value, expected_value, rtol=3e-13, atol=3e-14)
+        np.testing.assert_allclose(grad, expected_grad, rtol=3e-13, atol=3e-14)
+        np.testing.assert_allclose(tangent, expected_tangent, rtol=3e-13, atol=3e-14)
+        np.testing.assert_allclose(hessian, jax.hessian(loss)(x), rtol=3e-13, atol=3e-14)
