@@ -61,8 +61,9 @@ static const char *typename(Val v) {
                                   "offload_plan",
                                   "quantized_matrix",
                                   "compute_plan",
-                                  "fem_mesh"};
-        _Static_assert(sizeof n / sizeof *n == O_FEM_MESH + 1, "object type names");
+                                  "fem_mesh",
+                                  "tensor_output"};
+        _Static_assert(sizeof n / sizeof *n == O_TENSOR_OUTPUT + 1, "object type names");
         return n[v.o->type];
     }
     }

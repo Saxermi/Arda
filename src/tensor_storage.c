@@ -1,6 +1,7 @@
 #include "activation_store.h"
 #include "moments.h"
 #include "simulation_checkpoint.h"
+#include "tensor_file.h"
 
 #include <fcntl.h>
 #include <float.h>
@@ -11,6 +12,23 @@
 
 enum { HEADER_SIZE = 128, IO_BLOCK = 65536 };
 static const unsigned char magic[] = "ARDATEN1";
+static const char temporary_suffix[] = ".tmp.XXXXXX";
+
+typedef struct {
+    TypedTensor layout;
+    int fd;
+    size_t size;
+    char *path, *temporary;
+} TensorOutput;
+
+static TensorOutput *active_output(VM *v, Val value) {
+    if (!isobj(value, O_TENSOR_OUTPUT))
+        vmerror_kind(v, "type", "expected a tensor output handle");
+    TensorOutput *output = (TensorOutput *)(value.o + 1);
+    if (output->fd < 0)
+        vmerror_kind(v, "io", "tensor output is closed");
+    return output;
+}
 
 static uint64_t get_u64(const unsigned char *p) {
     uint64_t value = 0;
@@ -24,7 +42,7 @@ static void put_u64(unsigned char *p, uint64_t value) {
         p[i] = (unsigned char)(value >> (8 * i));
 }
 
-static void require_little_endian(VM *v) {
+void tensor_file_require_little_endian(VM *v) {
     const uint16_t one = 1;
     if (*(const unsigned char *)&one != 1)
         vmerror(v, "tensor files currently require a little-endian host");
@@ -48,7 +66,7 @@ static bool read_exact(int fd, void *data, size_t bytes, off_t offset) {
     return true;
 }
 
-static bool write_exact(int fd, const void *data, size_t bytes) {
+bool tensor_file_write(int fd, const void *data, size_t bytes) {
     const unsigned char *p = data;
     while (bytes) {
         ssize_t n = write(fd, p, bytes);
@@ -107,7 +125,7 @@ static bool decode_header(const unsigned char *header, off_t size, TypedTensor *
 }
 
 static int open_tensor(VM *v, const char *path, TypedTensor *tensor, size_t *size) {
-    require_little_endian(v);
+    tensor_file_require_little_endian(v);
     int fd = open(path, O_RDONLY | O_CLOEXEC | O_NONBLOCK);
     if (fd < 0)
         vmerror(v, "cannot open tensor file '%s': %s", path, strerror(errno));
@@ -250,22 +268,31 @@ static off_t tile_row(const TypedTensor *file, const TypedTensor *tile, const in
 }
 
 Val tensor_read_tile(VM *v, Val path_value, Val origin_value, Val shape_value) {
-    const char *path = asstr(v, path_value);
     int origin[8], shape[8];
     int rank = typed_dimensions(v, origin_value, origin);
     if (typed_dimensions(v, shape_value, shape) != rank)
         vmerror(v, "tensor tile origin and shape ranks differ");
     TypedTensor file, layout;
-    size_t size;
-    int fd = open_tensor(v, path, &file, &size);
+    bool close_source = !isobj(path_value, O_TENSOR_OUTPUT);
+    int fd;
+    if (close_source) {
+        size_t size;
+        fd = open_tensor(v, asstr(v, path_value), &file, &size);
+    } else {
+        TensorOutput *output = active_output(v, path_value);
+        file = output->layout;
+        fd = output->fd;
+    }
     if (!tile_fits(&file, rank, origin, shape) ||
         !typed_layout_checked(file.dtype, rank, shape, &layout)) {
-        close(fd);
+        if (close_source)
+            close(fd);
         vmerror(v, "tensor tile is outside the file");
     }
     size_t width = dtype_info[file.dtype].size;
     if (!typed_materializable(&layout) || layout.n * width > tensor_memory_available(v)) {
-        close(fd);
+        if (close_source)
+            close(fd);
         vmerror(v, "tensor tile exceeds the allocation limit or memory budget");
     }
     Obj *out = typed_new(v, file.dtype, rank, shape);
@@ -274,12 +301,14 @@ Val tensor_read_tile(VM *v, Val path_value, Val origin_value, Val shape_value) {
         unsigned char *dst = typed_element(&out->as.tensor, (ptrdiff_t)i);
         if (!read_exact(fd, dst, row_length * width,
                         tile_row(&file, &layout, origin, i / row_length))) {
-            close(fd);
+            if (close_source)
+                close(fd);
             tensor_buffer_discard(v, out->as.tensor.buffer);
             vmerror(v, "tensor tile read failed or data was truncated");
         }
     }
-    close(fd);
+    if (close_source)
+        close(fd);
     return objval(out);
 }
 
@@ -299,15 +328,14 @@ static bool write_payload(int fd, const TypedTensor *t) {
                 memcpy(chunk + i * width, typed_element(t, typed_offset(t, start + i)), width);
             data = chunk;
         }
-        if (!write_exact(fd, data, count * width))
+        if (!tensor_file_write(fd, data, count * width))
             return false;
         start += count;
     }
     return true;
 }
 
-static bool write_tensor(int fd, const void *context) {
-    const TypedTensor *t = context;
+static bool write_header(int fd, const TypedTensor *t) {
     unsigned char header[HEADER_SIZE] = {0};
     memcpy(header, magic, sizeof magic - 1);
     header[8] = (unsigned char)t->dtype + 1;
@@ -317,7 +345,11 @@ static bool write_tensor(int fd, const void *context) {
     put_u64(header + 24, t->n * dtype_info[t->dtype].size);
     for (int i = 0; i < t->rank; i++)
         put_u64(header + 32 + 8 * i, (uint64_t)t->shape[i]);
-    return write_exact(fd, header, sizeof header) && write_payload(fd, t);
+    return tensor_file_write(fd, header, sizeof header);
+}
+
+static bool write_tensor(int fd, const void *context) {
+    return write_header(fd, context) && write_payload(fd, context);
 }
 
 bool offload_read_chunk(const Buffer *buffer, size_t byte_offset, unsigned char *dst,
@@ -326,7 +358,7 @@ bool offload_read_chunk(const Buffer *buffer, size_t byte_offset, unsigned char 
 }
 
 Val offload_snapshot(VM *v, ADOffloadPlan *plan, const TypedTensor *input) {
-    require_little_endian(v);
+    tensor_file_require_little_endian(v);
     if (input->n > (PTRDIFF_MAX - HEADER_SIZE) / sizeof(double))
         vmerror_kind(v, "disk_budget", "activation file exceeds addressable storage");
     size_t bytes = input->n * sizeof(double);
@@ -398,13 +430,12 @@ Val offload_snapshot(VM *v, ADOffloadPlan *plan, const TypedTensor *input) {
 /* The writer uses ordinary error returns so the temporary is always removed
  * and the caller can release any open descriptor and workspace before throwing. */
 static int publish_file(const char *path, bool (*writer)(int, const void *), const void *context) {
-    static const char suffix[] = ".tmp.XXXXXX";
     size_t length = strlen(path);
-    if (!length || length > SIZE_MAX - sizeof suffix)
+    if (!length || length > SIZE_MAX - sizeof temporary_suffix)
         return EINVAL;
-    char *temporary = mem(length + sizeof suffix);
+    char *temporary = mem(length + sizeof temporary_suffix);
     memcpy(temporary, path, length);
-    memcpy(temporary + length, suffix, sizeof suffix);
+    memcpy(temporary + length, temporary_suffix, sizeof temporary_suffix);
     int fd = mkstemp(temporary);
     if (fd < 0) {
         int cause = errno;
@@ -427,8 +458,96 @@ static int publish_file(const char *path, bool (*writer)(int, const void *), con
     return cause;
 }
 
-static bool disk_budget_ok(Val budget, size_t total) {
+bool tensor_file_fits_budget(Val budget, size_t total) {
     return budget.t == V_NIL || (budget.t == V_INT && budget.i >= 0 && (uint64_t)budget.i >= total);
+}
+
+bool tensor_file_size(const TypedTensor *layout, size_t *size) {
+    size_t width = dtype_info[layout->dtype].size;
+    if (layout->n > (PTRDIFF_MAX - HEADER_SIZE) / width)
+        return false;
+    *size = HEADER_SIZE + layout->n * width;
+    off_t length = (off_t)*size;
+    return length >= 0 && (uintmax_t)length == (uintmax_t)*size;
+}
+
+typedef struct {
+    const TypedTensor *layout;
+    bool (*writer)(int, const void *);
+    const void *context;
+} PayloadWrite;
+
+static bool write_stream(int fd, const void *context) {
+    const PayloadWrite *stream = context;
+    return write_header(fd, stream->layout) && stream->writer(fd, stream->context);
+}
+
+int tensor_publish_payload(const char *path, const TypedTensor *layout,
+                           bool (*writer)(int, const void *), const void *context) {
+    PayloadWrite stream = {.layout = layout, .writer = writer, .context = context};
+    return publish_file(path, write_stream, &stream);
+}
+
+void tensor_output_abort(Obj *object) {
+    TensorOutput *output = (TensorOutput *)(object + 1);
+    if (output->fd >= 0) {
+        close(output->fd);
+        output->fd = -1;
+        unlink(output->temporary);
+    }
+}
+
+Val tensor_open_output(VM *v, Val path_value, Val shape, Val type, Val budget) {
+    tensor_file_require_little_endian(v);
+    const char *path = asstr(v, path_value);
+    int dimensions[8];
+    int rank = typed_dimensions(v, shape, dimensions);
+    TypedTensor layout = typed_layout(v, dtype_parse(v, type), rank, dimensions);
+    size_t size;
+    if (!tensor_file_size(&layout, &size))
+        vmerror_kind(v, "shape", "tensor output exceeds the addressable file size");
+    if (!tensor_file_fits_budget(budget, size))
+        vmerror_kind(v, "disk_budget",
+                     "tensor output exceeds the disk budget or budget is invalid");
+    size_t length = strlen(path);
+    if (!length || length > (SIZE_MAX - sizeof(TensorOutput) - sizeof temporary_suffix - 1) / 2)
+        vmerror_kind(v, "io", "invalid tensor output path");
+    Obj *object = newobj_extra(v, O_TENSOR_OUTPUT,
+                               sizeof(TensorOutput) + 2 * length + 1 + sizeof temporary_suffix);
+    TensorOutput *output = (TensorOutput *)(object + 1);
+    *output = (TensorOutput){.layout = layout, .size = size, .fd = -1};
+    output->path = (char *)(output + 1);
+    output->temporary = output->path + length + 1;
+    memcpy(output->path, path, length + 1);
+    memcpy(output->temporary, path, length);
+    memcpy(output->temporary + length, temporary_suffix, sizeof temporary_suffix);
+    output->fd = mkstemp(output->temporary);
+    if (output->fd < 0)
+        vmerror_kind(v, "io", "cannot create tensor output: %s", strerror(errno));
+    if (fcntl(output->fd, F_SETFD, FD_CLOEXEC) < 0 || !write_header(output->fd, &layout) ||
+        ftruncate(output->fd, (off_t)size)) {
+        int cause = errno;
+        tensor_output_abort(object);
+        vmerror_kind(v, "io", "cannot initialize tensor output: %s", strerror(cause));
+    }
+    return objval(object);
+}
+
+Val tensor_commit_output(VM *v, Val value) {
+    TensorOutput *output = active_output(v, value);
+    if (fsync(output->fd)) {
+        int cause = errno;
+        tensor_output_abort(value.o);
+        vmerror_kind(v, "io", "cannot synchronize tensor output: %s", strerror(cause));
+    }
+    int fd = output->fd;
+    output->fd = -1;
+    if (close(fd) || rename(output->temporary, output->path)) {
+        int cause = errno;
+        unlink(output->temporary);
+        vmerror_kind(v, "io", "cannot publish tensor output: %s", strerror(cause));
+    }
+    return nil();
 }
 
 enum { CHECKPOINT_DIMS = 8, CHECKPOINT_HEADER = 96 + 8 * CHECKPOINT_WORDS, CHECKPOINT_INT64 = 9 };
@@ -454,14 +573,14 @@ static bool checkpoint_finite(const TypedTensor *tensor) {
 
 static bool write_checkpoint(int fd, const void *context) {
     const CheckpointWrite *record = context;
-    return write_exact(fd, record->header, sizeof record->header) &&
+    return tensor_file_write(fd, record->header, sizeof record->header) &&
            (record->tensor.rank ? write_payload(fd, &record->tensor)
-                                : write_exact(fd, record->scalar, sizeof record->scalar));
+                                : tensor_file_write(fd, record->scalar, sizeof record->scalar));
 }
 
 Val checkpoint_save_state(VM *v, Val path, CheckpointKind kind, Val state,
                           const uint64_t words[CHECKPOINT_WORDS], Val budget) {
-    require_little_endian(v);
+    tensor_file_require_little_endian(v);
     const char *filename = asstr(v, path);
     CheckpointWrite record = {0};
     size_t bytes = sizeof record.scalar;
@@ -482,7 +601,7 @@ Val checkpoint_save_state(VM *v, Val path, CheckpointKind kind, Val state,
     } else {
         vmerror_kind(v, "checkpoint_format", "checkpoint state must be a scalar or numc array");
     }
-    if (!disk_budget_ok(budget, CHECKPOINT_HEADER + bytes))
+    if (!tensor_file_fits_budget(budget, CHECKPOINT_HEADER + bytes))
         vmerror_kind(v, "disk_budget", "checkpoint exceeds the disk budget or budget is invalid");
     if (record.tensor.rank && !checkpoint_finite(&record.tensor))
         vmerror_kind(v, "checkpoint_format", "checkpoint state must be finite");
@@ -522,7 +641,7 @@ static bool decode_checkpoint(const unsigned char *header, off_t size, Checkpoin
 }
 
 Val checkpoint_load_state(VM *v, Val path, CheckpointKind kind, uint64_t words[CHECKPOINT_WORDS]) {
-    require_little_endian(v);
+    tensor_file_require_little_endian(v);
     const char *filename = asstr(v, path);
     int fd = open(filename, O_RDONLY | O_CLOEXEC | O_NONBLOCK);
     if (fd < 0)
@@ -566,13 +685,13 @@ Val checkpoint_load_state(VM *v, Val path, CheckpointKind kind, uint64_t words[C
 }
 
 Val tensor_save(VM *v, Val path_value, Val input, Val budget) {
-    require_little_endian(v);
+    tensor_file_require_little_endian(v);
     const char *path = asstr(v, path_value);
     TypedTensor t = typed_tensor(v, input);
     size_t bytes = t.n * dtype_info[t.dtype].size;
     if (bytes > PTRDIFF_MAX - HEADER_SIZE)
         vmerror(v, "tensor file exceeds addressable size");
-    if (!disk_budget_ok(budget, HEADER_SIZE + bytes))
+    if (!tensor_file_fits_budget(budget, HEADER_SIZE + bytes))
         vmerror(v, "tensor file exceeds disk budget or budget is invalid");
     int cause = publish_file(path, write_tensor, &t);
     if (cause)
@@ -588,22 +707,12 @@ typedef struct {
     unsigned char *scratch;
 } TileWrite;
 
-static bool write_tile_snapshot(int fd, const void *context) {
-    const TileWrite *write = context;
-    for (size_t pos = 0; pos < write->file_size;) {
-        size_t count = write->file_size - pos;
-        if (count > write->scratch_size)
-            count = write->scratch_size;
-        if (!read_exact(write->source, write->scratch, count, (off_t)pos) ||
-            !write_exact(fd, write->scratch, count))
-            return false;
-        pos += count;
-    }
+static bool write_tile_data(int fd, const TileWrite *write) {
     const TypedTensor *tile = write->tile;
     size_t width = dtype_info[tile->dtype].size;
-    size_t per_chunk = write->scratch_size / width;
     size_t row_length = (size_t)tile->shape[tile->rank - 1];
     bool contiguous = typed_contiguous(tile);
+    size_t per_chunk = write->scratch ? write->scratch_size / width : row_length;
     for (size_t row = 0; row < tile->n / row_length; row++) {
         off_t row_offset = tile_row(write->file, tile, write->origin, row);
         for (size_t col = 0; col < row_length;) {
@@ -628,20 +737,75 @@ static bool write_tile_snapshot(int fd, const void *context) {
     return true;
 }
 
+static bool write_tile_snapshot(int fd, const void *context) {
+    const TileWrite *write = context;
+    for (size_t pos = 0; pos < write->file_size;) {
+        size_t count = write->file_size - pos;
+        if (count > write->scratch_size)
+            count = write->scratch_size;
+        if (!read_exact(write->source, write->scratch, count, (off_t)pos) ||
+            !tensor_file_write(fd, write->scratch, count))
+            return false;
+        pos += count;
+    }
+    return write_tile_data(fd, write);
+}
+
+static Val write_output_tile(VM *v, Val value, const int *origin, const TypedTensor *tile,
+                             Val budget) {
+    TensorOutput *output = active_output(v, value);
+    if (tile->dtype != output->layout.dtype ||
+        !tile_fits(&output->layout, tile->rank, origin, tile->shape))
+        vmerror_kind(v, "shape", "tensor tile dtype differs or tile is outside the output");
+    if (!tensor_file_fits_budget(budget, output->size))
+        vmerror_kind(v, "disk_budget",
+                     "tensor output exceeds the disk budget or budget is invalid");
+    if (!tile->n)
+        return nil();
+    size_t scratch_size = 0;
+    unsigned char *scratch = NULL;
+    if (!typed_contiguous(tile)) {
+        size_t width = dtype_info[tile->dtype].size;
+        size_t row_bytes = (size_t)tile->shape[tile->rank - 1] * width;
+        scratch_size = row_bytes < IO_BLOCK ? row_bytes : IO_BLOCK;
+        size_t available = tensor_memory_available(v);
+        if (scratch_size > available)
+            scratch_size = available - available % width;
+        if (!scratch_size || !(scratch = tensor_workspace_acquire(v, scratch_size)))
+            vmerror_kind(v, "memory_budget", "unable to reserve output tile workspace");
+    }
+    TileWrite write = {.file = &output->layout,
+                       .tile = tile,
+                       .origin = origin,
+                       .scratch_size = scratch_size,
+                       .scratch = scratch};
+    bool ok = write_tile_data(output->fd, &write);
+    int cause = errno;
+    if (scratch)
+        tensor_workspace_release(v, scratch);
+    if (!ok) {
+        tensor_output_abort(value.o);
+        vmerror_kind(v, "io", "cannot write tensor output tile: %s", strerror(cause));
+    }
+    return nil();
+}
+
 Val tensor_write_tile(VM *v, Val path_value, Val origin_value, Val input, Val budget) {
-    const char *path = asstr(v, path_value);
     TypedTensor tile = typed_tensor(v, input), file;
     int origin[8];
     int rank = typed_dimensions(v, origin_value, origin);
     if (rank != tile.rank)
         vmerror(v, "tensor tile origin and input ranks differ");
+    if (isobj(path_value, O_TENSOR_OUTPUT))
+        return write_output_tile(v, path_value, origin, &tile, budget);
+    const char *path = asstr(v, path_value);
     size_t size;
     int fd = open_tensor(v, path, &file, &size);
     if (tile.dtype != file.dtype || !tile_fits(&file, rank, origin, tile.shape)) {
         close(fd);
         vmerror(v, "tensor tile dtype differs or tile is outside the file");
     }
-    if (!disk_budget_ok(budget, size)) {
+    if (!tensor_file_fits_budget(budget, size)) {
         close(fd);
         vmerror(v, "tensor file exceeds disk budget or budget is invalid");
     }

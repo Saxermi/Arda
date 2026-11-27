@@ -221,6 +221,7 @@ static void trace(VM *v, Obj *o) {
     case O_COMPLEX:
     case O_BUFFER:
     case O_TENSOR_BLOCKS:
+    case O_TENSOR_OUTPUT:
     case O_SPARSE:
     case O_SPARSE_BUILDER:
         break;
@@ -345,6 +346,9 @@ static void release(VM *v, Obj *o) {
         break;
     case O_TENSOR_BLOCKS:
         tensor_blocks_close(o);
+        break;
+    case O_TENSOR_OUTPUT:
+        tensor_output_abort(o);
         break;
     case O_LIST:
         free(o->as.list.a);

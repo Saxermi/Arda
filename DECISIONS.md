@@ -2,6 +2,14 @@
 
 Record the question, evidence, decision or recommendation, and when to revisit it. Use **Proposed** while a decision is open and **Accepted** once it is agreed. Link to the benchmark or roadmap that supports each entry.
 
+## 2026-11-27 — Streaming imports and tiled output publication
+
+**Status** — Implemented in the 0.21 development branch and open to owner revision
+
+Convert supported external formats to the existing `.atn` layout with bounded buffers. This makes imported data available to every existing file reader with one implementation of bounds and tile access. It takes an extra file and one conversion pass. Direct reads of validated NPY files could save that copy for binary inputs. Add a shared read-only source interface if repeated binary reads justify the additional format-specific lifetime and layout checks.
+
+Use one temporary sibling for a tiled result. The caller writes only the tiles it needs and publishes the result at commit. Assembling a result from scratch has tile-sized data writes, and replacing an existing result gives current readers a stable snapshot. A persistent chunk store could support incremental edits and restartable writes, with the added cost of metadata and recovery. Revisit that alternative when implementing the cache and recovery work. [File contracts](research/implemented/typed-tensors.md#streaming-imports) · [0.21 roadmap](ROADMAP.md#arda-021--beyond-ram-data-processing-and-visualization-ame-v2)
+
 ## 2026-11-24 — Sparse PCG performance and numerical checks
 
 **Status** — Proposed

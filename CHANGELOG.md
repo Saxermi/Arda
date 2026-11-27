@@ -2,6 +2,11 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
+## Unreleased — Beyond-RAM I/O
+
+- Added streaming imports of dense little-endian NPY arrays and numeric CSV/TSV tables into `.atn` files. [Import contracts](research/implemented/typed-tensors.md#streaming-imports)
+- Added staged tensor outputs with bounded tile access, a logical disk budget, and atomic publication. [Output contracts](research/implemented/typed-tensors.md#staged-tensor-outputs)
+
 ## 0.20.6 — Scientific Simulation Release Validation
 
 - Completed clean-source Ulmo validation with local builds, independent references, sanitizers, and measured comparisons. The physical Ulmo replay is scheduled in the pre-1.0 laptop validation. [Validation report](research/implemented/ulmo-simulation.md#0206-release-validation)

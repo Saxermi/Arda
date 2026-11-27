@@ -284,7 +284,8 @@ typedef enum {
     O_OFFLOAD_PLAN,
     O_QUANTIZED,
     O_COMPUTE_PLAN,
-    O_FEM_MESH
+    O_FEM_MESH,
+    O_TENSOR_OUTPUT
 } OType;
 
 typedef struct {
@@ -612,6 +613,7 @@ void tensor_buffer_release(VM *v, Buffer *buffer);
 void tensor_buffer_discard(VM *v, Obj *buffer);
 Val tensor_block_next(VM *v, Obj *blocks, size_t *cursor);
 void tensor_blocks_close(Obj *blocks);
+void tensor_output_abort(Obj *output);
 void tensor_require_writable(VM *v, Obj *x);
 Obj *tensor_new(VM *v, int rank, const int *shape);
 Obj *tensor_copy(VM *v, Obj *x);

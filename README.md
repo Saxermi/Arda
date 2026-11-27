@@ -264,6 +264,8 @@ The `units` module handles SI quantities, temperature scales, and dimensional co
 
 The `tensor` module supports typed CPU arrays, read-only mapping, bounded blocks and rectangular tiles. Use `tensor.array(values,dtype[,shape])` for flat input, `tensor.cast` for explicit conversion, and `tensor.to_numc` to materialize a Float64 array for the existing kernels. The `compute` module reports buffer and workspace usage and runs budgeted mean and variance directly on tensor files. [Typed tensor and file contracts](research/implemented/typed-tensors.md) · [Memory budgets and streaming](research/implemented/typed-tensors.md#memory-budgets-and-streaming)
 
+Use `tensor.import_npy` or `tensor.import_delimited` to stream dense NumPy arrays or numeric CSV/TSV tables into `.atn` files. Use `tensor.open_output` to build a new file tile by tile and publish it with one commit. [Import examples](research/implemented/typed-tensors.md#streaming-imports) · [Output example](research/implemented/typed-tensors.md#staged-tensor-outputs)
+
 ### `numc`: dense arrays and linear algebra
 
 ```arda
