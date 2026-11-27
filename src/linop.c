@@ -1,5 +1,6 @@
 #include "sparse_internal.h"
 #include "poisson.h"
+#include "pde.h"
 #include "typed_tensor.h"
 #include <float.h>
 
@@ -313,6 +314,12 @@ LinearOperator linop_open(VM *v, Obj *input, LinopContext *ctx) {
                                 .context = input,
                                 .apply = poisson_operator_apply,
                                 .apply_transpose = poisson_operator_apply};
+    if (L(input).kind == LINOP_CARTESIAN)
+        return (LinearOperator){.rows = rows,
+                                .cols = cols,
+                                .context = input,
+                                .apply = pde_operator_apply,
+                                .apply_transpose = pde_operator_apply};
     size_t scratch = linop_workspace(v, input);
     if (scratch) {
         ctx->scratch_array = array_new(v, 1, (int)(scratch / sizeof(double)), 1);

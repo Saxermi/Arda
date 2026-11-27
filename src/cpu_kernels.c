@@ -139,6 +139,14 @@ bool cpu_parallel_available(void) {
 #endif
 }
 
+bool cpu_dynamic_teams(void) {
+#if defined(_OPENMP) && !defined(ARDA_BLAS)
+    return omp_get_dynamic() != 0;
+#else
+    return false;
+#endif
+}
+
 int cpu_team_size(int requested, int partitions) {
 #if defined(_OPENMP) && !defined(ARDA_BLAS)
     if (requested < 2 || partitions < 2 || omp_in_parallel())

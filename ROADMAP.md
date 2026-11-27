@@ -278,12 +278,20 @@ Matrix Market, Dokumentation, ASan/UBSan/LSan, GC-Stress, automatisierte SciPy-R
 *Development codename: Ulmo*
 
 - **0.20.0:** ODE: vorhandenes RK4/RK45 erhalten, adaptive Toleranzen, dense output, events, Verlet/Leapfrog, saveat/streaming Zustände und Checkpoints; Fehlerkontrolle und Restart.
+  - **Status** — RK45-Dense-Output, `saveat`, Streaming-Callback, Ereignisse, segmentweiser Neustart und Verlet/Leapfrog implementiert. [Verträge und Validierung](research/implemented/ulmo-simulation.md)
 - **0.20.1:** Implicit Euler, BDF/Radau in Etappen, Newton-Verfahren, Jacobian/JVP, steife Testprobleme; lineare Operatoren und Vorkonditionierung wiederverwenden. Optionale etablierte Backend-Solver statt unvalidierter eigener Implementierungen.
+  - **Status** — Impliziter Euler, BDF2 und Radau IIA dritter Ordnung mit Newton und Jacobian/JVP. Adaptive höhere Ordnungen und matrixfreie Newton-Krylov-Verfahren bleiben Erweiterungen. [Verträge und Validierung](research/implemented/ulmo-simulation.md)
 - **0.20.2:** PDE: Poisson, Wärmeleitung, Wellengleichung, Advektion-Diffusion; Dirichlet/Neumann/periodisch, Finite-Difference/Finite-Volume ausgewählte Schemata, Stabilitätsbedingungen, matrixfreie Stencils, Cache-freundliche Domain-Tiles.
+  - **Status** — Matrixfreie kartesische PDEs mit homogenen Dirichlet-/Neumann- und periodischen Bedingungen, CFL-Prüfung und analytischem Wärmeleitungsbeispiel. [Verträge und Validierung](research/implemented/ulmo-simulation.md)
 - **0.20.3:** FEM: 1D-Linien-/2D-Dreieckselemente, Quadratur, Materialmodelle in einfachem Umfang, COO-Assembly → CSR, Randbedingungen, Sparse-Solver; 3D erst nach Validierung. Adaptive Mesh Refinement mit Fehlerindikatoren, konservativer Übertragung und Ressourcenbudgets. Experimentelle einfache Strömungssolver (keine pauschale CFD-Produktionsreife).
+  - **Status** — P1-Linien und -Dreiecke, exakte Integration der P1-Terme, CSR-Assemblierung, Dirichlet und homogene Neumann-Ränder, AMR mit P1-Übertragung und Budgetgrenzen sowie experimentelle stationäre Darcy-Strömung. Newest-Vertex Bisection mit Hierarchie und lokaler RT0/P0-Flussbilanz sind wählbar. [Verträge und Validierung](research/implemented/ulmo-simulation.md#0203-linear-finite-elements)
 - **0.20.4:** Differenzierbare Simulation: Adjoint/JVP für ausgewählte ODE/PDE-Modelle, Parameteridentifikation, Checkpointing und Streaming der Zeitreihe. Vergleich mit finite differences und analytischen Referenzen.
-- **0.20.5 — Experiments & domains:** `compute.sweep` für unabhängige Parameterstudien mit begrenztem Task-Scheduler, Streaming-Ausgabe, Fehlertabelle und sicherer Wiederverwendung unveränderter Faktorobjekte. Persistenter Checkpoint/Resume für ausgewählte ODE/PDE-Solver; dokumentierte Randbedingungen und Diskretisierung in AMDE, mathematische Verträge und Erhaltungssätze. Partitionierbare Gitter, Ghost-Zellen und Subdomain-Verträge als MPI-Vorbereitung. Signalverarbeitung (Faltung, Filter, Wavelets), Geometrie/Rotationen, Regelungstechnik und Sparse-Graphalgorithmen als optionale Erweiterungspakete, keine Voraussetzung für alle Simulationen.
-- **Gate:** analytische Lösungen, Gitter-/Zeitschrittverfeinerung, erwartete Konvergenzordnung, Erhaltungssätze und dokumentierte Randbedingungen. Reproduzierbares Wärmeleitungs- und FEM-Beispiel auf 8-GB-Laptop.
+  - **Status** — Diskrete JVPs und Adjungierte für festschrittiges RK4 und kartesische Wärmeleitung, Parameterschätzung, In-Memory-Checkpoints und Streaming. Für RK4 ist eine stufenbewusste Replay-Strategie verfügbar. [Verträge und Validierung](research/implemented/ulmo-simulation.md#0204-differentiable-simulation)
+- **0.20.5 — Experiments and Domains:** `compute.sweep` für unabhängige Parameterstudien mit einem Fall gleichzeitig, begrenztem Fall- und Fehlerumfang, Streaming und optional wiederverwendbarem Faktor. Persistentes Save/Resume für RK45 und Wärmeleitung. AMDE-Deskriptoren für ausgewählte ODE-, PDE- und FEM-Operationen. Kartesische Slabs mit expliziten Ghost-Flächen und lokalem Stencil als MPI-Vorbereitung.
+  - **Status** — Implementiert. Abnahme auf dem Linux-Cloud-Rechner mit analytischen Referenzen, Raster- und Zeitschrittverfeinerung, Erhaltungssätzen sowie reproduzierbaren Wärmeleitungs-, FEM- und Experimentbeispielen. [Verträge und Validierung](research/implemented/ulmo-simulation.md#0205-experiments-and-domains)
+  - **Optional** — Signalverarbeitung (Faltung, Filter, Wavelets), Geometrie/Rotationen, Regelungstechnik und Sparse-Graphalgorithmen bleiben eigenständige Erweiterungspakete.
+- **0.20.6 — Scientific Simulation Release Validation:** Abschliessender Ulmo-Test-Branch mit frischem Build aus einem versionierten Quellarchiv, numerischen Referenzen, Sanitizern und vergleichbaren Benchmarks. Reproduzierbare Beispiele und geprüfte Plattformen dokumentieren. Der physische Nachtest für Arda 0.20 auf dem 8-GB-Referenzlaptop gehört zur [Abnahme vor 1.0](#physischer-ulmo-laptop-test).
+- **Gate:** Analytische Lösungen, erwartete Konvergenzordnung bei Gitter- und Zeitschrittverfeinerung, Erhaltungssätze, dokumentierte Randbedingungen und reproduzierbare Cloud-Abnahme für 0.20.6. [Physischer Ulmo-Nachtest vor 1.0](#physischer-ulmo-laptop-test).
 
 ### Arda 0.21 — Beyond-RAM Data Processing and Visualization (AME v2)
 
@@ -377,6 +385,21 @@ Matrix Market, Dokumentation, ASan/UBSan/LSan, GC-Stress, automatisierte SciPy-R
 - **0.28.4:** unabhängige AMDE-Validierung: golden LaTeX/MathML, mathematische Vergleichstests, Nichtausführung statischer Abfragen (Seiteneffekt-/Zufalls-/I/O-Sentinels), falsche Annahmen, dynamische Dispatch-Provenance, Trace-Abbruch/Limit und GC. Unit-/Uncertainty-/Interval-Referenzen, Reproduktion und Manifestprüfung. Overhead bei deaktivierten Zusatzfunktionen messen: Ziel <1 % große Kernels/Solver, <3 % kleine Calls/VM-Loops, Messrauschen und Startup/RSS separat; keine neuen Trace-Allokationen ohne Trace.
 - **0.28.5:** reale MPI-Cluster-Validierung (mind. 2 physische Knoten für Mehrknotenaussage), 1/2/4/8 Ranks soweit verfügbar, strong/weak scaling, lokale RAM-/Kommunikationsstatistik, globales Residuum, gleiche Problemdefinition und Toleranz. Kein Cluster-Erfolg allein aus localhost ableiten. MPI-lokale Validierung kleine Jobs; auf Cluster optional größere Tests, Fehler-/Restart-Szenarien und dokumentierte Ausnahmen.
 - **Gate:** Keine offenen kritischen Fehler in stabilen Kernkomponenten; dokumentierte Performance-Regressionsausnahmen; unabhängige reproduzierbare Ergebnisse. Experimentelle Features klar getrennt.
+
+#### Physischer Ulmo-Laptop-Test
+
+**Offen bis zur Abnahme vor 1.0.** In der Hardware-Matrix von 0.28.2 vorgemerkt
+und mit dem finalen 1.0-Release-Candidate (0.29.x) ausführen. Die Referenzfälle
+von [Arda 0.20 (Ulmo)](#arda-020--scientific-simulation) auf einem physischen
+8-GB-CPU-Laptop nach Hardwareprofil A aus §5 wiederholen. Dazu gehören
+Wärmeleitung, P1-FEM und persistentes Checkpoint-Resume von RK45 und
+Wärmeleitung über zwei Prozesse. Gerät, OS, Compiler, Threadzahl, Laufzeit,
+Peak RSS und numerische Fehler festhalten.
+[Ulmo-Referenzfälle und Ausführung](research/implemented/ulmo-simulation.md#0206-release-validation)
+
+Für die 1.0-Abnahme aus dem finalen Quellarchiv die vollständige Testmatrix aus
+0.28.0 wiederholen. Darin auch die auf dem Laptop unterstützten Builds,
+Laufzeit- und Referenztests sowie passenden Sanitizer prüfen.
 
 ### Arda 0.29 — Release Candidate
 

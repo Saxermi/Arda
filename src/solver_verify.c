@@ -1,5 +1,7 @@
 #include "solver.h"
 #include "poisson.h"
+#include "pde.h"
+#include <float.h>
 
 #define A(o) ((o)->as.array)
 
@@ -32,6 +34,8 @@ static long double infinity_norm(Obj *op, const LinopContext *context, size_t m,
         }
     } else if (op->as.linop.kind == LINOP_DIAGONAL) {
         largest = max_abs(n, A(op->as.linop.first).data);
+    } else if (op->as.linop.kind == LINOP_CARTESIAN) {
+        largest = pde_operator_norm(op);
     } else if (op->as.linop.kind == LINOP_POISSON) {
         largest = poisson_diagonal(op);
         for (int i = 0; i < op->as.linop.grid_rank; i++) {
@@ -51,7 +55,8 @@ static long double relative(long double difference, long double scale) {
 }
 
 static void metric(VM *v, Obj *out, const char *key, long double value) {
-    sparse_result_field(v, out, key, isnan(value) ? nil() : number((double)value));
+    Val encoded = isnan(value) ? nil() : number(value > DBL_MAX ? INFINITY : (double)value);
+    sparse_result_field(v, out, key, encoded);
 }
 
 static Val requirements(VM *v, Val method) {
@@ -84,30 +89,98 @@ static void check_options(VM *v, Val settings, SolverOptions opts, int which) {
         vmerror_kind(v, "domain", "unsupported verification option");
 }
 
+typedef struct {
+    long double max, squares;
+} Norm;
+
+static void add_norm(Norm *norm, long double x) {
+    if (x > norm->max) {
+        long double ratio = norm->max / x;
+        norm->squares = 1 + norm->squares * ratio * ratio;
+        norm->max = x;
+    } else if (x) {
+        long double ratio = x / norm->max;
+        norm->squares += ratio * ratio;
+    }
+}
+
+static long double norm_value(Norm norm) {
+    return norm.max * sqrtl(norm.squares);
+}
+
+/* Compute r*scale/(a*x+b) without forming an overflowing denominator or
+ * residual. The common power-of-two scaling also works with binary64 long double. */
+static long double backward_error(long double r, long double scale, long double a, long double x,
+                                  long double b) {
+    if (!isfinite(a))
+        return NAN;
+    int ea, ex, eb, es;
+    long double ma = frexpl(a, &ea), mx = frexpl(x, &ex);
+    long double mb = frexpl(b, &eb), ms = frexpl(scale, &es);
+    if (!ma || !mx) {
+        if (!mb)
+            return r * scale;
+        return ldexpl(r * ms / mb, es - eb);
+    }
+    int product = ea + ex, exponent = mb && eb > product ? eb : product;
+    long double denom = ldexpl(ma * mx, product - exponent) + ldexpl(mb, eb - exponent);
+    return ldexpl(r * ms / denom, es - exponent);
+}
+
+static double diagonal_condition(Obj *op) {
+    const Obj *diag = op->as.linop.first;
+    double largest = 0, smallest = INFINITY;
+    for (size_t i = 0; i < A(diag).n; i++) {
+        double entry = fabs(A(diag).data[i]);
+        largest = fmax(largest, entry);
+        smallest = fmin(smallest, entry);
+    }
+    return smallest ? largest / smallest : INFINITY;
+}
+
 static long double linear_check(VM *v, Obj *object, const LinopContext *ctx, LinearOperator op,
                                 double *b, double *x, double *r, Val rhs, Val solution,
                                 SolverOptions opts, Obj *result) {
     size_t m = op.rows, n = op.cols;
     solver_read_vector(v, rhs, m, b);
     solver_read_vector(v, solution, n, x);
-    long double bnorm = linear_norm(m, b, 1);
     op.apply(op.context, x, 1, r, 1);
-    for (size_t i = 0; i < m; i++)
-        r[i] = b[i] - r[i];
-    long double residual = relative(linear_norm(m, r, 1), bnorm);
+    long double bmax = max_abs(m, b), axmax = max_abs(m, r);
+    long double scale = fmaxl(bmax, axmax);
+    long double residual = INFINITY, absolute = INFINITY, backward = NAN;
     long double norm = infinity_norm(object, ctx, m, n);
-    long double denom = norm * max_abs(n, x) + max_abs(m, b);
-    metric(v, result, "backward_error_inf", isfinite(denom) ? relative(max_abs(m, r), denom) : NAN);
+    if (isfinite(scale)) {
+        Norm delta = {0}, right = {0};
+        if (!scale)
+            scale = 1;
+        for (size_t i = 0; i < m; i++) {
+            long double lhs = b[i], ax = r[i], difference = lhs - ax;
+            long double scaled =
+                isfinite(difference) ? difference / scale : lhs / scale - ax / scale;
+            add_norm(&delta, fabsl(scaled));
+            add_norm(&right, fabsl(lhs / scale));
+        }
+        long double rnorm = norm_value(delta);
+        absolute = rnorm * scale;
+        long double bnorm = norm_value(right);
+        residual = bmax ? (bnorm ? rnorm / bnorm : INFINITY) : absolute;
+        backward = backward_error(delta.max, scale, norm, max_abs(n, x), bmax);
+    }
+    metric(v, result, "absolute_residual", absolute);
+    metric(v, result, "backward_error_inf", backward);
     metric(v, result, "operator_norm_inf", norm);
-    bool finite = isfinite(residual);
+    double condition = NAN;
     if (opts.condition) {
-        Obj *checkpoint = v->objects;
-        double condition = dense_condition_inf(v, object, norm);
-        solver_discard_since(v, checkpoint);
-        metric(v, result, "condition_inf", condition);
-    } else
-        metric(v, result, "condition_inf", NAN);
-    return finite ? residual : INFINITY;
+        if (object->type == O_LINOP)
+            condition = diagonal_condition(object);
+        else {
+            Obj *checkpoint = v->objects;
+            condition = dense_condition_inf(v, object);
+            solver_discard_since(v, checkpoint);
+        }
+    }
+    metric(v, result, "condition_inf", condition);
+    return residual;
 }
 
 static void eigenvector(VM *v, Val value, size_t n, double *real, double *imaginary, bool complex) {
@@ -212,12 +285,17 @@ Val solver_verify(VM *v, int which, int argc, Val *args) {
     size_t count = which == 0 ? 2 * m + n : which == 2 ? 2 * (m + n) : (complex ? 4 : 2) * n;
     size_t bytes = count * sizeof(double), extra = 0, op_bytes = linop_workspace(v, object);
     if (opts.condition) {
-        if (object->type != O_ARRAY || m != n || n > 128)
+        bool diagonal = object->type == O_LINOP && object->as.linop.kind == LINOP_DIAGONAL;
+        if (!diagonal && (object->type != O_ARRAY || m != n || n > 128))
             vmerror_kind(v, "domain",
-                         "condition estimation requires a square numc matrix of size at most 128");
-        extra = 4 * n * n * sizeof(double) + n * sizeof(int);
+                         "condition estimation requires a diagonal operator or a square numc "
+                         "matrix of size at most 128");
+        if (!diagonal)
+            extra =
+                n * n * sizeof(double) + n * (sizeof(double) + sizeof(long double) + sizeof(int));
     }
-    if (extra > opts.workspace_limit || bytes > opts.workspace_limit - extra)
+    if (extra > opts.workspace_limit || bytes > opts.workspace_limit - extra ||
+        op_bytes > opts.workspace_limit - extra - bytes)
         vmerror_kind(v, "memory_budget", "condition estimation exceeds solver workspace_bytes");
     Obj *buf = solver_workspace(v, bytes, op_bytes, extra, &opts);
     double *work = (double *)buf->as.buffer.data;

@@ -36,7 +36,7 @@ caro rk4(f, t0, y0, h, steps):
 tol numc as _nc
 tol ad as _ad
 tol high as _high
-caro rk45(f, t0, y0, t1, h, rtol = 0.000001, atol = 0.000000001, maxiter = 100000):
+caro rk45(f, t0, y0, t1, h, rtol = 0.000001, atol = 0.000000001, maxiter = 100000, options = mun):
     qui (h <= 0 or rtol <= 0 or atol <= 0 or maxiter < 1 or type(maxiter) != "int"):
         throw {"code": "user_error", "message": "invalid RK45 configuration"}
     qui not _high.finite(t0) or not _high.finite(t1) or not _high.finite(h) or not _high.finite(rtol) or not _high.finite(atol) or not _high.finite(y0):
@@ -48,29 +48,41 @@ caro rk45(f, t0, y0, t1, h, rtol = 0.000001, atol = 0.000000001, maxiter = 10000
     esta direction = 1
     qui t1 < t0:
         direction = -1
+    esta output = mun
+    qui options != mun:
+        output = _rk45_output(options, t0, t1, y0, direction)
+    esta stopped = law
     h = h * direction
-    tenna direction * (t1 - t) > 0:
+    tenna not stopped and direction * (t1 - t) > 0:
         qui accepted + rejected >= maxiter:
             throw {"code": "user_error", "message": "RK45 step limit"}
-        qui abs(h) > abs(t1 - t):
+        esta next_t = t + h
+        qui abs(h) >= abs(t1 - t):
+            next_t = t1
             h = t1 - t
-        qui t + h == t:
+        qui next_t == t:
             throw {"code": "user_error", "message": "RK45 step underflow"}
         esta k1 = f(t, y)
         esta k2 = f(t + h/5, y + h*(k1/5))
         esta k3 = f(t + 3*h/10, y + h*(3*k1/40 + 9*k2/40))
         esta k4 = f(t + 4*h/5, y + h*(44*k1/45 - 56*k2/15 + 32*k3/9))
         esta k5 = f(t + 8*h/9, y + h*(19372*k1/6561 - 25360*k2/2187 + 64448*k3/6561 - 212*k4/729))
-        esta k6 = f(t + h, y + h*(9017*k1/3168 - 355*k2/33 + 46732*k3/5247 + 49*k4/176 - 5103*k5/18656))
+        esta k6 = f(next_t, y + h*(9017*k1/3168 - 355*k2/33 + 46732*k3/5247 + 49*k4/176 - 5103*k5/18656))
         esta z = y + h*(35*k1/384 + 500*k3/1113 + 125*k4/192 - 2187*k5/6784 + 11*k6/84)
-        esta k7 = f(t + h, z)
+        esta k7 = f(next_t, z)
         esta low = y + h*(5179*k1/57600 + 7571*k3/16695 + 393*k4/640 - 92097*k5/339200 + 187*k6/2100 + k7/40)
         esta err = _high.rkerror(y,z,low,rtol,atol)
         qui err != err:
             throw {"code": "user_error", "message": "RK45 nonfinite error"}
         qui err <= 1:
+            qui output != mun:
+                esta stages = [k1,k3,k4,k5,k6,k7]
+                esta endpoint = _rk45_emit_step(output,t,y,next_t,z,h,stages,direction)
+                next_t = endpoint["time"]
+                z = endpoint["state"]
+                stopped = endpoint["terminal"]
             y = z
-            t = t + h
+            t = next_t
             accepted = accepted + 1
         ai:
             rejected = rejected + 1
@@ -83,4 +95,515 @@ caro rk45(f, t0, y0, t1, h, rtol = 0.000001, atol = 0.000000001, maxiter = 10000
         qui factor > 5:
             factor = 5
         h = h * factor
-    nan {"solution": y, "accepted_steps": accepted, "rejected_steps": rejected}
+    esta result = {"solution": y, "accepted_steps": accepted, "rejected_steps": rejected}
+    qui output != mun:
+        result["time"] = t
+        result["reason"] = "completed"
+        qui stopped:
+            result["reason"] = "event"
+        result["times"] = output["times"]
+        result["states"] = output["states"]
+        result["events"] = output["hits"]
+        qui output["segments"] != mun:
+            result["at"] = _trajectory(output["segments"],t0,_snapshot(y0),t,_snapshot(y),direction)
+        qui output["checkpoint"]:
+            result["checkpoint"] = {"version":1,"time":t,"state":_snapshot(y),"step":abs(h),
+                                    "rtol":rtol,"atol":atol,"maxiter":maxiter}
+    nan result
+
+caro _option(options, name, fallback):
+    an key in keys(options):
+        qui key == name:
+            nan options[key]
+    nan fallback
+
+caro _validate_options(options, allowed):
+    qui type(options) != "map":
+        throw {"code":"type","message":"ODE options must be a map"}
+    an key in keys(options):
+        esta found = law
+        an known in allowed:
+            qui key == known:
+                found = nae
+        qui not found:
+            throw {"code":"domain","message":"unknown ODE option: " + key}
+
+caro _number(x):
+    nan (type(x) == "int" or type(x) == "float") and _high.finite(x)
+
+caro _callable(f):
+    esta kind = type(f)
+    nan kind == "function" or kind == "native" or kind == "method"
+
+caro _snapshot(y):
+    qui type(y) == "array":
+        nan _nc.copy(y)
+    nan y
+
+caro _sample(output, time, state):
+    esta stream = output["stream"]
+    qui stream != mun:
+        stream(time,_snapshot(state))
+    ai:
+        push(output["times"],time)
+        push(output["states"],_snapshot(state))
+
+caro _event_value(f, time, state):
+    esta value = f(time,state)
+    qui not _number(value):
+        throw {"code":"ode_event","message":"event must return a finite scalar"}
+    nan value
+
+caro _rk45_output(options, start, stop, y, direction):
+    _validate_options(options,["saveat","stream","events","event_tol","checkpoint","dense_output"])
+    esta saveat = _option(options,"saveat",mun)
+    esta stream = _option(options,"stream",mun)
+    esta checkpoint = _option(options,"checkpoint",law)
+    esta retain_dense = _option(options,"dense_output",law)
+    esta tolerance = _option(options,"event_tol",1e-10)
+    esta definitions = _option(options,"events",[])
+    qui (stream != mun and not _callable(stream)) or type(checkpoint) != "bool" or type(retain_dense) != "bool" or type(definitions) != "list":
+        throw {"code":"type","message":"invalid RK45 output options"}
+    qui not _number(tolerance) or tolerance <= 0:
+        throw {"code":"domain","message":"event_tol must be positive and finite"}
+    esta schedule = mun
+    qui saveat != mun:
+        qui type(saveat) != "list":
+            throw {"code":"type","message":"saveat must be a list"}
+        schedule = []
+        an time in saveat:
+            qui not _number(time) or direction*(time-start) < 0 or direction*(stop-time) < 0:
+                throw {"code":"domain","message":"saveat time is outside the integration interval"}
+            qui len(schedule) > 0 and direction*(time-schedule[len(schedule)-1]) <= 0:
+                throw {"code":"domain","message":"saveat times must be strictly ordered in the integration direction"}
+            push(schedule,time)
+    esta events = []
+    an spec in definitions:
+        _validate_options(spec,["fn","direction","terminal"])
+        esta f = _option(spec,"fn",mun)
+        esta slope = _option(spec,"direction",0)
+        esta terminal = _option(spec,"terminal",law)
+        qui not _callable(f) or type(slope) != "int" or abs(slope) > 1 or type(terminal) != "bool":
+            throw {"code":"domain","message":"invalid RK45 event specification"}
+        push(events,{"fn":f,"direction":slope,"terminal":terminal,"last":_event_value(f,start,y)})
+    esta segments = mun
+    qui retain_dense:
+        segments = []
+    esta output = {"segments":segments,"schedule":schedule,"index":0,"times":[],"states":[],"hits":[],
+                   "stream":stream,"events":events,"event_tol":tolerance,"checkpoint":checkpoint}
+    qui schedule == mun:
+        qui stream != mun:
+            _sample(output,start,y)
+    ai:
+        qui len(schedule) > 0 and schedule[0] == start:
+            _sample(output,start,y)
+            output["index"] = 1
+    nan output
+
+# Shampine's fourth-order continuous extension for the Dormand-Prince stages.
+caro _dense_step(t,y,next_t,z,h,k):
+    y = _snapshot(y)
+    z = _snapshot(z)
+    esta d = z-y
+    esta e = h*k[0]-d
+    esta g = d-h*k[5]-e
+    esta c = h*((-12715105075/11282082432)*k[0] + (87487479700/32700410799)*k[1] -
+                (10690763975/1880347072)*k[2] + (701980252875/199316789632)*k[3] -
+                (1453857185/822651844)*k[4] + (69997945/29380423)*k[5])
+    nan _polynomial(t,y,next_t,z,h,d,e,g,c)
+
+caro _polynomial(t,y,next_t,z,h,d,e,g,c):
+    caro value(time):
+        qui time == t:
+            nan y
+        qui time == next_t:
+            nan z
+        esta x = (time-t)/h
+        nan y + x*(d+(1-x)*(e+x*(g+(1-x)*c)))
+    nan value
+
+caro _locate(f, value, left, right, left_sign, tolerance):
+    tenna abs(right-left) > tolerance:
+        esta middle = left + (right-left)/2
+        qui middle == left or middle == right:
+            break
+        esta g = _event_value(f,middle,value(middle))
+        qui g == 0:
+            nan middle
+        qui (g > 0) == left_sign:
+            left = middle
+        ai:
+            right = middle
+    nan right
+
+caro _rk45_emit_step(output,t,y,next_t,z,h,stages,direction):
+    esta candidates = []
+    esta events = output["events"]
+    esta dense = mun
+    an i in range(len(events)):
+        esta event = events[i]
+        esta before = event["last"]
+        esta after = _event_value(event["fn"],next_t,z)
+        event["last"] = after
+        # A zero at a shared endpoint belongs to the step arriving there.
+        qui before != 0 and (after == 0 or (before > 0) != (after > 0)):
+            esta slope = direction
+            qui before > 0:
+                slope = -direction
+            qui event["direction"] == 0 or event["direction"] == slope:
+                esta root = next_t
+                qui after != 0:
+                    qui dense == mun:
+                        dense = _dense_step(t,y,next_t,z,h,stages)
+                    root = _locate(event["fn"],dense,t,next_t,before>0,output["event_tol"])
+                push(candidates,{"time":root,"index":i,"terminal":event["terminal"]})
+    esta stop = {"time":next_t,"state":z,"terminal":law}
+    an unused in range(len(candidates)):
+        esta earliest = mun
+        esta chosen = 0
+        an i in range(len(candidates)):
+            esta hit = candidates[i]
+            qui hit != mun and (earliest == mun or direction*(hit["time"]-earliest["time"]) < 0):
+                earliest = hit
+                chosen = i
+        candidates[chosen] = mun
+        esta time = earliest["time"]
+        esta state = z
+        qui time != next_t:
+            state = dense(time)
+        earliest["state"] = _snapshot(state)
+        push(output["hits"],earliest)
+        qui earliest["terminal"]:
+            stop = {"time":time,"state":state,"terminal":nae}
+            break
+    qui output["segments"] != mun:
+        qui dense == mun:
+            dense = _dense_step(t,y,next_t,z,h,stages)
+        push(output["segments"],[stop["time"],dense])
+    esta schedule = output["schedule"]
+    esta i = output["index"]
+    qui schedule != mun:
+        tenna i < len(schedule) and direction*(stop["time"]-schedule[i]) >= 0:
+            esta time = schedule[i]
+            esta state = z
+            qui time != next_t:
+                qui dense == mun:
+                    dense = _dense_step(t,y,next_t,z,h,stages)
+                state = dense(time)
+            _sample(output,time,state)
+            i = i + 1
+        output["index"] = i
+    ai:
+        qui output["stream"] != mun:
+            _sample(output,stop["time"],stop["state"])
+    nan stop
+
+caro _trajectory(segments,start,initial,stop,final,direction):
+    caro value(time):
+        qui not _number(time) or direction*(time-start) < 0 or direction*(stop-time) < 0:
+            throw {"code":"domain","message":"dense output time is outside the computed trajectory"}
+        qui time == start:
+            nan _snapshot(initial)
+        qui time == stop:
+            nan _snapshot(final)
+        esta left = 0
+        esta right = len(segments)-1
+        tenna left < right:
+            esta mid = left + int((right-left)/2)
+            qui direction*(segments[mid][0]-time) >= 0:
+                right = mid
+            ai:
+                left = mid+1
+        esta evaluate = segments[left][1]
+        nan _snapshot(evaluate(time))
+    nan value
+
+caro rk45_resume(f, checkpoint, t1, options = mun):
+    qui type(checkpoint) != "map" or _option(checkpoint,"version",mun) != 1:
+        throw {"code":"ode_checkpoint","message":"invalid RK45 checkpoint version"}
+    nan rk45(f,checkpoint["time"],_snapshot(checkpoint["state"]),t1,checkpoint["step"],
+             checkpoint["rtol"],checkpoint["atol"],checkpoint["maxiter"],options)
+
+caro _state_matches(x, y):
+    qui type(y) == "array":
+        qui type(x) != "array":
+            nan law
+        esta sx = _nc.shape(x)
+        esta sy = _nc.shape(y)
+        qui len(sx) != len(sy):
+            nan law
+        an i in range(len(sx)):
+            qui sx[i] != sy[i]:
+                nan law
+        nan _high.finite(x)
+    nan _number(x)
+
+# Kick-drift-kick Störmer-Verlet (leapfrog), with unit mass.
+caro verlet(acceleration,t0,q,p,h,steps):
+    qui not _number(t0) or not _number(h) or h == 0 or type(steps) != "int" or steps < 1 or not _state_matches(q,p) or not _state_matches(p,p):
+        throw {"code":"domain","message":"invalid Verlet configuration"}
+    esta t = t0
+    esta a = acceleration(t,q)
+    an i in range(steps):
+        qui not _state_matches(a,q):
+            throw {"code":"ode_rhs","message":"invalid Verlet acceleration"}
+        esta next_t = t0 + (i+1)*h
+        qui next_t == t or not _number(next_t):
+            throw {"code":"domain","message":"Verlet time step is not representable"}
+        esta half = p + (h/2)*a
+        q = q + h*half
+        qui not _state_matches(q,p):
+            throw {"code":"ode_rhs","message":"nonfinite Verlet position"}
+        a = acceleration(next_t,q)
+        qui not _state_matches(a,q):
+            throw {"code":"ode_rhs","message":"invalid Verlet acceleration"}
+        p = half + (h/2)*a
+        qui not _state_matches(p,q):
+            throw {"code":"ode_rhs","message":"nonfinite Verlet momentum"}
+        t = next_t
+    nan {"time":t,"position":q,"momentum":p,"steps":steps}
+
+tol linop as _linop
+tol solver as _solver
+
+caro _vector(value, scalar, size):
+    qui scalar and _number(value):
+        nan _nc.array([value])
+    qui not scalar and type(value) == "array":
+        esta shape = _nc.shape(value)
+        qui len(shape) == 1 and shape[0] == size and _high.finite(value):
+            nan value
+    throw {"code":"ode_rhs","message":"expected finite scalar or matching Float64 vector state"}
+
+caro _unpack(x, scalar):
+    qui scalar:
+        nan x[0]
+    nan x
+
+caro _newton_options(options):
+    _validate_options(options,["atol","rtol","maxiter","max_steps","jacobian","jvp","linear_solver","preconditioner"])
+    esta atol = _option(options,"atol",1e-11)
+    esta rtol = _option(options,"rtol",1e-9)
+    esta maxiter = _option(options,"maxiter",12)
+    esta steps = _option(options,"max_steps",100000)
+    esta jac = _option(options,"jacobian",mun)
+    esta jvp = _option(options,"jvp",mun)
+    esta linear = _option(options,"linear_solver","lu")
+    esta pc = _option(options,"preconditioner","none")
+    qui not _number(atol) or atol <= 0 or not _number(rtol) or rtol <= 0 or rtol >= 1:
+        throw {"code":"domain","message":"invalid Newton tolerances"}
+    qui type(maxiter) != "int" or maxiter < 1 or type(steps) != "int" or steps < 1:
+        throw {"code":"domain","message":"invalid Newton or integration iteration limit"}
+    qui (jac != mun and not _callable(jac)) or (jvp != mun and not _callable(jvp)) or (jac != mun and jvp != mun):
+        throw {"code":"type","message":"provide at most one ODE Jacobian or JVP callback"}
+    qui (linear != "lu" and linear != "gmres") or (pc != "none" and (pc != "jacobi" or linear != "gmres")):
+        throw {"code":"domain","message":"invalid Newton linear solver or preconditioner"}
+    nan {"atol":atol,"rtol":rtol,"maxiter":maxiter,"max_steps":steps,
+         "jacobian":jac,"jvp":jvp,"linear_solver":linear,"preconditioner":pc}
+
+caro _rhs(f,t,x,scalar):
+    nan _vector(f(t,_unpack(x,scalar)),scalar,len(x))
+
+caro _rate_linearization(t,x,scalar,opts):
+    esta jvp = opts["jvp"]
+    qui jvp != mun:
+        caro apply(v):
+            nan _vector(jvp(t,_unpack(x,scalar),_unpack(v,scalar)),scalar,len(x))
+        nan apply
+    esta jac = opts["jacobian"]
+    esta a = jac(t,_unpack(x,scalar))
+    qui scalar:
+        qui not _number(a):
+            throw {"code":"ode_jacobian","message":"scalar Jacobian must be finite"}
+        caro multiply(v):
+            nan a*v
+        nan multiply
+    qui type(a) != "array":
+        throw {"code":"ode_jacobian","message":"Jacobian must be a dense Float64 matrix"}
+    esta shape = _nc.shape(a)
+    qui len(shape) != 2 or shape[0] != len(x) or shape[1] != len(x) or not _high.finite(a):
+        throw {"code":"ode_jacobian","message":"Jacobian must be finite and match the state"}
+    caro multiply(v):
+        nan _linop.apply(a,v)
+    nan multiply
+
+caro _matrix(x,r,residual,linearization):
+    esta n = len(x)
+    esta matrix = _nc.zeros(n,n)
+    esta derivative = mun
+    qui linearization != mun:
+        derivative = linearization(x)
+    an j in range(n):
+        esta column = mun
+        qui derivative != mun:
+            esta basis = _nc.zeros(n)
+            basis[j] = 1
+            column = derivative(basis)
+        ai:
+            esta point = _nc.copy(x)
+            esta scale = abs(x[j])
+            qui scale < 1:
+                scale = 1
+            point[j] = x[j] + 1.4901161193847656e-8*scale
+            qui not _number(point[j]):
+                point[j] = x[j] - 1.4901161193847656e-8*scale
+            column = (residual(point)-r)/(point[j]-x[j])
+        an i in range(n):
+            _nc.put(matrix,[i,j],column[i])
+    nan matrix
+
+caro _newton(initial,residual,linearization,opts):
+    esta x = initial
+    esta r = residual(x)
+    esta error = _nc.norm(r)
+    esta scale = _nc.norm(initial)
+    an i in range(opts["maxiter"]+1):
+        esta current = _nc.norm(x)
+        qui current < scale:
+            current = scale
+        qui _number(error) and error <= opts["atol"] + opts["rtol"]*current:
+            nan {"solution":x,"iterations":i,"residual":error}
+        qui i == opts["maxiter"] or not _number(error):
+            break
+        esta matrix = _matrix(x,r,residual,linearization)
+        esta correction = mun
+        qui opts["linear_solver"] == "lu":
+            correction = _nc.solve(matrix,-r)
+        ai:
+            esta k = _solver.solve("gmres",matrix,-r,{"tol":1e-10,"preconditioner":opts["preconditioner"]})
+            qui not k["converged"]:
+                throw {"code":"ode_newton","message":"GMRES failed in Newton solve","reason":k["reason"]}
+            correction = k["solution"]
+        esta factor = 1
+        esta accepted = law
+        an attempt in range(12):
+            esta candidate = x+factor*correction
+            qui _high.finite(candidate):
+                esta next = residual(candidate)
+                esta size = _nc.norm(next)
+                qui _number(size) and size < error:
+                    x = candidate
+                    r = next
+                    error = size
+                    accepted = nae
+                    break
+            factor = factor/2
+        qui not accepted:
+            throw {"code":"ode_newton","message":"Newton line search could not reduce the residual"}
+    throw {"code":"ode_newton","message":"Newton failed to reach its residual tolerance","residual":error}
+
+caro _stage_pair(x,y):
+    esta n = len(x)
+    esta out = _nc.zeros(2*n)
+    an i in range(n):
+        out[i] = x[i]
+        out[n+i] = y[i]
+    nan out
+
+caro _stage_part(x,n,stage):
+    esta part = _nc.zeros(n)
+    an i in range(n):
+        part[i] = x[stage*n+i]
+    nan part
+
+caro _radau_problem(f,t,t_end,h,y,scalar,opts):
+    esta n = len(y)
+    esta stage_time = t+h/3
+    caro residual(x):
+        esta y1 = _stage_part(x,n,0)
+        esta y2 = _stage_part(x,n,1)
+        esta f1 = _rhs(f,stage_time,y1,scalar)
+        esta f2 = _rhs(f,t_end,y2,scalar)
+        nan _stage_pair(y1-y-h*(5*f1/12-f2/12), y2-y-h*(3*f1/4+f2/4))
+    caro linearization(x):
+        esta a = _rate_linearization(stage_time,_stage_part(x,n,0),scalar,opts)
+        esta b = _rate_linearization(t_end,_stage_part(x,n,1),scalar,opts)
+        caro apply(v):
+            esta v1 = _stage_part(v,n,0)
+            esta v2 = _stage_part(v,n,1)
+            esta f1 = a(v1)
+            esta f2 = b(v2)
+            nan _stage_pair(v1-h*(5*f1/12-f2/12), v2-h*(3*f1/4+f2/4))
+        nan apply
+    nan {"initial":_stage_pair(y,y),"residual":residual,"linearization":linearization}
+
+caro _one_stage_problem(f,t_end,h,y,previous,ratio,scalar,opts):
+    esta weight = 1
+    esta target = y
+    qui previous != mun:
+        weight = (1+2*ratio)/(1+ratio)
+        target = (1+ratio)*y - (ratio*ratio/(1+ratio))*previous
+    caro residual(x):
+        nan weight*x - target - h*_rhs(f,t_end,x,scalar)
+    caro linearization(x):
+        esta a = _rate_linearization(t_end,x,scalar,opts)
+        caro apply(v):
+            nan weight*v-h*a(v)
+        nan apply
+    nan {"initial":y,"residual":residual,"linearization":linearization}
+
+caro _implicit(method,f,t0,y0,t1,h,options):
+    qui not _number(t0) or not _number(t1) or not _number(h) or h <= 0:
+        throw {"code":"domain","message":"invalid implicit ODE time interval or step"}
+    qui options == mun:
+        options = {}
+    esta opts = _newton_options(options)
+    esta scalar = _number(y0)
+    esta size = 1
+    qui not scalar:
+        qui type(y0) != "array" or len(_nc.shape(y0)) != 1 or len(y0) == 0:
+            throw {"code":"shape","message":"implicit ODE state must be scalar or a nonempty vector"}
+        size = len(y0)
+    qui method == "radau" and size > 2000:
+        throw {"code":"shape","message":"Radau stage Jacobian exceeds the dense array limit"}
+    esta y = _vector(y0,scalar,size)
+    esta t = t0
+    esta direction = 1
+    qui t1 < t:
+        direction = -1
+    esta previous = mun
+    esta previous_h = h*direction
+    esta steps = 0
+    esta iterations = 0
+    tenna direction*(t1-t) > 0:
+        qui steps >= opts["max_steps"]:
+            throw {"code":"ode_limit","message":"implicit integration step limit"}
+        esta t_end = t0+(steps+1)*h*direction
+        qui direction*(t_end-t1) >= 0:
+            t_end = t1
+        qui t_end == t:
+            throw {"code":"ode_limit","message":"implicit step underflow"}
+        esta dt = t_end-t
+        esta problem = mun
+        qui method == "radau":
+            problem = _radau_problem(f,t,t_end,dt,y,scalar,opts)
+        ai:
+            problem = _one_stage_problem(f,t_end,dt,y,previous,dt/previous_h,scalar,opts)
+        esta linearization = mun
+        qui opts["jacobian"] != mun or opts["jvp"] != mun:
+            linearization = problem["linearization"]
+        esta result = _newton(problem["initial"],problem["residual"],linearization,opts)
+        qui method == "bdf2":
+            previous = y
+        y = result["solution"]
+        qui method == "radau":
+            y = _stage_part(y,size,1)
+        t = t_end
+        previous_h = dt
+        steps = steps+1
+        iterations = iterations+result["iterations"]
+    nan {"time":t,"solution":_unpack(y,scalar),"accepted_steps":steps,"newton_iterations":iterations}
+
+caro implicit_euler(f,t0,y0,t1,h,options = mun):
+    nan _implicit("euler",f,t0,y0,t1,h,options)
+
+caro bdf2(f,t0,y0,t1,h,options = mun):
+    nan _implicit("bdf2",f,t0,y0,t1,h,options)
+
+caro radau(f,t0,y0,t1,h,options = mun):
+    nan _implicit("radau",f,t0,y0,t1,h,options)
+
+# Persistent restart records for RK45.
+tol _checkpoint as _checkpoint_io
+esta rk45_save = _checkpoint_io.rk45_save
+esta rk45_load = _checkpoint_io.rk45_load

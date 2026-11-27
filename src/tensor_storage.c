@@ -1,5 +1,6 @@
 #include "activation_store.h"
 #include "moments.h"
+#include "simulation_checkpoint.h"
 
 #include <fcntl.h>
 #include <float.h>
@@ -155,10 +156,11 @@ Val tensor_mmap(VM *v, Val path_value) {
 static Obj *read_flat(VM *v, int fd, DType dtype, size_t start, int count) {
     Obj *out = typed_new(v, dtype, 1, &count);
     size_t width = dtype_info[dtype].size;
-    return read_exact(fd, typed_element(&out->as.tensor, 0), (size_t)count * width,
-                      (off_t)(HEADER_SIZE + start * width))
-               ? out
-               : NULL;
+    if (read_exact(fd, typed_element(&out->as.tensor, 0), (size_t)count * width,
+                   (off_t)(HEADER_SIZE + start * width)))
+        return out;
+    tensor_buffer_discard(v, out->as.tensor.buffer);
+    return NULL;
 }
 
 Val tensor_read_block(VM *v, Val path_value, Val start, Val count) {
@@ -273,6 +275,7 @@ Val tensor_read_tile(VM *v, Val path_value, Val origin_value, Val shape_value) {
         if (!read_exact(fd, dst, row_length * width,
                         tile_row(&file, &layout, origin, i / row_length))) {
             close(fd);
+            tensor_buffer_discard(v, out->as.tensor.buffer);
             vmerror(v, "tensor tile read failed or data was truncated");
         }
     }
@@ -426,6 +429,140 @@ static int publish_file(const char *path, bool (*writer)(int, const void *), con
 
 static bool disk_budget_ok(Val budget, size_t total) {
     return budget.t == V_NIL || (budget.t == V_INT && budget.i >= 0 && (uint64_t)budget.i >= total);
+}
+
+enum { CHECKPOINT_DIMS = 8, CHECKPOINT_HEADER = 96 + 8 * CHECKPOINT_WORDS, CHECKPOINT_INT64 = 9 };
+static const unsigned char checkpoint_magic[] = "ARDACKP1";
+
+typedef struct {
+    unsigned char header[CHECKPOINT_HEADER];
+    TypedTensor tensor;
+    unsigned char scalar[8];
+} CheckpointWrite;
+
+static bool checkpoint_finite(const TypedTensor *tensor) {
+    bool packed = typed_contiguous(tensor);
+    for (size_t i = 0; i < tensor->n; i++) {
+        ptrdiff_t position = packed ? (ptrdiff_t)(tensor->offset + i) : typed_offset(tensor, i);
+        double value;
+        memcpy(&value, typed_element(tensor, position), sizeof value);
+        if (!isfinite(value))
+            return false;
+    }
+    return true;
+}
+
+static bool write_checkpoint(int fd, const void *context) {
+    const CheckpointWrite *record = context;
+    return write_exact(fd, record->header, sizeof record->header) &&
+           (record->tensor.rank ? write_payload(fd, &record->tensor)
+                                : write_exact(fd, record->scalar, sizeof record->scalar));
+}
+
+Val checkpoint_save_state(VM *v, Val path, CheckpointKind kind, Val state,
+                          const uint64_t words[CHECKPOINT_WORDS], Val budget) {
+    require_little_endian(v);
+    const char *filename = asstr(v, path);
+    CheckpointWrite record = {0};
+    size_t bytes = sizeof record.scalar;
+    int format = 0;
+    if (isobj(state, O_ARRAY)) {
+        record.tensor = typed_tensor(v, state);
+        if (!typed_materializable(&record.tensor))
+            vmerror_kind(v, "checkpoint_format", "checkpoint tensor exceeds the heap limit");
+        bytes = record.tensor.n * sizeof(double);
+        format = record.tensor.rank;
+        for (int i = 0; i < format; i++)
+            put_u64(record.header + 32 + 8 * i, (uint64_t)record.tensor.shape[i]);
+    } else if (state.t == V_INT) {
+        format = CHECKPOINT_INT64;
+        put_u64(record.scalar, (uint64_t)state.i);
+    } else if (state.t == V_NUM) {
+        put_u64(record.scalar, checkpoint_real(v, state));
+    } else {
+        vmerror_kind(v, "checkpoint_format", "checkpoint state must be a scalar or numc array");
+    }
+    if (!disk_budget_ok(budget, CHECKPOINT_HEADER + bytes))
+        vmerror_kind(v, "disk_budget", "checkpoint exceeds the disk budget or budget is invalid");
+    if (record.tensor.rank && !checkpoint_finite(&record.tensor))
+        vmerror_kind(v, "checkpoint_format", "checkpoint state must be finite");
+    memcpy(record.header, checkpoint_magic, sizeof checkpoint_magic - 1);
+    put_u64(record.header + 8, kind);
+    put_u64(record.header + 16, (uint64_t)format);
+    put_u64(record.header + 24, bytes);
+    for (int i = 0; i < CHECKPOINT_WORDS; i++)
+        put_u64(record.header + 96 + 8 * i, words[i]);
+    int cause = publish_file(filename, write_checkpoint, &record);
+    if (cause)
+        vmerror_kind(v, "io", "cannot publish checkpoint: %s", strerror(cause));
+    return nil();
+}
+
+static bool decode_checkpoint(const unsigned char *header, off_t size, CheckpointKind kind,
+                              int *format, TypedTensor *layout) {
+    uint64_t type = get_u64(header + 16);
+    if (memcmp(header, checkpoint_magic, sizeof checkpoint_magic - 1) ||
+        get_u64(header + 8) != (uint64_t)kind || type > CHECKPOINT_INT64 ||
+        size < CHECKPOINT_HEADER)
+        return false;
+    *format = (int)type;
+    int rank = type <= CHECKPOINT_DIMS ? *format : 0;
+    int shape[CHECKPOINT_DIMS];
+    for (int i = 0; i < CHECKPOINT_DIMS; i++) {
+        uint64_t extent = get_u64(header + 32 + 8 * i);
+        if (extent > ARDA_MAX_ELEMENTS || (i >= rank && extent))
+            return false;
+        shape[i] = (int)extent;
+    }
+    if (rank &&
+        (!typed_layout_checked(DT_F64, rank, shape, layout) || !typed_materializable(layout)))
+        return false;
+    size_t payload = (rank ? layout->n : 1) * sizeof(double);
+    return get_u64(header + 24) == payload && (uintmax_t)size == CHECKPOINT_HEADER + payload;
+}
+
+Val checkpoint_load_state(VM *v, Val path, CheckpointKind kind, uint64_t words[CHECKPOINT_WORDS]) {
+    require_little_endian(v);
+    const char *filename = asstr(v, path);
+    int fd = open(filename, O_RDONLY | O_CLOEXEC | O_NONBLOCK);
+    if (fd < 0)
+        vmerror_kind(v, "io", "cannot open checkpoint: %s", strerror(errno));
+    struct stat file;
+    unsigned char header[CHECKPOINT_HEADER];
+    int format;
+    TypedTensor layout = {0};
+    if (fstat(fd, &file) || !S_ISREG(file.st_mode) || !read_exact(fd, header, sizeof header, 0) ||
+        !decode_checkpoint(header, file.st_size, kind, &format, &layout)) {
+        close(fd);
+        vmerror_kind(v, "checkpoint_format", "invalid checkpoint type, layout or length");
+    }
+    for (int i = 0; i < CHECKPOINT_WORDS; i++)
+        words[i] = get_u64(header + 96 + 8 * i);
+    size_t bytes = (layout.rank ? layout.n : 1) * sizeof(double);
+    if (layout.rank && bytes > tensor_memory_available(v)) {
+        close(fd);
+        vmerror_kind(v, "memory_budget", "checkpoint state exceeds the tensor budget");
+    }
+    unsigned char scalar[8];
+    Obj *out = layout.rank ? tensor_new(v, layout.rank, layout.shape) : NULL;
+    void *data = out ? (void *)out->as.array.data : scalar;
+    bool ok = read_exact(fd, data, bytes, CHECKPOINT_HEADER);
+    close(fd);
+    if (out) {
+        TypedTensor tensor = typed_tensor(v, objval(out));
+        if (ok && checkpoint_finite(&tensor))
+            return objval(out);
+        tensor_buffer_discard(v, out->as.array.buffer);
+    } else if (ok) {
+        uint64_t bits = get_u64(scalar);
+        if (format == CHECKPOINT_INT64)
+            return integer(bits <= INT64_MAX ? (int64_t)bits
+                                             : INT64_MIN + (int64_t)(bits - (UINT64_C(1) << 63)));
+        double value = checkpoint_double(bits);
+        if (isfinite(value))
+            return number(value);
+    }
+    vmerror_kind(v, "checkpoint_format", "checkpoint state is truncated or nonfinite");
 }
 
 Val tensor_save(VM *v, Val path_value, Val input, Val budget) {

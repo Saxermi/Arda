@@ -283,7 +283,8 @@ typedef enum {
     O_RANGE,
     O_OFFLOAD_PLAN,
     O_QUANTIZED,
-    O_COMPUTE_PLAN
+    O_COMPUTE_PLAN,
+    O_FEM_MESH
 } OType;
 
 typedef struct {
@@ -461,8 +462,13 @@ struct Obj {
             Obj *first, *second;
             int kind, rows, cols, lower, upper;
             int grid_rank, extent[8];
+            unsigned char boundary[3];
             double weights[8];
         } linop;
+        struct {
+            Obj *nodes, *elements, *hierarchy;
+            int dimension, count, tree_count;
+        } fem;
         Sparse sparse;
         SparseBuilder sparse_builder;
     } as;
@@ -642,6 +648,15 @@ void install_tensor(VM *v, Obj *module);
 #define UNCERTAINTY_BASE 1900
 #define QUANT_BASE 2000
 #define SOLVER_BASE 2100
+#define FEM_BASE 2300
+#define CHECKPOINT_BASE 2400
+Obj *fem_module(VM *v);
+Val fem_call(VM *v, int id, int argc, Val *args);
+const char *fem_name(int id);
+#define PDE_BASE 2200
+Obj *pde_module(VM *v);
+Val pde_call(VM *v, int id, int argc, Val *args);
+const char *pde_name(int id);
 Obj *solver_module(VM *v);
 Val solver_call(VM *v, int id, int argc, Val *args);
 void solver_unwind(VM *v);
@@ -693,7 +708,7 @@ Val mathdoc_attribute(VM *v, Val target, const char *name);
 int mathir_derivative_tex(VM *v, Obj *function, const char *parameter, char *out, size_t size);
 Obj *dense_lu_solve(VM *v, Obj *a, Obj *b);
 Obj *dense_lu_try_solve(VM *v, Obj *a, Obj *b);
-double dense_condition_inf(VM *v, Obj *a, long double matrix_norm);
+double dense_condition_inf(VM *v, Obj *a);
 Val sparse_call(VM *v, int id, int argc, Val *a);
 const char *sparse_name(int id);
 Obj *sparse_module(VM *v);

@@ -1,5 +1,6 @@
 #include "solver.h"
 #include "poisson.h"
+#include "pde.h"
 #include "typed_tensor.h"
 
 #define A(o) ((o)->as.array)
@@ -83,6 +84,19 @@ Obj *solver_operator(VM *v, Val value) {
     return value.o;
 }
 
+/* Native Krylov solves are synchronous and never write to the input. */
+static const double *packed_rhs(Val value, size_t length) {
+    if (isobj(value, O_ARRAY) && A(value.o).rank == 1 && A(value.o).n == length &&
+        A(value.o).stride[0] == 1)
+        return A(value.o).data;
+    if (isobj(value, O_TYPED_TENSOR)) {
+        const TypedTensor *t = &value.o->as.tensor;
+        if (t->rank == 1 && t->n == length && t->dtype == DT_F64 && t->stride[0] == 1)
+            return (const double *)typed_element(t, (ptrdiff_t)t->offset);
+    }
+    return NULL;
+}
+
 void solver_read_vector(VM *v, Val value, size_t length, double *out) {
     if (isobj(value, O_ARRAY) && A(value.o).rank == 1 && A(value.o).n == length) {
         for (size_t i = 0; i < length; i++) {
@@ -129,6 +143,12 @@ void solver_check_symmetric(VM *v, Obj *input, const LinopContext *context,
                 if (linop_dense_at(input, i, j) != linop_dense_at(input, j, i))
                     vmerror_kind(v, "domain", "solver requires symmetric coefficients");
         }
+        return;
+    } else if (input->as.linop.kind == LINOP_CARTESIAN) {
+        if (positive && !pde_has_dirichlet(input) && !options->positive_definite)
+            vmerror_kind(
+                v, "domain",
+                "singular grid needs pde.poisson or a positive-definite subspace assumption");
         return;
     } else if (input->as.linop.kind == LINOP_POISSON || input->as.linop.kind == LINOP_DIAGONAL) {
         if (positive && input->as.linop.kind == LINOP_DIAGONAL)
@@ -270,18 +290,25 @@ static Val solve(VM *v, SolverMethod method, Val input, Val rhs, Val settings) {
         opts.restart = (int)n;
     if (opts.restart > opts.max_iterations)
         opts.restart = opts.max_iterations;
-    size_t work_count = 2 * m + (least ? n : 0) + krylov_elements(method, m, n, opts.restart);
-    if (work_count > SIZE_MAX / sizeof(double))
+    const double *b = packed_rhs(rhs, m);
+    size_t rhs_count = b ? 0 : m;
+    size_t scratch = krylov_elements(method, m, n, opts.restart, opts.preconditioner != PC_NONE);
+    // CG uses its last product vector for the true residual between iterations.
+    size_t extra = rhs_count + (method == SOLVER_CG ? 0 : m) + (least ? n : 0);
+    if (scratch > SIZE_MAX / sizeof(double) || extra > SIZE_MAX / sizeof(double) - scratch)
         vmerror_kind(v, "memory_budget", "solver workspace is not addressable");
-    size_t base_work = work_count * sizeof(double);
+    size_t base_work = (extra + scratch) * sizeof(double);
     size_t pc_bytes = preconditioner_bytes(v, object, n, opts.preconditioner);
     if (pc_bytes > SIZE_MAX - base_work)
         vmerror_kind(v, "memory_budget", "solver workspace is not addressable");
     size_t work_bytes = base_work + pc_bytes, op_bytes = linop_workspace(v, object);
     Obj *buffer = solver_workspace(v, work_bytes, op_bytes, n * sizeof(double), &opts);
     double *work = (double *)buffer->as.buffer.data;
-    solver_read_vector(v, rhs, m, work);
-    long double norm = linear_norm(m, work, 1);
+    if (!b) {
+        solver_read_vector(v, rhs, m, work);
+        b = work;
+    }
+    long double norm = linear_norm(m, b, 1);
     if (!isfinite(norm))
         vmerror_kind(v, "domain", "right-hand-side norm is not representable");
     LinopContext context;
@@ -290,12 +317,14 @@ static Val solve(VM *v, SolverMethod method, Val input, Val rhs, Val settings) {
         solver_check_symmetric(v, object, &context, &opts,
                                method == SOLVER_CG || opts.preconditioner == PC_IC0);
     Obj *x = array_new(v, 1, (int)n, 1);
+    double *recurrence = work + extra;
+    double *residual = method == SOLVER_CG ? recurrence + scratch - n : work + rhs_count;
     SolverProblem p = {.vm = v,
                        .op = op,
                        .options = opts,
-                       .b = work,
-                       .residual = work + m,
-                       .normal = least ? work + 2 * m : NULL,
+                       .b = b,
+                       .residual = residual,
+                       .normal = least ? residual + m : NULL,
                        .x = A(x).data,
                        .rhs_norm = norm,
                        .trace = opts.trace_limit ? list(v) : NULL,
@@ -309,12 +338,20 @@ static Val solve(VM *v, SolverMethod method, Val input, Val rhs, Val settings) {
             if (!isfinite(p.normal_rhs_norm))
                 vmerror_kind(v, "domain", "normal right-hand-side norm is not representable");
         }
-        krylov_run(&p, method, work + 2 * m + (least ? n : 0));
+        krylov_run(&p, method, recurrence);
     }
     Val result = solver_report(&p, x, methods[method], work_bytes + op_bytes);
     linop_close(v, &context);
     solver_workspace_done(v, buffer);
     return result;
+}
+
+Val solver_solve_minres(VM *v, Val input, Val rhs, Val settings) {
+    return solve(v, SOLVER_MINRES, input, rhs, settings);
+}
+
+Val solver_solve_cg(VM *v, Val input, Val rhs, Val settings) {
+    return solve(v, SOLVER_CG, input, rhs, settings);
 }
 
 enum { SOLVE, MULTIGRID, REFINE, LANCZOS, VERIFY, VERIFY_EIGEN, VERIFY_SVD, REQUIREMENTS, ARNOLDI };

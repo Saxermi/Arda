@@ -234,3 +234,139 @@ the existing specialized stencil for up to three axes and a general matrix-free 
 for higher ranks. This keeps the four- and eight-dimensional examples runnable. Generalizing
 the Multigrid hierarchy would add variable-rank transfer kernels and needs separate validation.
 [API migration](research/implemented/aule-solvers.md#solver-api-migration)
+
+## 2026-11-27 — Initial Ulmo output, implicit stepping and grid contracts
+
+**Status** — Implemented for 0.20.0–0.20.2 and open to owner revision
+
+Treat RK45 sampling and trajectory retention as separate options. Fixed output times
+preserve the integration steps, while retained dense output trades memory for later
+queries. A synchronous stream avoids keeping all snapshots. A forced-step approach
+would simplify interpolation at fixed outputs but could add many steps and make the
+integration depend on the sampling schedule. Checkpoints are in-memory snapshots at
+segment boundaries. A persistent format needs versioning and I/O failure handling.
+
+Start implicit integration with fixed-step Euler, BDF2 and Radau IIA order three.
+Newton uses a dense residual Jacobian and existing LU or GMRES. This makes the first
+implementations easier to verify and supports small stiff systems. Adaptive
+higher-order methods or matrix-free Newton–Krylov would reduce work or storage for
+some problems, with changes to step selection, preconditioning and failure recovery.
+
+Use uniform Cartesian stencils with explicit homogeneous boundary conventions and
+stability checks. Upwind fluxes conserve mass on closed or periodic grids but add
+numerical diffusion. Higher-order limiters could sharpen transport and would require
+additional stability and monotonicity tests. The Poisson wrapper applies an explicit
+zero-mean gauge on the compatible constant-nullspace cases.
+[Contracts and measurements](research/implemented/ulmo-simulation.md)
+
+## 2026-11-27 — P1 transfer and fixed-step simulation derivatives
+
+**Status** — Implemented for 0.20.3–0.20.4 and open to owner revision
+
+Use conforming midpoint subdivision for segments and triangles. The coarse P1
+space is contained in the fine space, so midpoint interpolation preserves the
+field and its integral to roundoff. Local closure also splits neighbors of marked
+cells. Propagating repeated partial splits can reduce element quality. Newest-vertex
+bisection would give a stronger basis for shape-regularity and adaptive complexity
+analysis at the cost of compatible edge labels and a refinement hierarchy. A
+general remesher could optimize shape or remove nodes. Transfer in that case would
+need a conservative projection and an overlap integration or mass solve.
+
+Use continuous P1 pressure and cellwise velocity recovery for experimental steady
+Darcy flow. It reuses the scalar diffusion solver and is exact for a constant
+mobility and affine pressure. Cellwise recovered velocities can have unequal normal
+fluxes across a face. Mixed Raviart–Thomas FEM would represent a locally conservative
+flux and would need extra face degrees of freedom and a mixed-system solver.
+
+Differentiate the selected discrete RK4 and Cartesian heat steps on a fixed time
+schedule. Reverse replay stores block boundaries and rebuilds one block at a time.
+This reproduces the numerical trajectory and gives an explicit bound on retained
+checkpoint/replay states. Replay costs extra primal steps and requires a deterministic
+RHS. Multistage checkpoint scheduling can spend a given memory budget more efficiently,
+at the cost of stage-specific state management. Differentiating adaptive stepping,
+implicit solves or events would require contracts for step selection, linear solves
+and event derivatives. A continuous adjoint is also viable for smooth models and can
+use a separate integrator. Its gradient approximates the continuous problem and can
+differ from the derivative of the numerical trajectory.
+
+[Methods, API and validation](research/implemented/ulmo-simulation.md)
+
+## 2026-11-27 — Alternatives for Ulmo refinement, flow and reverse replay
+
+**Status** — Owner requested the three alternatives and a comparison. Implemented
+as opt-in choices, with the original defaults available for the same problems.
+
+Newest-vertex bisection stores immutable parent and generation records, keeps
+the newest vertex on each leaf and closes the selected edges across adjacent
+triangles. It avoids the small angles observed in repeated partial midpoint
+subdivision on the benchmark grid. Closure can add triangles and retaining the
+tree uses memory. The existing midpoint path remains a compact option, and
+uniform midpoint subdivision does not exhibit the local benchmark's small-angle
+failure.
+
+The mixed triangular Darcy solver uses RT0 integrated edge flux and P0 cell
+pressure. It enforces the element balance and represents each internal edge
+flux once. Diagonally scaled MINRES reuses the sparse Krylov solver. The system
+has more unknowns and costs more than the P1 pressure solve followed by a
+gradient. Hybridization or an equivalent nonconforming pressure solve followed
+by flux reconstruction could reduce that cost and would require a separate
+assembly and reconstruction path.
+
+The stage-aware RK4 schedule holds a budgeted tail of differentiated steps
+during replay. It reuses each retained four-stage tape in the reverse sweep
+and cuts RHS invocations. The retained graphs increase tensor memory and GC
+work. The block schedule remains the default. A stage-aware dynamic program
+with model-specific checkpoint byte costs could pick better retention points
+and would add scheduler and graph-memory accounting complexity.
+
+[Contracts and direct measurements](research/implemented/ulmo-simulation.md#alternative-ulmo-methods)
+
+## 2026-11-27 — Resource-scoped tuning and Krylov audit fixes
+
+Filter ACE candidates by the live output and scratch budget before tuning.
+Reuse measurements only with the same eligible choices, actual stable teams
+and known CPU placement. This preserves useful entries when returning to an
+earlier mask or budget. Timing reuse on multi-node systems would require a
+placement policy or measurements associated with particular allocations.
+
+Restart GMRES after a productive near-invariant cycle using the freshly
+computed residual. This recovers correctable roundoff without adding an
+unbounded retry policy. Keep the public tolerance tied to verified residuals.
+Borrow packed right-hand sides and reuse transient CG vectors inside the
+synchronous solver. The copy path stays necessary for signed-stride inputs.
+For conditioning, keep the bounded dense path and support exact diagonal
+ratios. Large sparse inverse-norm estimates would need a separate contract
+for reliable transpose solves.
+[Audit](research/implemented/ace-aule-audit.md)
+
+## 2026-11-27 — Ulmo experiment scheduling, restart and domain contracts
+
+Run sweep callbacks on the current VM in input order and stream each row
+synchronously. This gives a bounded active case count while existing kernels
+keep their own thread controls. An explicit LU, Cholesky or QR factor is passed
+through unchanged. Parallel or isolated workers would need a callback and
+object transfer contract, deterministic output ordering and shared resource
+accounting.
+
+Publish each checkpoint as one binary record with a solver identifier and
+validated state and metadata. Reusing the tensor writer's atomic publication
+keeps state and metadata together and preserves Float64 values. This format
+covers the RK45 and heat contracts. General serialization of VM objects or
+arbitrary callbacks would require an explicit integrity and compatibility
+model. Heat copies the state only on request so a later mutation of the
+public result cannot change that snapshot.
+
+Use one axis of contiguous slabs, with packed external faces and the existing
+stencil. This adds a local contract for testing future exchanges while keeping
+the boundary discretization identical. Multi-axis blocks and MPI transport can
+build on the same face ordering once a workload warrants their complexity.
+
+Run the implementation gate on the cloud machine for 0.20.5.
+[Experiment contracts](research/implemented/ulmo-simulation.md#0205-experiments-and-domains)
+
+## 2026-11-27 — Ulmo hardware validation before Arda 1.0
+
+Complete 0.20.6 with a clean source archive, cloud validation and measured
+comparisons. Record Ulmo's physical 8 GB laptop check in the 0.28.2 hardware
+matrix and run it on the final 1.0 release candidate alongside the full test
+matrix. This ties the measurements to the actual 1.0 source. [Roadmap](ROADMAP.md#physischer-ulmo-laptop-test)

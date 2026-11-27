@@ -42,6 +42,8 @@ typedef struct {
 #define RSVD_TEX NULL
 #endif
 
+enum { ODE_DESCRIPTORS = -1 };
+
 static const MathDescriptor registry[] = {
     {
         .family = 0,
@@ -156,28 +158,159 @@ static const MathDescriptor registry[] = {
         .backend = "portable-c",
         .model = CSR_MATVEC,
     },
+    {
+        .family = PDE_BASE,
+        .name = "grid",
+        .tex = {"L_h u=-\\Delta_h u", "(L_hu)_i=\\sum_a(2u_i-u_{i-e_a}-u_{i+e_a})/h_a^2",
+                "\\text{Dirichlet: }u_g=0;\\quad\\text{Neumann: }u_g=u_i;"
+                "\\quad\\text{periodic: wrap}"},
+        .algorithm = "Matrix-free centered differences on a row-major Cartesian grid.",
+        .assumptions = "One to three positive extents, positive spacing per axis and homogeneous "
+                       "Dirichlet or Neumann boundaries, or periodic wrapping per axis.",
+        .complexity = "O(dN) work per apply on N cells in d dimensions.",
+    },
+    {
+        .family = PDE_BASE,
+        .name = "poisson",
+        .tex = {"L_h u=b", "\\langle u,1\\rangle=0\\quad\\text{for a constant nullspace}"},
+        .algorithm =
+            "Conjugate gradients on the centered negative Laplacian. With periodic and "
+            "Neumann faces only, the returned solution is centered and its residual checked.",
+        .assumptions = "Homogeneous boundary conditions from the grid. Without a Dirichlet axis "
+                       "the right-hand side must have zero mean to within roundoff.",
+        .complexity = "O(dN) work per CG iteration and O(N) workspace.",
+    },
+    {
+        .family = PDE_BASE,
+        .name = "heat",
+        .tex = {"u_t=\\kappa\\Delta u", "u^{n+1}=u^n-\\Delta t\\,\\kappa L_hu^n",
+                "2\\kappa\\Delta t\\sum_{a\\,\\mathrm{active}} h_a^{-2}\\le 1",
+                "\\sum_i u_i^{n+1}=\\sum_i u_i^n\\quad\\text{with closed or periodic faces}"},
+        .algorithm = "Centered differences in space and forward Euler in time, clipping the last "
+                     "step. Periodic and zero-flux Neumann faces conserve the sum to roundoff.",
+        .assumptions = "Constant nonnegative diffusivity, finite Float64 state, Cartesian grid "
+                       "and homogeneous per-axis boundaries. The explicit CFL bound is checked.",
+        .complexity = "O(dN) work per step and O(N) numeric workspace.",
+    },
+    {
+        .family = PDE_BASE,
+        .name = "wave",
+        .tex = {"u_{tt}=c^2\\Delta u",
+                "v^{n+1/2}=v^n-\\tfrac12\\Delta t\\,c^2L_hu^n,\\quad"
+                "u^{n+1}=u^n+\\Delta t\\,v^{n+1/2}",
+                "c\\Delta t\\sqrt{\\sum_{a\\,\\mathrm{active}} h_a^{-2}}\\le 1",
+                "v^{n+1}=v^{n+1/2}-\\tfrac12\\Delta t\\,c^2L_hu^{n+1}"},
+        .algorithm = "Centered differences with kick-drift-kick velocity Verlet, clipping the "
+                     "last step and checking the explicit stability limit.",
+        .assumptions = "Constant wave speed, finite displacement and velocity, and homogeneous "
+                       "Cartesian grid boundary conditions.",
+        .complexity = "O(dN) work per step and O(N) numeric workspace.",
+    },
+    {
+        .family = PDE_BASE,
+        .name = "advection_diffusion",
+        .tex = {"u_t+\\nabla\\cdot(vu)=\\kappa\\Delta u",
+                "F_{i+1/2}=v^+u_i+v^-u_{i+1}-\\kappa(u_{i+1}-u_i)/h",
+                "\\Delta t\\sum_a\\left(|v_a|/h_a+2\\kappa/h_a^2\\right)\\le 1",
+                "\\sum_i u_i^{n+1}=\\sum_i u_i^n\\quad\\text{with closed or periodic faces}"},
+        .algorithm = "Conservative donor-cell upwind advection, centered diffusive fluxes and "
+                     "forward Euler. Interior and periodic face contributions telescope.",
+        .assumptions = "Constant velocity per axis and nonnegative diffusivity. Closed Neumann "
+                       "faces carry zero flux. A sufficient CFL bound is checked.",
+        .complexity = "O(dN) work per step and O(N) numeric workspace.",
+    },
+    {
+        .family = PDE_BASE,
+        .name = "apply_subdomain",
+        .tex = {"(L_hu)|_S=L_{h,S}(u|_S,u_{\\mathrm{ghost}})",
+                "(L_hu)_i=\\sum_a(2u_i-u_{i-e_a}-u_{i+e_a})/h_a^2"},
+        .algorithm = "Applies the centered negative Laplacian on an axis slab. Supplied adjacent "
+                     "faces are indexed in transverse row-major order.",
+        .assumptions = "Ghost data matches neighboring slabs at the same state time. Physical "
+                       "faces inherit the grid boundary, and periodic joins require wrap faces.",
+        .complexity = "O(dN_S) work and O(N_S + F) workspace for slab size N_S and face size F.",
+    },
+    {
+        .family = FEM_BASE,
+        .name = "assemble",
+        .tex = {"-\\nabla\\cdot(k\\nabla u)+cu=f",
+                "A_{ij}=\\sum_T\\int_T (k_T\\nabla\\phi_i\\cdot\\nabla\\phi_j"
+                "+c_T\\phi_i\\phi_j)\\,dx",
+                "k_T>0,\\quad c_T\\ge0,\\quad u|_{\\Gamma_D}=g,"
+                "\\quad\\partial_n u|_{\\Gamma_N}=0"},
+        .algorithm = "Assembles P1 segment or triangle stiffness and exact simplex mass terms "
+                     "into CSR. Symmetric Dirichlet elimination preserves symmetry.",
+        .assumptions = "Conforming nondegenerate mesh, cellwise coefficients and finite nodal "
+                       "source. A prescribed node or positive reaction grounds each component.",
+        .complexity =
+            "O(E+N) assembly storage before CSR canonicalization for E elements and N nodes.",
+    },
+    {
+        .family = FEM_BASE,
+        .name = "integral",
+        .tex = {"\\int_\\Omega u_h\\,dx", "\\sum_T |T|\\frac{\\sum_{i\\in T} u_i}{\\#T}"},
+        .algorithm = "Integrates the P1 interpolant exactly per simplex up to Float64 rounding.",
+        .assumptions = "Finite nodal values on a conforming segment or triangle mesh.",
+        .complexity = "O(E+N) work including input validation.",
+    },
+    {
+        .family = FEM_BASE,
+        .name = "refine",
+        .tex = {"u_h|_T=u_{h'}|_T\\quad\\text{under P1 prolongation}",
+                "u((x_i+x_j)/2)=(u_i+u_j)/2"},
+        .algorithm = "Marks cells by the indicators and refines with conforming midpoint splits "
+                     "or newest-vertex bisection. P1 prolongation preserves the integral.",
+        .assumptions = "Conforming mesh, finite P1 field and nonnegative element indicators.",
+        .complexity = "O(E log E) marking and face ordering with O(N+E) working storage.",
+    },
+    {
+        .family = ODE_DESCRIPTORS,
+        .name = "rk45",
+        .tex = {"y'=f(t,y)", "\\mathrm{err}=\\operatorname{WRMS}(y_5-y_4)"},
+        .algorithm = "Dormand-Prince 5(4) with adaptive rejection, Shampine dense output and "
+                     "optional bracketed event localization.",
+        .assumptions = "Finite scalar or Float64 state and positive error tolerances. Events "
+                       "use accepted-step endpoint brackets.",
+        .complexity = "Seven right-hand-side evaluations per attempted step. Retained dense "
+                      "output stores data per accepted step.",
+    },
 };
 
 static const MathDescriptor *descriptor_for(Val target) {
-    if (!isobj(target, O_NATIVE))
-        return NULL;
-    int id = target.o->as.native.id;
-    int family = id / 100 * 100;
+    int family;
     const char *name;
-    switch (family) {
-    case 0:
-        name = native_builtin_name(id);
-        break;
-    case SCI_BASE:
-        name = scientific_name(id);
-        break;
-    case SPARSE_BASE:
-        name = sparse_name(id);
-        break;
-    case LINALG_BASE:
-        name = linalg_name(id);
-        break;
-    default:
+    if (isobj(target, O_FUNC)) {
+        const Proto *proto = target.o->as.func.p;
+        if (strcmp(proto->path, "<stdlib:ode>"))
+            return NULL;
+        family = ODE_DESCRIPTORS;
+        name = proto->name;
+    } else if (isobj(target, O_NATIVE)) {
+        int id = target.o->as.native.id;
+        family = id / 100 * 100;
+        switch (family) {
+        case 0:
+            name = native_builtin_name(id);
+            break;
+        case SCI_BASE:
+            name = scientific_name(id);
+            break;
+        case SPARSE_BASE:
+            name = sparse_name(id);
+            break;
+        case LINALG_BASE:
+            name = linalg_name(id);
+            break;
+        case PDE_BASE:
+            name = pde_name(id);
+            break;
+        case FEM_BASE:
+            name = fem_name(id);
+            break;
+        default:
+            return NULL;
+        }
+    } else {
         return NULL;
     }
     if (name)
@@ -300,7 +433,8 @@ Val mathdoc_call(VM *v, int id, int argc, Val *args) {
             vmerror(v, "static getTex level must be an integer from 0 to 3");
         level = (int)args[1].i;
     }
-    if (isobj(args[0], O_FUNC)) {
+    const MathDescriptor *descriptor = descriptor_for(args[0]);
+    if (!descriptor && isobj(args[0], O_FUNC)) {
         Obj *function = args[0].o;
         const Proto *p = function->as.func.p;
         if (mathir_has_loop(p) && !vm_uses_builtin(v, function->as.func.env, "range"))
@@ -315,7 +449,6 @@ Val mathdoc_call(VM *v, int id, int argc, Val *args) {
             return text_or_nil(v, mathir_assumptions(p));
         return nil();
     }
-    const MathDescriptor *descriptor = descriptor_for(args[0]);
     if (!descriptor)
         return nil();
     switch (method) {

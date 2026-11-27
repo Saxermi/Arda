@@ -1,4 +1,5 @@
 #include "compute_plan.h"
+#include "compute_topology.h"
 #include "cpu_kernels.h"
 #include <float.h>
 #include <time.h>
@@ -25,6 +26,7 @@ typedef struct {
     int kernel, block, threads;
     double measured;
     bool cache_hit;
+    int measured_threads;
 } Plan;
 
 typedef struct {
@@ -34,8 +36,15 @@ typedef struct {
 } Run;
 
 typedef struct {
+    uint64_t affinity[COMPUTE_AFFINITY_WORDS];
+    unsigned eligible, features;
+    int teams[3], native_kernel;
+} TuneResources;
+
+typedef struct {
     ProblemShape shape;
-    int threads, kernel, block;
+    TuneResources resources;
+    int candidate;
     double seconds;
 } TuneEntry;
 
@@ -129,19 +138,35 @@ static int requested_threads(VM *v, Val value) {
     return (int)value.i;
 }
 
+static bool fits(size_t available, size_t output, size_t workspace) {
+    return output <= available && workspace <= available - output;
+}
+
 static void checked_workspace(VM *v, size_t output, size_t workspace) {
-    size_t available = tensor_memory_available(v);
-    if (workspace > available || output > available - workspace)
+    if (!fits(tensor_memory_available(v), output, workspace))
         vmerror_kind(v, "memory_budget", "compute output and workspace exceed the tensor budget");
 }
 
-static double *reserve(VM *v, size_t bytes) {
+static double *reserve(VM *v, size_t bytes, Obj *first, Obj *second) {
     if (!bytes)
         return NULL;
     unsigned char *memory = tensor_workspace_acquire(v, bytes);
-    if (!memory)
+    if (!memory) {
+        tensor_buffer_discard(v, first->as.tensor.buffer);
+        if (second)
+            tensor_buffer_discard(v, second->as.tensor.buffer);
         vmerror_kind(v, "memory_budget", "unable to reserve compute workspace");
+    }
     return (double *)memory;
+}
+
+static int plan_team(VM *v, const Plan *p) {
+    const int *d = p->shape.dimensions;
+    int threads = cpu_thread_cap(v, p->threads);
+    return p->kernel == KERNEL_TILED
+               ? compute_tiled_team(d[AXIS_ROWS], p->shape.rhs_rank, p->flops / 2, p->block,
+                                    threads, p->workspace != 0)
+               : cpu_matmul_team(threads, d[AXIS_ROWS], d[AXIS_DEPTH], d[AXIS_COLUMNS]);
 }
 
 static double *output_data(Obj *out) {
@@ -191,14 +216,19 @@ static double timed_run(VM *v, const MatmulProblem *p, const Plan *plan, double 
     return wall_seconds() - start;
 }
 
-static double trial(VM *v, const MatmulProblem *p, const Plan *plan, double *out, double *work) {
+static double trial(VM *v, const MatmulProblem *p, Plan *plan, double *out, double *work,
+                    bool *stable) {
     enum { SAMPLES = 3 };
     double times[SAMPLES];
     memset(out, 0, plan->output);
-    run_into(p, v, plan, out, work);
+    plan->measured_threads = run_into(p, v, plan, out, work).threads;
     for (int i = 0; i < SAMPLES; i++) {
         Run report;
         times[i] = timed_run(v, p, plan, out, work, &report);
+        if (report.threads != plan->measured_threads) {
+            *stable = false;
+            plan->measured_threads = 0;
+        }
         if (!isfinite(times[i]))
             return NAN;
     }
@@ -206,22 +236,10 @@ static double trial(VM *v, const MatmulProblem *p, const Plan *plan, double *out
     return times[SAMPLES / 2];
 }
 
-static void tune(VM *v, const MatmulProblem *p, Plan *plan) {
+static void tune(VM *v, const MatmulProblem *p, Plan *plan, size_t outputs) {
     if (!plan->flops || plan->flops > UINT64_C(128000000) || plan->shape.mapped)
         vmerror_kind(v, "domain",
                      "compute tuning needs a nonempty heap problem of at most 64M terms");
-    struct ComputeState *state = compute_state(v);
-    for (unsigned i = 0; i < TUNE_CACHE_SIZE; i++) {
-        const TuneEntry *entry = &state->cache[i];
-        if (entry->threads == plan->threads && same_shape(&plan->shape, &entry->shape)) {
-            plan->kernel = entry->kernel;
-            plan->block = entry->block;
-            plan->measured = entry->seconds;
-            plan->cache_hit = true;
-            return;
-        }
-    }
-
     // Strict tiled kernels and the non-contracting native default are comparable candidates.
     Plan candidates[3] = {*plan, *plan, *plan};
     int count = 2;
@@ -234,32 +252,66 @@ static void tune(VM *v, const MatmulProblem *p, Plan *plan) {
     if (plan->kernel != KERNEL_TILED)
         count++;
 #endif
-    size_t workspace = 0;
-    for (int i = 0; i < count; i++)
+    TuneResources resources = {.features = v->cpu_features, .native_kernel = plan->kernel};
+    size_t workspace = 0, available = tensor_memory_available(v);
+    bool parallel = false;
+    for (int i = 0; i < count; i++) {
+        if (!fits(available, outputs, candidates[i].workspace))
+            continue;
+        resources.eligible |= 1u << i;
+        resources.teams[i] = plan_team(v, &candidates[i]);
+        parallel |= resources.teams[i] > 1;
         if (candidates[i].workspace > workspace)
             workspace = candidates[i].workspace;
-    checked_workspace(v, plan->output, workspace);
-    double *work = reserve(v, workspace);
-    Obj *out = typed_new(v, DT_F64, p->output.rank, p->output.shape);
-    double best = INFINITY;
-    for (int i = 0; i < count; i++) {
-        double measured = trial(v, p, &candidates[i], output_data(out), work);
-        if (measured < best) {
-            best = measured;
-            *plan = candidates[i];
+    }
+    if (!resources.eligible)
+        vmerror_kind(v, "memory_budget", "no compute tuning candidate fits the tensor budget");
+    bool cacheable =
+        (!parallel || !cpu_dynamic_teams()) && compute_tuning_placement(resources.affinity);
+    struct ComputeState *state = compute_state(v);
+    for (unsigned i = 0; cacheable && i < TUNE_CACHE_SIZE; i++) {
+        const TuneEntry *entry = &state->cache[i];
+        const TuneResources *old = &entry->resources;
+        if (old->eligible == resources.eligible && old->native_kernel == resources.native_kernel &&
+            old->features == resources.features &&
+            !memcmp(old->teams, resources.teams, sizeof old->teams) &&
+            !memcmp(old->affinity, resources.affinity, sizeof old->affinity) &&
+            same_shape(&entry->shape, &plan->shape)) {
+            *plan = candidates[entry->candidate];
+            plan->measured = entry->seconds;
+            plan->measured_threads = resources.teams[entry->candidate];
+            plan->cache_hit = true;
+            return;
         }
     }
-    tensor_buffer_discard(v, out->as.tensor.buffer);
+
+    Obj *out = typed_new(v, DT_F64, p->output.rank, p->output.shape);
+    double *work = reserve(v, workspace, out, NULL);
+    double best = INFINITY;
+    int winner = -1;
+    for (int i = 0; i < count; i++) {
+        if (!(resources.eligible & (1u << i)))
+            continue;
+        double measured = trial(v, p, &candidates[i], output_data(out), work, &cacheable);
+        cacheable &= candidates[i].measured_threads == resources.teams[i];
+        if (measured < best) {
+            best = measured;
+            winner = i;
+        }
+    }
     if (work)
         tensor_workspace_release(v, (unsigned char *)work);
-    if (!isfinite(best))
+    tensor_buffer_discard(v, out->as.tensor.buffer);
+    if (winner < 0)
         vmerror_kind(v, "backend", "monotonic clock unavailable for compute tuning");
+    *plan = candidates[winner];
     plan->measured = best;
-    state->cache[state->next++ % TUNE_CACHE_SIZE] =
-        (TuneEntry){plan->shape, plan->threads, plan->kernel, plan->block, best};
+    if (cacheable)
+        state->cache[state->next++ % TUNE_CACHE_SIZE] =
+            (TuneEntry){plan->shape, resources, winner, best};
 }
 
-static Plan make_plan(VM *v, const MatmulProblem *p, Val options) {
+static Plan make_plan(VM *v, const MatmulProblem *p, Val options, unsigned outputs) {
     Table *table = options_table(v, options);
     int seen = 0;
     Val kernel_option = option(table, "kernel", &seen);
@@ -317,7 +369,7 @@ static Plan make_plan(VM *v, const MatmulProblem *p, Val options) {
             ? (block_option.t == V_NIL ? COMPUTE_TILE_DEFAULT : compute_tile_size(v, block_option))
             : cpu_matmul_block(plan.kernel);
     if (autotune)
-        tune(v, p, &plan);
+        tune(v, p, &plan, outputs * plan.output);
     plan.workspace = plan.kernel == KERNEL_TILED ? compute_tiled_workspace(p, plan.block) : 0;
     return plan;
 }
@@ -347,7 +399,7 @@ static Val run_report(VM *v, Run run) {
 
 Val compute_plan(VM *v, Val a, Val b, Val options) {
     MatmulProblem problem = compute_matmul_problem(v, a, b);
-    Plan plan = make_plan(v, &problem, options);
+    Plan plan = make_plan(v, &problem, options, 1);
     Obj *obj = newobj_extra(v, O_COMPUTE_PLAN, sizeof plan);
     *(Plan *)(obj + 1) = plan;
     return objval(obj);
@@ -366,12 +418,7 @@ static Val estimate(const Plan *p, bool include_overhead) {
 
 Val compute_explain(VM *v, Val value) {
     const Plan *p = as_plan(v, value);
-    const int *d = p->shape.dimensions;
-    int threads = cpu_thread_cap(v, p->threads);
-    int team = p->kernel == KERNEL_TILED
-                   ? compute_tiled_team(d[AXIS_ROWS], p->shape.rhs_rank, p->flops / 2, p->block,
-                                        threads, p->workspace != 0)
-                   : cpu_matmul_team(threads, d[AXIS_ROWS], d[AXIS_DEPTH], d[AXIS_COLUMNS]);
+    int team = plan_team(v, p);
     Obj *map = newobj(v, O_MAP);
     field(v, map, "kernel", objval(string(v, kernel_name(p->kernel))));
     field(v, map, "block", p->block ? integer(p->block) : nil());
@@ -385,6 +432,7 @@ Val compute_explain(VM *v, Val value) {
     field(v, map, "lower_bound_seconds", estimate(p, false));
     field(v, map, "estimated_seconds", estimate(p, true));
     field(v, map, "measured_seconds", isfinite(p->measured) ? number(p->measured) : nil());
+    field(v, map, "measured_threads", thread_field(p->measured_threads));
     field(v, map, "cache_hit", boolean(p->cache_hit));
     return objval(map);
 }
@@ -396,8 +444,8 @@ Val compute_execute(VM *v, Val value, Val a, Val b) {
     if (!same_shape(&shape, &plan->shape))
         vmerror_kind(v, "shape", "compute plan does not match operand shape, strides or storage");
     checked_workspace(v, plan->output, plan->workspace);
-    double *workspace = reserve(v, plan->workspace);
     Obj *out = typed_new(v, DT_F64, p.output.rank, p.output.shape);
+    double *workspace = reserve(v, plan->workspace, out, NULL);
     Run run = run_into(&p, v, plan, output_data(out), workspace);
     if (workspace)
         tensor_workspace_release(v, (unsigned char *)workspace);
@@ -408,13 +456,6 @@ Val compute_execute(VM *v, Val value, Val a, Val b) {
 Val compute_last_run(VM *v) {
     return v->compute_state && v->compute_state->last.valid ? run_report(v, v->compute_state->last)
                                                             : nil();
-}
-
-void compute_clear_tuning(VM *v) {
-    if (v->compute_state) {
-        memset(v->compute_state->cache, 0, sizeof v->compute_state->cache);
-        v->compute_state->next = 0;
-    }
 }
 
 enum { COMPARE_MAX_REPEATS = 9 };
@@ -480,15 +521,15 @@ Val compute_compare(VM *v, Val a, Val b, Val options) {
     check_options(v, table, seen);
     MatmulProblem p = compute_matmul_problem(v, a, b);
     Comparison sides[2] = {0};
-    sides[0].plan = make_plan(v, &p, first);
-    sides[1].plan = make_plan(v, &p, second);
+    sides[0].plan = make_plan(v, &p, first, 2);
+    sides[1].plan = make_plan(v, &p, second, 2);
     size_t workspace = sides[0].plan.workspace > sides[1].plan.workspace ? sides[0].plan.workspace
                                                                          : sides[1].plan.workspace;
     size_t output = sides[0].plan.output;
     checked_workspace(v, 2 * output, workspace);
-    double *work = reserve(v, workspace);
     for (int i = 0; i < 2; i++)
         sides[i].result = typed_new(v, DT_F64, p.output.rank, p.output.shape);
+    double *work = reserve(v, workspace, sides[0].result, sides[1].result);
     bool clock_ok = true;
     for (int trial = 0; trial < warmups + repeats; trial++) {
         for (int order = 0; order < 2; order++) {

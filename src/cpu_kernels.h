@@ -34,6 +34,7 @@ int cpu_matmul_team(int threads, int m, int k, int n);
 int cpu_matmul_run(const VM *v, int kernel, int threads, int m, int k, int n, const double *a,
                    const double *b, double *c);
 bool cpu_parallel_available(void);
+bool cpu_dynamic_teams(void);
 int cpu_team_size(int requested, int partitions);
 static inline int cpu_thread_cap(const VM *v, int requested) {
     int cap = v->compute_thread_cap;
