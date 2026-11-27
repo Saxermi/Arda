@@ -45,7 +45,7 @@ SRC := $(wildcard src/*.c)
 OBJ := $(patsubst src/%.c,$(BUILD)/%.o,$(SRC))
 BIN := $(BUILD)/arda
 STAMP := $(BUILD)/flags.txt
-GENERATED := src/ode_source.h src/opt_source.h src/numerics_source.h src/uncertainty_source.h src/sim_source.h
+GENERATED := src/compute_source.h src/ode_source.h src/opt_source.h src/numerics_source.h src/uncertainty_source.h src/sim_source.h
 .PHONY: all arda test test-reference sanitize clean FORCE check-generated format format-check
 all: arda
 arda: $(BIN)
@@ -64,6 +64,8 @@ $(BIN): $(OBJ) $(STAMP)
 	$(CC) $(OBJ) $(LDFLAGS) $(LDLIBS) -o $@
 -include $(OBJ:.o=.d)
 
+src/compute_source.h: lib/compute.arda tools/embed_compute.py tools/embed_module.py
+	$(PYTHON) tools/embed_compute.py
 src/ode_source.h: lib/ode.arda tools/embed_ode.py tools/embed_module.py
 	$(PYTHON) tools/embed_ode.py
 src/opt_source.h: lib/opt.arda tools/embed_opt.py tools/embed_module.py
@@ -75,6 +77,7 @@ src/uncertainty_source.h: lib/uncertainty.arda tools/embed_uncertainty.py tools/
 src/sim_source.h: lib/sim.arda tools/embed_sim.py tools/embed_module.py
 	$(PYTHON) tools/embed_sim.py
 check-generated:
+	$(PYTHON) tools/embed_compute.py --check
 	$(PYTHON) tools/embed_sim.py --check
 	$(PYTHON) tools/embed_ode.py --check
 	$(PYTHON) tools/embed_opt.py --check

@@ -649,11 +649,14 @@ void install_tensor(VM *v, Obj *module);
 #define QUANT_BASE 2000
 #define SOLVER_BASE 2100
 #define FEM_BASE 2300
+#define CHECKPOINT_BASE 2400
 Obj *fem_module(VM *v);
 Val fem_call(VM *v, int id, int argc, Val *args);
+const char *fem_name(int id);
 #define PDE_BASE 2200
 Obj *pde_module(VM *v);
 Val pde_call(VM *v, int id, int argc, Val *args);
+const char *pde_name(int id);
 Obj *solver_module(VM *v);
 Val solver_call(VM *v, int id, int argc, Val *args);
 void solver_unwind(VM *v);

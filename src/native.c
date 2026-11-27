@@ -1,4 +1,5 @@
 #include "autodiff.h"
+#include "simulation_checkpoint.h"
 #include <time.h>
 static const char *names[] = {"len",        "push",      "pop",        "str",        "num",
                               "sqrt",       "heap",      "clock_gc",   "heap_bytes", "collect",
@@ -205,6 +206,8 @@ int64_t range_element(const Obj *range, uint64_t index) {
 }
 
 Val native_call(VM *v, int id, int argc, Val *a) {
+    if (id >= CHECKPOINT_BASE)
+        return checkpoint_call(v, id, argc, a);
     if (id >= FEM_BASE)
         return fem_call(v, id, argc, a);
     if (id >= PDE_BASE)
@@ -549,6 +552,8 @@ Obj *named_native_module(VM *v, const char *name, const char *const *names, size
 }
 
 Obj *native_module(VM *v, const char *name) {
+    if (!strcmp(name, "_checkpoint"))
+        return checkpoint_module(v);
     if (!strcmp(name, "fem"))
         return fem_module(v);
     if (!strcmp(name, "pde"))
@@ -565,7 +570,7 @@ Obj *native_module(VM *v, const char *name) {
         return units_module(v);
     if (!strcmp(name, "lowrank"))
         return lowrank_module(v);
-    if (!strcmp(name, "compute"))
+    if (!strcmp(name, "_compute"))
         return compute_module(v);
     if (!strcmp(name, "tensor"))
         return typed_tensor_module(v);

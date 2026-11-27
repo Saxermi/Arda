@@ -338,3 +338,29 @@ For conditioning, keep the bounded dense path and support exact diagonal
 ratios. Large sparse inverse-norm estimates would need a separate contract
 for reliable transpose solves.
 [Audit](research/implemented/ace-aule-audit.md)
+
+## 2026-11-27 — Ulmo experiment scheduling, restart and domain contracts
+
+Run sweep callbacks on the current VM in input order and stream each row
+synchronously. This gives a bounded active case count while existing kernels
+keep their own thread controls. An explicit LU, Cholesky or QR factor is passed
+through unchanged. Parallel or isolated workers would need a callback and
+object transfer contract, deterministic output ordering and shared resource
+accounting.
+
+Publish each checkpoint as one binary record with a solver identifier and
+validated state and metadata. Reusing the tensor writer's atomic publication
+keeps state and metadata together and preserves Float64 values. This format
+covers the RK45 and heat contracts. General serialization of VM objects or
+arbitrary callbacks would require an explicit integrity and compatibility
+model. Heat copies the state only on request so a later mutation of the
+public result cannot change that snapshot.
+
+Use one axis of contiguous slabs, with packed external faces and the existing
+stencil. This adds a local contract for testing future exchanges while keeping
+the boundary discretization identical. Multi-axis blocks and MPI transport can
+build on the same face ordering once a workload warrants their complexity.
+
+Run the implementation gate on the cloud machine for 0.20.5. The physical
+8 GB laptop gate belongs to the final 0.20.6 test branch alongside the clean
+release artifact. [Experiment contracts](research/implemented/ulmo-simulation.md#0205-experiments-and-domains)

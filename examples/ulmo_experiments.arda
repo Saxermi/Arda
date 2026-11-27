@@ -1,0 +1,30 @@
+import compute as c
+import mathdoc as m
+import numc as n
+import pde as p
+
+let grid = p.grid([4],1,"periodic")
+let initial = n.array([1,0,0,1])
+
+def run(diffusivity):
+    return p.heat(grid,initial,diffusivity,1,0.125)["solution"][0]
+
+def show(row):
+    if row["ok"]:
+        print("Sweep",row["index"],row["result"])
+
+let study = c.sweep([0.125,0.25,0.5],run,{"stream":show})
+print("Completed cases",study["succeeded"])
+
+let first = p.heat(grid,initial,0.25,0.5,0.125,{"checkpoint":true})
+p.heat_save("ulmo-heat.ckpt",first["checkpoint"],4096)
+let resumed = p.heat_resume("ulmo-heat.ckpt",0.5)
+let whole = p.heat(grid,initial,0.25,1,0.125)
+print("Resumed time and difference",resumed["time"],n.norm(whole["solution"]-resumed["solution"]))
+
+let left = n.array([1,0])
+let right = n.array([0,1])
+let lower = p.subdomain_face(grid,0,2,1,right,"upper")
+let upper = p.subdomain_face(grid,0,2,1,right,"lower")
+print("First slab",n.tolist(p.apply_subdomain(grid,0,2,0,left,lower,upper)))
+print(m.getAssumptions(p.heat))

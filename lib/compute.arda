@@ -1,0 +1,90 @@
+tol _compute as _native
+
+esta memory_stats = _native.memory_stats
+esta memory_budget = _native.memory_budget
+esta trim_pool = _native.trim_pool
+esta plan = _native.plan
+esta stream_stats = _native.stream_stats
+esta cpu = _native.cpu
+esta matmul_kernel = _native.matmul_kernel
+esta vector_math = _native.vector_math
+esta threads = _native.threads
+esta tiled_matmul = _native.tiled_matmul
+esta axpy = _native.axpy
+esta mul_add = _native.mul_add
+esta fused_products = _native.fused_products
+esta map_reduce = _native.map_reduce
+esta explain = _native.explain
+esta execute = _native.execute
+esta last_run = _native.last_run
+esta compare = _native.compare
+esta topology = _native.topology
+esta affinity = _native.affinity
+esta first_touch = _native.first_touch
+
+caro _callable(f):
+    esta kind = type(f)
+    nan kind == "function" or kind == "native" or kind == "method"
+
+caro _sweep_config(options):
+    esta config = {"max_cases":10000,"max_errors":100,"stream":mun,"factor":mun}
+    qui options != mun:
+        qui type(options) != "map":
+            throw {"code":"type","message":"sweep options must be a map"}
+        an key in keys(options):
+            esta value = options[key]
+            qui key == "stream":
+                qui value != mun and not _callable(value):
+                    throw {"code":"type","message":"sweep stream must be callable"}
+            elif key == "factor":
+                qui value != mun and type(value) != "factor":
+                    throw {"code":"type","message":"sweep factor must be a linear algebra factor"}
+            elif key == "max_cases" or key == "max_errors":
+                qui type(value) != "int" or value < 0 or value > 1000000:
+                    throw {"code":"domain","message":"sweep limits must be integers in 0..1000000"}
+            ai:
+                throw {"code":"domain","message":"unknown sweep option: " + key}
+            config[key] = value
+    nan config
+
+# The VM schedules one case at a time. Native kernels can use their own teams.
+caro sweep(cases, run, options = mun):
+    qui not _callable(run) or (type(cases) != "list" and type(cases) != "range"):
+        throw {"code":"type","message":"sweep expects a list or range and a callable"}
+    esta config = _sweep_config(options)
+    qui len(cases) > config["max_cases"]:
+        throw {"code":"sweep_limit","message":"sweep case count exceeds max_cases"}
+    qui type(cases) == "list":
+        cases = cases[:]
+    esta stream = config["stream"]
+    esta factor = config["factor"]
+    esta results = []
+    esta errors = []
+    esta failed = 0
+    esta index = 0
+    an item in cases:
+        esta value = mun
+        esta ok = nae
+        try:
+            qui factor == mun:
+                value = run(item)
+            ai:
+                value = run(item,factor)
+        catch error:
+            value = error
+            ok = law
+        esta row = {"index":index,"ok":ok}
+        qui ok:
+            row["result"] = value
+            qui stream == mun:
+                push(results,row)
+        ai:
+            row["error"] = value
+            failed = failed + 1
+            qui len(errors) < config["max_errors"]:
+                push(errors,{"index":index,"error":value})
+        qui stream != mun:
+            stream(row)
+        index = index + 1
+    nan {"results":results,"errors":errors,"succeeded":index-failed,"failed":failed,
+         "errors_truncated":failed > len(errors)}

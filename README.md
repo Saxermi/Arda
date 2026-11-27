@@ -12,7 +12,7 @@ Its long-term goal is to combine scientifically validated numerical algorithms w
 
 *Development codename: Mithril*
 
-**Development version** — Arda 0.20.4 — Scientific Simulation
+**Development version** — Arda 0.20.5 — Experiments and Domains
 
 Use `compute.cpu()` to inspect CPU features. An `OPENMP=1` build can use `compute.threads(2)` for large native Float64 matrix products and AXPY. The normal build and default runtime setting run these kernels serially. [Kernel controls, benchmark results, and build options](research/implemented/transforms-and-kernels.md#0182-controlled-cpu-parallelism)
 
@@ -33,6 +33,11 @@ parameters. An opt-in path adds newest-vertex bisection, locally conservative mi
 Darcy flow, and RK4 stage-tape reuse. [Method comparison](research/implemented/ulmo-simulation.md#alternative-ulmo-methods) · [Simulation contracts](research/implemented/ulmo-simulation.md) ·
 [Time integration](examples/ulmo.arda) · [FEM and Darcy flow](examples/ulmo_fem.arda) ·
 [Sensitivities](examples/ulmo_sensitivity.arda)
+
+`compute.sweep` runs bounded parameter studies and can stream each outcome while
+reusing an existing linear algebra factor. RK45 and heat runs can save persistent
+checkpoints. The PDE module exposes Cartesian slab layouts and explicit ghost faces,
+and MathDoc describes the supported discretizations. [Experiment contracts](research/implemented/ulmo-simulation.md#0205-experiments-and-domains)
 
 **Wiki** — [Quickstart, language and module guides, and AMDE examples](https://github.com/Saxermi/Arda/wiki)
 

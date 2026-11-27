@@ -1,5 +1,7 @@
 #include "pde.h"
+#include "simulation_checkpoint.h"
 #include "solver.h"
+#include "typed_tensor.h"
 #include <float.h>
 
 #define A(o) ((o)->as.array)
@@ -14,6 +16,11 @@ typedef struct {
     unsigned char boundary[AXES];
     int rank;
 } Grid;
+
+typedef struct {
+    int axis;
+    const double *lower, *upper;
+} GhostFaces;
 
 static Val entry(Val options, const char *name) {
     Entry *e = options.t == V_NIL ? NULL : tablefind(&options.o->as.map.tab, name);
@@ -103,23 +110,30 @@ long double pde_operator_norm(const Obj *grid) {
     return norm;
 }
 
-static Grid grid_layout(const Obj *op) {
-    Grid g = {.n = (size_t)L(op).rows, .rank = L(op).grid_rank};
+static void grid_strides(Grid *g) {
     size_t stride = 1;
-    for (int i = g.rank; i-- > 0;) {
+    for (int i = g->rank; i-- > 0;) {
+        g->stride[i] = stride;
+        stride *= g->length[i];
+    }
+    g->n = stride;
+}
+
+static Grid grid_layout(const Obj *op) {
+    Grid g = {.rank = L(op).grid_rank};
+    for (int i = 0; i < g.rank; i++) {
         g.length[i] = (size_t)L(op).extent[i];
-        g.stride[i] = stride;
         g.weight[i] = L(op).weights[i];
         g.boundary[i] = L(op).boundary[i];
-        stride *= g.length[i];
     }
+    grid_strides(&g);
     return g;
 }
 
 /* Evaluate one axis contribution using zero Dirichlet ghosts, reflected face
  * values for zero Neumann diffusion, or periodic wrapping. */
 static void stencil(const Grid *g, const double *x, size_t xs, double *y, size_t ys,
-                    double diffusion, const double *courant) {
+                    double diffusion, const double *courant, const GhostFaces *ghosts) {
     for (size_t start = 0; start < g->n; start += TILE) {
         size_t end = g->n - start < TILE ? g->n : start + TILE;
         for (size_t idx = start; idx < end; idx++)
@@ -129,7 +143,8 @@ static void stencil(const Grid *g, const double *x, size_t xs, double *y, size_t
             unsigned char bc = g->boundary[axis];
             double coefficient = g->weight[axis] * diffusion;
             double drift = courant ? courant[axis] : 0;
-            if ((!coefficient && !drift) || (width == 1 && bc != DIRICHLET))
+            const GhostFaces *faces = ghosts && ghosts->axis == axis ? ghosts : NULL;
+            if ((!coefficient && !drift) || (width == 1 && bc != DIRICHLET && !faces))
                 continue;
             size_t span = width * stride, wrap = span - stride;
             for (size_t begin = start; begin < end;) {
@@ -148,6 +163,13 @@ static void stencil(const Grid *g, const double *x, size_t xs, double *y, size_t
                                       : bc == PERIODIC ? u - wrap * xs
                                       : bc == NEUMANN  ? u
                                                        : NULL;
+                if (faces && ((first && faces->lower) || (last && faces->upper))) {
+                    size_t offset = (begin / span) * stride + position % stride;
+                    if (first && faces->lower)
+                        left = faces->lower + offset;
+                    if (last && faces->upper)
+                        right = faces->upper + offset;
+                }
                 bool closed_in = first && bc == NEUMANN, closed_out = last && bc == NEUMANN;
                 double *out = y + begin * ys;
                 for (size_t i = 0; i < count; i++) {
@@ -169,7 +191,108 @@ static void stencil(const Grid *g, const double *x, size_t xs, double *y, size_t
 
 void pde_operator_apply(const void *context, const double *x, size_t xs, double *y, size_t ys) {
     Grid g = grid_layout(context);
-    stencil(&g, x, xs, y, ys, 1, NULL);
+    stencil(&g, x, xs, y, ys, 1, NULL, NULL);
+}
+
+typedef struct {
+    Grid grid;
+    int axis, index, parts, lower, upper;
+    size_t origin, face_size;
+} Subdomain;
+
+static int partition_int(VM *v, Val value, int min, int max, const char *name) {
+    if (value.t != V_INT || value.i < min || value.i > max)
+        vmerror_kind(v, "domain", "PDE partition %s must be an integer in %d..%d", name, min, max);
+    return (int)value.i;
+}
+
+static Subdomain subdomain(VM *v, Val *a) {
+    Subdomain part = {.grid = grid_layout(grid_object(v, a[0])), .lower = -1, .upper = -1};
+    part.axis = partition_int(v, a[1], 0, part.grid.rank - 1, "axis");
+    int length = (int)part.grid.length[part.axis];
+    part.parts = partition_int(v, a[2], 1, length, "parts");
+    part.index = partition_int(v, a[3], 0, part.parts - 1, "index");
+    int width = length / part.parts, extra = length % part.parts;
+    part.origin = (size_t)width * part.index + (part.index < extra ? part.index : extra);
+    part.grid.length[part.axis] = (size_t)(width + (part.index < extra));
+    grid_strides(&part.grid);
+    part.face_size = part.grid.n / part.grid.length[part.axis];
+    if (part.parts > 1) {
+        bool periodic = part.grid.boundary[part.axis] == PERIODIC;
+        part.lower = part.index > 0 ? part.index - 1 : periodic ? part.parts - 1 : -1;
+        part.upper = part.index + 1 < part.parts ? part.index + 1 : periodic ? 0 : -1;
+    }
+    return part;
+}
+
+static Val describe_subdomain(VM *v, Subdomain part) {
+    Obj *result = newobj(v, O_MAP), *origin = list(v), *shape = list(v), *face = list(v);
+    for (int i = 0; i < part.grid.rank; i++) {
+        Val extent = integer((int64_t)part.grid.length[i]);
+        append(v, origin, integer(i == part.axis ? (int64_t)part.origin : 0));
+        append(v, shape, extent);
+        if (i != part.axis)
+            append(v, face, extent);
+    }
+    sparse_result_field(v, result, "origin", objval(origin));
+    sparse_result_field(v, result, "shape", objval(shape));
+    sparse_result_field(v, result, "face_shape", objval(face));
+    sparse_result_field(v, result, "face_elements", integer((int64_t)part.face_size));
+    sparse_result_field(v, result, "lower", part.lower < 0 ? nil() : integer(part.lower));
+    sparse_result_field(v, result, "upper", part.upper < 0 ? nil() : integer(part.upper));
+    return objval(result);
+}
+
+static Val subdomain_face(VM *v, Subdomain part, Val value, Val side) {
+    const char *name = asstr(v, side);
+    bool upper = !strcmp(name, "upper");
+    if (!upper && strcmp(name, "lower"))
+        vmerror_kind(v, "domain", "PDE face must be lower or upper");
+    TypedTensor state = typed_tensor(v, value);
+    if (state.rank != 1 || state.dtype != DT_F64 || state.n != part.grid.n)
+        vmerror_kind(v, "shape", "PDE subdomain state must be a matching Float64 vector");
+    Obj *out = array_new(v, 1, (int)part.face_size, 1);
+    size_t stride = part.grid.stride[part.axis], span = part.grid.length[part.axis] * stride;
+    size_t base = upper ? span - stride : 0;
+    for (size_t i = 0; i < part.face_size; i++) {
+        size_t position = (i / stride) * span + base + i % stride;
+        double value;
+        memcpy(&value, typed_element(&state, typed_offset(&state, position)), sizeof value);
+        if (!isfinite(value))
+            vmerror_kind(v, "domain", "PDE face values must be finite");
+        A(out).data[i] = value;
+    }
+    return objval(out);
+}
+
+static Val apply_subdomain(VM *v, Subdomain part, Val state, Val lower, Val upper) {
+    bool has_lower = part.lower >= 0, has_upper = part.upper >= 0;
+    if (has_lower != (lower.t != V_NIL) || has_upper != (upper.t != V_NIL))
+        vmerror_kind(v, "shape", "PDE ghost faces must match the subdomain neighbors");
+    size_t work = part.grid.n + (has_lower + has_upper) * part.face_size;
+    SolverOptions budget = {.workspace_limit = SIZE_MAX};
+    size_t bytes = part.grid.n * sizeof(double);
+    Obj *buffer = solver_workspace(v, work * sizeof(double), 0, bytes, &budget);
+    double *input = (double *)buffer->as.buffer.data;
+    solver_read_vector(v, state, part.grid.n, input);
+    GhostFaces faces = {.axis = part.axis};
+    double *ghost = input + part.grid.n;
+    if (has_lower) {
+        solver_read_vector(v, lower, part.face_size, ghost);
+        faces.lower = ghost;
+        ghost += part.face_size;
+    }
+    if (has_upper) {
+        solver_read_vector(v, upper, part.face_size, ghost);
+        faces.upper = ghost;
+    }
+    Obj *out = array_new(v, 1, (int)part.grid.n, 1);
+    stencil(&part.grid, input, 1, A(out).data, 1, 1, NULL, has_lower || has_upper ? &faces : NULL);
+    for (size_t i = 0; i < part.grid.n; i++)
+        if (!isfinite(A(out).data[i]))
+            vmerror_kind(v, "pde_nonfinite", "nonfinite subdomain stencil result");
+    solver_workspace_done(v, buffer);
+    return objval(out);
 }
 
 static Val poisson(VM *v, Val op, Val rhs, Val settings) {
@@ -236,19 +359,23 @@ typedef struct {
     SolverOptions budget;
     int max_steps;
     double duration, dt;
+    bool checkpoint;
 } TimeGrid;
 
-static TimeGrid time_grid(VM *v, Val time, Val step, Val settings) {
+static TimeGrid time_grid(VM *v, Val time, Val step, Val settings, bool heat) {
     if (settings.t != V_NIL && !isobj(settings, O_MAP))
         vmerror_kind(v, "type", "PDE time options must be a map");
-    static const char *const names[] = {"max_steps", "workspace_bytes"};
-    if (isobj(settings, O_MAP) && !known_options(&settings.o->as.map.tab, names, 2))
+    static const char *const names[] = {"max_steps", "workspace_bytes", "checkpoint"};
+    if (isobj(settings, O_MAP) && !known_options(&settings.o->as.map.tab, names, heat ? 3 : 2))
         vmerror_kind(v, "domain", "unknown PDE time option");
     double duration = asnum(v, time), dt = asnum(v, step);
     if (!(duration >= 0 && dt > 0) || !isfinite(duration) || !isfinite(dt))
         vmerror_kind(v, "domain",
                      "PDE duration and step must be finite with duration >= 0 and step > 0");
     Val cap = entry(settings, "max_steps"), bytes = entry(settings, "workspace_bytes");
+    Val checkpoint = entry(settings, "checkpoint");
+    if (checkpoint.t != V_NIL && checkpoint.t != V_BOOL)
+        vmerror_kind(v, "type", "PDE checkpoint option must be Boolean");
     if (cap.t != V_NIL && (cap.t != V_INT || cap.i < 1 || cap.i > INT_MAX))
         vmerror_kind(v, "domain", "PDE max_steps must be a positive integer within Int32");
     int max_steps = cap.t == V_NIL ? 100000 : (int)cap.i;
@@ -258,7 +385,11 @@ static TimeGrid time_grid(VM *v, Val time, Val step, Val settings) {
         vmerror_kind(v, "domain", "PDE workspace_bytes must be a nonnegative integer");
     SolverOptions budget = {.workspace_limit =
                                 bytes.t == V_NIL ? 256u * 1024u * 1024u : (size_t)bytes.i};
-    return (TimeGrid){.budget = budget, .max_steps = max_steps, .duration = duration, .dt = dt};
+    return (TimeGrid){.budget = budget,
+                      .max_steps = max_steps,
+                      .duration = duration,
+                      .dt = dt,
+                      .checkpoint = checkpoint.t == V_BOOL && checkpoint.n != 0};
 }
 
 static double next_time(VM *v, TimeGrid t, int count, double now) {
@@ -320,7 +451,7 @@ static Val transport(VM *v, Obj *grid, Val initial, Val velocity, Val diffusion,
     double time = 0;
     while (time < t.duration) {
         double end = next_time(v, t, count, time), dt = end - time;
-        stencil(&g, x, 1, next, 1, k, velocity.t == V_NIL ? NULL : drift);
+        stencil(&g, x, 1, next, 1, k, velocity.t == V_NIL ? NULL : drift, NULL);
         for (size_t i = 0; i < g.n; i++) {
             next[i] = x[i] - dt * next[i];
             if (!isfinite(next[i]))
@@ -336,6 +467,106 @@ static Val transport(VM *v, Obj *grid, Val initial, Val velocity, Val diffusion,
         memcpy(A(out).data, x, bytes);
     solver_workspace_done(v, work);
     return time_result(v, out, count, time, (double)cfl);
+}
+
+static Val heat(VM *v, Obj *grid, Val initial, Val diffusivity, double start, TimeGrid t) {
+    double end = start + t.duration;
+    if (!isfinite(end) || (t.duration && end <= start))
+        vmerror_kind(v, "pde_limit", "heat continuation time is not representable");
+    Val result = transport(v, grid, initial, nil(), diffusivity, t);
+    if (start != 0)
+        sparse_result_field(v, result.o, "time", number(end));
+    if (t.checkpoint) {
+        Obj *snapshot = tensor_copy(v, entry(result, "solution").o);
+        A(snapshot).readonly = true;
+        Obj *record = newobj(v, O_MAP);
+        sparse_result_field(v, record, "version", integer(1));
+        sparse_result_field(v, record, "grid", objval(grid));
+        sparse_result_field(v, record, "state", objval(snapshot));
+        sparse_result_field(v, record, "time", number(end));
+        sparse_result_field(v, record, "dt", number(t.dt));
+        sparse_result_field(v, record, "diffusivity", number(asnum(v, diffusivity)));
+        sparse_result_field(v, result.o, "checkpoint", objval(record));
+    }
+    return result;
+}
+
+enum {
+    HEAT_TIME,
+    HEAT_STEP,
+    HEAT_DIFFUSIVITY,
+    HEAT_RANK,
+    HEAT_AXES,
+    HEAT_WORDS = HEAT_AXES + 3 * AXES
+};
+_Static_assert((int)HEAT_WORDS <= (int)CHECKPOINT_WORDS, "heat checkpoint metadata");
+
+static void heat_metadata(VM *v, const uint64_t words[CHECKPOINT_WORDS]) {
+    double time = checkpoint_double(words[HEAT_TIME]), dt = checkpoint_double(words[HEAT_STEP]),
+           diffusivity = checkpoint_double(words[HEAT_DIFFUSIVITY]);
+    if (!(time >= 0 && dt > 0 && diffusivity >= 0) || !isfinite(time) || !isfinite(dt) ||
+        !isfinite(diffusivity) || words[HEAT_RANK] < 1 || words[HEAT_RANK] > AXES)
+        vmerror_kind(v, "checkpoint_format", "invalid heat checkpoint constants or rank");
+    for (size_t i = HEAT_AXES + 3 * (size_t)words[HEAT_RANK]; i < CHECKPOINT_WORDS; i++)
+        if (words[i])
+            vmerror_kind(v, "checkpoint_format", "invalid reserved heat checkpoint metadata");
+}
+
+static Val heat_save(VM *v, Val path, Val record, Val budget) {
+    if (!isobj(record, O_MAP))
+        vmerror_kind(v, "checkpoint_format", "heat checkpoint must be a map");
+    Val version = entry(record, "version");
+    if (version.t != V_INT || version.i != 1)
+        vmerror_kind(v, "checkpoint_format", "invalid heat checkpoint version");
+    Obj *grid = grid_object(v, entry(record, "grid"));
+    Val state = entry(record, "state");
+    if (!isobj(state, O_ARRAY) || A(state.o).rank != 1 || A(state.o).n != (size_t)L(grid).rows)
+        vmerror_kind(v, "checkpoint_format", "heat checkpoint state has the wrong shape");
+    uint64_t words[CHECKPOINT_WORDS] = {
+        checkpoint_real(v, entry(record, "time")),
+        checkpoint_real(v, entry(record, "dt")),
+        checkpoint_real(v, entry(record, "diffusivity")),
+        (uint64_t)L(grid).grid_rank,
+    };
+    for (int i = 0; i < L(grid).grid_rank; i++) {
+        words[HEAT_AXES + 3 * i] = (uint64_t)L(grid).extent[i];
+        words[HEAT_AXES + 3 * i + 1] = checkpoint_real(v, number(L(grid).weights[i]));
+        words[HEAT_AXES + 3 * i + 2] = L(grid).boundary[i];
+    }
+    heat_metadata(v, words);
+    return checkpoint_save_state(v, path, CHECKPOINT_HEAT, state, words, budget);
+}
+
+static Val heat_resume(VM *v, Val path, Val duration, Val settings) {
+    uint64_t words[CHECKPOINT_WORDS];
+    Val state = checkpoint_load_state(v, path, CHECKPOINT_HEAT, words);
+    heat_metadata(v, words);
+    Obj *grid = newobj(v, O_LINOP);
+    L(grid).kind = LINOP_CARTESIAN;
+    L(grid).grid_rank = (int)words[HEAT_RANK];
+    size_t n = 1;
+    double weight_sum = 0;
+    for (int i = 0; i < L(grid).grid_rank; i++) {
+        uint64_t width = words[HEAT_AXES + 3 * i], boundary = words[HEAT_AXES + 3 * i + 2];
+        double weight = checkpoint_double(words[HEAT_AXES + 3 * i + 1]);
+        weight_sum += weight;
+        if (!width || width > ARDA_MAX_ELEMENTS / n || boundary > PERIODIC || !(weight > 0) ||
+            !isfinite(2 * weight_sum))
+            vmerror_kind(v, "checkpoint_format", "invalid heat checkpoint grid");
+        L(grid).extent[i] = (int)width;
+        L(grid).weights[i] = weight;
+        L(grid).boundary[i] = (unsigned char)boundary;
+        n *= (size_t)width;
+    }
+    if (!isobj(state, O_ARRAY) || A(state.o).rank != 1 || A(state.o).n != n)
+        vmerror_kind(v, "checkpoint_format", "heat checkpoint state has the wrong shape");
+    L(grid).rows = L(grid).cols = (int)n;
+    TimeGrid t =
+        time_grid(v, duration, number(checkpoint_double(words[HEAT_STEP])), settings, true);
+    Val result = heat(v, grid, state, number(checkpoint_double(words[HEAT_DIFFUSIVITY])),
+                      checkpoint_double(words[HEAT_TIME]), t);
+    tensor_buffer_discard(v, A(state.o).buffer);
+    return result;
 }
 
 static Val wave(VM *v, Obj *grid, Val initial, Val initial_speed, Val speed, TimeGrid t) {
@@ -354,7 +585,7 @@ static Val wave(VM *v, Obj *grid, Val initial, Val initial_speed, Val speed, Tim
     int count = 0;
     double time = 0;
     if (t.duration)
-        stencil(&g, x, 1, a, 1, squared, NULL);
+        stencil(&g, x, 1, a, 1, squared, NULL, NULL);
     while (time < t.duration) {
         double end = next_time(v, t, count, time), dt = end - time;
         for (size_t i = 0; i < g.n; i++) {
@@ -363,7 +594,7 @@ static Val wave(VM *v, Obj *grid, Val initial, Val initial_speed, Val speed, Tim
             if (!isfinite(x[i]))
                 vmerror_kind(v, "pde_nonfinite", "nonfinite wave displacement");
         }
-        stencil(&g, x, 1, a, 1, squared, NULL);
+        stencil(&g, x, 1, a, 1, squared, NULL, NULL);
         for (size_t i = 0; i < g.n; i++) {
             p[i] -= (dt / 2) * a[i];
             if (!isfinite(p[i]))
@@ -378,9 +609,23 @@ static Val wave(VM *v, Obj *grid, Val initial, Val initial_speed, Val speed, Tim
     return result;
 }
 
-enum { GRID, POISSON, HEAT, WAVE, TRANSPORT, GRID_SIZE };
-static const char *const names[] = {"grid",     "poisson", "heat", "wave", "advection_diffusion",
-                                    "grid_size"};
+enum { GRID, POISSON, HEAT, WAVE, TRANSPORT, GRID_SIZE, PARTITION, FACE, SUBDOMAIN, SAVE, RESUME };
+static const char *const names[] = {"grid",
+                                    "poisson",
+                                    "heat",
+                                    "wave",
+                                    "advection_diffusion",
+                                    "grid_size",
+                                    "partition",
+                                    "subdomain_face",
+                                    "apply_subdomain",
+                                    "heat_save",
+                                    "heat_resume"};
+
+const char *pde_name(int id) {
+    int index = id - PDE_BASE;
+    return index >= 0 && (size_t)index < sizeof names / sizeof *names ? names[index] : NULL;
+}
 
 Obj *pde_module(VM *v) {
     return named_native_module(v, "pde", names, sizeof names / sizeof *names, PDE_BASE);
@@ -394,14 +639,24 @@ static Val run(VM *v, int which, int argc, Val *a) {
     if (which == POISSON && (argc == 2 || argc == 3))
         return poisson(v, a[0], a[1], argc == 3 ? a[2] : nil());
     if (which == HEAT && (argc == 5 || argc == 6))
-        return transport(v, grid_object(v, a[0]), a[1], nil(), a[2],
-                         time_grid(v, a[3], a[4], argc == 6 ? a[5] : nil()));
+        return heat(v, grid_object(v, a[0]), a[1], a[2], 0,
+                    time_grid(v, a[3], a[4], argc == 6 ? a[5] : nil(), true));
     if (which == WAVE && (argc == 6 || argc == 7))
         return wave(v, grid_object(v, a[0]), a[1], a[2], a[3],
-                    time_grid(v, a[4], a[5], argc == 7 ? a[6] : nil()));
+                    time_grid(v, a[4], a[5], argc == 7 ? a[6] : nil(), false));
     if (which == TRANSPORT && (argc == 6 || argc == 7))
         return transport(v, grid_object(v, a[0]), a[1], a[2], a[3],
-                         time_grid(v, a[4], a[5], argc == 7 ? a[6] : nil()));
+                         time_grid(v, a[4], a[5], argc == 7 ? a[6] : nil(), false));
+    if (which == PARTITION && argc == 4)
+        return describe_subdomain(v, subdomain(v, a));
+    if (which == FACE && argc == 6)
+        return subdomain_face(v, subdomain(v, a), a[4], a[5]);
+    if (which == SUBDOMAIN && argc == 7)
+        return apply_subdomain(v, subdomain(v, a), a[4], a[5], a[6]);
+    if (which == SAVE && (argc == 2 || argc == 3))
+        return heat_save(v, a[0], a[1], argc == 3 ? a[2] : nil());
+    if (which == RESUME && (argc == 2 || argc == 3))
+        return heat_resume(v, a[0], a[1], argc == 3 ? a[2] : nil());
     vmerror(v, "invalid PDE API arity");
 }
 

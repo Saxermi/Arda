@@ -2,6 +2,13 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
+## 0.20.5 — Experiments and Domains
+
+- Added bounded `compute.sweep` with ordered streaming, case errors and explicit reuse of a supplied linear algebra factor.
+- Added versioned persistent checkpoint files for RK45 and Cartesian heat, including resume across processes.
+- Added local Cartesian slabs with explicit ghost-face extraction and a subdomain Laplacian.
+- Documented selected Ulmo ODE, PDE and FEM methods in AMDE. [Contracts and validation](research/implemented/ulmo-simulation.md#0205-experiments-and-domains)
+
 ## 0.20.4 — Differentiable Simulation
 
 - Fixed dense condition estimates returning infinity for representable results near the Float64 limit.

@@ -339,6 +339,11 @@ static const char *const names[] = {"mesh",        "nodes",    "elements", "asse
                                     "estimate",    "refine",   "integral", "darcy_velocity",
                                     "darcy_mixed", "hierarchy"};
 
+const char *fem_name(int id) {
+    int index = id - FEM_BASE;
+    return index >= 0 && (size_t)index < sizeof names / sizeof *names ? names[index] : NULL;
+}
+
 Obj *fem_module(VM *v) {
     return named_native_module(v, "fem", names, sizeof names / sizeof *names, FEM_BASE);
 }

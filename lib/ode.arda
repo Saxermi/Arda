@@ -602,3 +602,8 @@ caro bdf2(f,t0,y0,t1,h,options = mun):
 
 caro radau(f,t0,y0,t1,h,options = mun):
     nan _implicit("radau",f,t0,y0,t1,h,options)
+
+# Persistent restart records for RK45.
+tol _checkpoint as _checkpoint_io
+esta rk45_save = _checkpoint_io.rk45_save
+esta rk45_load = _checkpoint_io.rk45_load

@@ -15,7 +15,7 @@ This directory records the mathematics behind Arda's scientific features and com
 | [Scalar special functions, roots, interpolation, quadrature and distributions](implemented/mathematical-library.md) | |
 | [Sparse storage, algebra, assembly and solvers](implemented/sparse-matrices.md) | [Krylov methods, preconditioning and verification](planned/sparse-solvers.md) |
 | [Integration and differential equations](implemented/integration-and-odes.md) | [Simulation, discretization and adjoints](planned/simulation.md) |
-| [Ulmo simulation](implemented/ulmo-simulation.md) | [Simulation and discretization extensions](planned/simulation.md) |
+| [Ulmo simulation and experiments](implemented/ulmo-simulation.md) | [Simulation and discretization extensions](planned/simulation.md) |
 | [Optimization and automatic differentiation](implemented/optimization-and-ad.md) | [Tensor compression, tensor AD and mathematical introspection](planned/tensors-and-symbolics.md) |
 | [Aulë numerical solvers](implemented/aule-solvers.md) | [Advanced sparse solver extensions](planned/sparse-solvers.md) |
 | [Fourier transforms, tensors and numerical kernels](implemented/transforms-and-kernels.md) | [Memory, I/O, ACE, CPU, GPU and distributed execution](planned/computing-systems.md) |

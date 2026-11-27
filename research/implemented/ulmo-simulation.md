@@ -32,8 +32,8 @@ roots and multiple crossings of the same event within one accepted step can be m
 
 `ode.rk45_resume(f,checkpoint,t1[,options])` starts a new segment with the checkpoint's
 settings. Output callbacks and event definitions are provided for each segment.
-Adaptive counters measure the new segment. Persistent serialization belongs to a
-later milestone.
+Adaptive counters measure the new segment. Version 0.20.5 adds persistent
+serialization for the in-memory record.
 
 `ode.verlet(acceleration,t0,q,p,h,steps)` is the kick–drift–kick leapfrog form for
 unit mass, with acceleration depending on time and position. It supports finite
@@ -463,3 +463,113 @@ reuse counts, clipped reverse-time integration and unchanged stream ordering.
 [Benchmark driver](../../benchmarks/ulmo_alternatives.py) ·
 [Runtime tests](../../tests/test_ulmo_alternatives.py) ·
 [Independent references](../../tests/reference_ulmo_alternatives.py)
+
+## 0.20.5 Experiments and domains
+
+### Bounded parameter studies
+
+`compute.sweep(cases,run[,options])` invokes `run(case)` in input order for a
+list or lazy range. It takes a shallow snapshot of a list before invoking any
+callbacks. Each successful case produces a row with `index`, `ok` and
+`result`. A case failure produces `index`, `ok` and `error`, and scheduling
+continues. The returned map has `results`, `errors`, `succeeded`, `failed`
+and `errors_truncated`. The case cap is checked before execution.
+
+| Option | Contract |
+| --- | --- |
+| `max_cases` | Default 10,000. Maximum number of cases. |
+| `max_errors` | Default 100. Maximum number of retained error entries. |
+| `stream` | Synchronous callback called with each row. With this option the returned `results` list is empty. An error in the stream callback propagates. |
+| `factor` | A reusable LU, Cholesky or QR factor. Calls use `run(case,factor)`. The same factor is passed each time. |
+
+The VM keeps one case in flight. Native operations may use their configured
+teams. The caps accept integers from 0 to 1,000,000. Streaming holds one current
+row and the bounded error table, in addition to the case input and any references
+retained by callbacks. Cases may have ordinary VM side effects. Changes during a
+failed callback are the callback's responsibility.
+
+### Persistent RK45 and heat restart
+
+Save an RK45 run's in-memory checkpoint with
+`ode.rk45_save(path, checkpoint[, disk_budget])`. In a later process, call
+`ode.rk45_resume(rhs, ode.rk45_load(path), end_time[, options])`. The record
+stores the state, endpoint, proposed next step magnitude, tolerances and
+per-segment attempt limit. The caller supplies the RHS and any events or output
+callbacks for the new segment. Scalar Int64 and Float64 states and NumC Float64
+arrays preserve their payload precision and shape.
+
+For heat, enable `{"checkpoint":true}` when calling `pde.heat` and pass the
+returned `checkpoint` to `pde.heat_save(path, checkpoint[, disk_budget])`.
+`pde.heat_resume(path, additional_duration[, options])` restores the grid,
+diffusivity, nominal step and state. The reported time is cumulative, and the
+step count describes the new segment. Resume can produce a new checkpoint.
+The trajectory uses the existing segment step and final-step clipping rules.
+A split between nominal steps changes the numerical step sequence. Requesting a
+heat checkpoint adds one read-only state copy, charged against the tensor memory
+budget.
+
+Both APIs use a single versioned little-endian file. Writers sync a temporary
+file and atomically rename it on success. The optional disk limit is in bytes
+and covers the whole record. Readers validate the solver kind, dimensions,
+payload size, finite values and solver metadata. Checkpoint creation and reading
+take O(N) time for N state elements. [POSIX rename](https://pubs.opengroup.org/onlinepubs/9799919799/functions/rename.html)
+
+### Cartesian slabs and ghost faces
+
+`pde.partition(grid, axis, parts, index)` describes one zero-based slab with
+`origin`, `shape`, `face_shape`, `face_elements`, `lower` and `upper`.
+The first slabs receive one extra point when the axis length is unevenly
+divisible. Neighbor fields contain a slab index or `mun` at a physical
+boundary. Periodic partitions wrap around. When `parts=1`, the grid handles
+both sides directly. A one-dimensional ghost face contains one value.
+
+`pde.subdomain_face(grid, axis, parts, index, state, side)` extracts the
+`"lower"` or `"upper"` face as a packed Float64 vector. Each state is a
+flattened row-major vector in its local slab shape. A face removes the
+partitioned axis and follows transverse row-major order.
+`pde.apply_subdomain(grid, axis, parts, index, state, lower, upper)` computes
+the negative Laplacian using the supplied adjacent faces. Use `mun` on a side
+with no neighbor. The original grid boundary applies there. The caller provides
+matching neighboring states from the same time or iteration. The operator
+allocates bounded scratch for the local vector and its ghost faces. The
+interface is local and ready for an external exchange of the packed faces.
+[PETSc structured-grid ghost regions](https://petsc.org/release/manualpages/DMDA/DMDAGetGhostCorners/)
+
+AMDE descriptors for RK45, Cartesian stencils, Poisson, heat, wave,
+advection–diffusion and selected P1 FEM operations expose formulas,
+discretization, boundary assumptions and applicable conservation statements
+without running a simulation.
+
+The [experiment example](../../examples/ulmo_experiments.arda) writes a
+checkpoint into its working directory. Run it in a scratch directory.
+
+### Cloud validation for 0.20.5
+
+On the Linux x86-64 AMD EPYC 9V74 VM, all 305 runtime tests passed with
+portable GCC 14.2, Clang 19.1, GCC OpenMP, GCC OpenBLAS/LAPACK and GCC
+ASan/UBSan with leak detection. Of 92 numerical references, 75 passed in
+the portable builds and under sanitizers. OpenBLAS/LAPACK passed 85.
+Ten references require LAPACK and seven require optional JAX. Formatting
+and embedded module checks passed.
+
+The restart test saves in one process and resumes in another. The heat
+trajectory matched the uninterrupted trajectory exactly at the tested
+step-aligned times. The RK45 result matched analytical decay within the
+asserted tolerance. Slab tests used independent NumPy centered differences
+across axes, uneven splits, periodic joins, one-cell slabs and a tile boundary.
+The sweep tests cover ordered delivery, immutable factor reuse, bounded
+errors, early limit checks and a failing sink. [Runtime tests](../../tests/test_ulmo_experiments.py) ·
+[Slab references](../../tests/reference_ulmo_experiments.py)
+
+With one pinned CPU, GC stress and a 1 GiB virtual-memory cap, the heat,
+FEM, sensitivity and experiment examples completed. The heat and FEM
+examples peaked at 7,240 and 7,156 KiB RSS. Relative errors were 1.484e-8
+for heat and 1.153e-12 for the FEM nodal solution. The experiment example
+produced identical heat solutions for the uninterrupted and resumed runs.
+
+On the 256×256, 200-step heat example with GCC C11 and -O2, seven measured
+runs per revision after warm-up gave median solver times of 51.89 ms
+(51.19–83.55) for 0.20.4 and 51.71 ms (50.69–56.26) for 0.20.5. The
+relative errors were identical. The runs alternated the order of the
+versions on one pinned CPU. Physical 8 GB laptop validation belongs to
+the final 0.20.6 test branch. [Roadmap](../../ROADMAP.md#arda-020--scientific-simulation)

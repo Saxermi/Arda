@@ -2,6 +2,7 @@
 #include "autodiff.h"
 #include "activation_store.h"
 #include "cpu_kernels.h"
+#include "compute_source.h"
 #include "numerics_source.h"
 #include "ode_source.h"
 #include "sim_source.h"
@@ -673,6 +674,7 @@ static void module_import(VM *v, Frame *f, const char *name) {
     static const struct {
         const char *name, *path, *source;
     } stdlib[] = {
+        {"compute", "<stdlib:compute>", compute_source},
         {"ode", "<stdlib:ode>", ode_source},
         {"sim", "<stdlib:sim>", sim_source},
         {"opt", "<stdlib:opt>", opt_source},
