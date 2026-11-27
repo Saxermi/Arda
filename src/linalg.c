@@ -893,21 +893,60 @@ static Val linalg_eigen(VM *v, Val a, int symmetric) {
 #endif
 }
 
-double dense_condition_inf(VM *v, Obj *a, long double matrix_norm) {
-    int sign;
-    Obj *factor = factorize(v, a, LU, "condition estimate requires finite inputs", &sign);
-    if (!sign)
+double dense_condition_inf(VM *v, Obj *a) {
+    int n = A(a).rows;
+    Obj *f = new_factor(v, a, LU);
+    Obj *packed = F(f).packed;
+    double largest = 0;
+    for (size_t i = 0; i < A(packed).n; i++)
+        largest = fmax(largest, fabs(A(packed).data[i]));
+    if (!largest)
         return INFINITY;
-    Obj *inv = invert_lu_factor(v, factor);
-    long double inverse_norm = 0;
-    for (int i = 0; i < A(inv).rows; i++) {
+    // Power-of-two scaling preserves the condition number and avoids overflow
+    // of the inverse entries for well-conditioned matrices at extreme scales.
+    int exponent;
+    frexp(largest, &exponent);
+    long double matrix_norm = 0;
+    for (int i = 0; i < n; i++) {
         long double row = 0;
-        for (int j = 0; j < A(inv).cols; j++)
-            row += fabs(at(inv, i, j));
-        inverse_norm = fmaxl(inverse_norm, row);
+        for (int j = 0; j < n; j++) {
+            size_t at = index_at(packed, i, j);
+            double original = A(packed).data[at];
+            A(packed).data[at] = scalbn(original, -exponent);
+            row += fabs(A(packed).data[at]);
+        }
+        matrix_norm = fmaxl(matrix_norm, row);
     }
-    tensor_buffer_discard(v, A(inv).buffer);
-    return (double)(matrix_norm * inverse_norm);
+    if (!lu_factor(v, f))
+        return INFINITY;
+    Obj *work = buffer_new(v, (size_t)n * sizeof(long double));
+    long double *rows = (long double *)work->as.buffer.data, bound = DBL_MAX / matrix_norm;
+    Obj *column = array_new(v, 1, n, 1);
+    double *values = A(column).data;
+    const int *perm = (const int *)(f + 1);
+    // Accumulate row sums over the solves A*z=e_j. Never materialize A^-1.
+    for (int j = 0; j < n; j++) {
+        for (int i = 0; i < n; i++)
+            values[i] = perm[i] == j;
+        lu_forward(packed, column);
+        for (int i = n; i-- > 0;) {
+            long double value = values[i];
+            for (int k = i + 1; k < n; k++)
+                value -= (long double)at(packed, i, k) * values[k];
+            value /= at(packed, i, i);
+            if (!isfinite(value) || fabsl(value) > DBL_MAX)
+                return INFINITY;
+            values[i] = (double)value;
+            rows[i] += fabs(values[i]);
+            if (rows[i] > bound)
+                return INFINITY;
+        }
+    }
+    long double inverse_norm = 0;
+    for (int i = 0; i < n; i++)
+        inverse_norm = fmaxl(inverse_norm, rows[i]);
+    long double result = matrix_norm * inverse_norm;
+    return result > DBL_MAX ? INFINITY : (double)result;
 }
 
 static Val linalg_eigh(VM *v, Val a) {

@@ -194,3 +194,60 @@ print(supported)
                      "sp.cg", "sp.pcg", "sp.verify", "sp.workspace"):
             with self.subTest(name=name):
                 self.run_code(imports + f"pedo({name})", error="no attribute", stress=True)
+
+    def test_gmres_restarts_after_a_productive_near_invariant_cycle(self):
+        self.run_code(IMPORTS + """
+let a = n.array([[1,0],[0,2]])
+let b = n.array([1,1e-17])
+let good = s.solve("gmres",a,b,{"tol":1e-20,"restart":2})
+let cap = s.solve("gmres",a,b,{"tol":1e-20,"restart":1,"maxiter":1})
+print(good["reason"],good["iterations"],good["residual"],n.tolist(good["solution"]))
+print(cap["reason"],cap["iterations"],cap["converged"])
+let singular = s.solve("gmres",n.zeros(2,2),b)
+print(singular["reason"],singular["converged"])
+""", "converged 2 0 [1, 5e-18]\nmax_iterations 1 law\nnumerical_breakdown law",
+                      stress=True)
+
+    def test_scaled_residuals_and_condition_without_an_explicit_inverse(self):
+        self.run_code(IMPORTS + """
+let r = s.verify(l.diagonal(n.array([1,1])),n.array([1e308,0]),n.array([-1e308,0]))
+print(r["verified"],r["residual"],r["absolute_residual"],r["backward_error_inf"])
+let small = s.verify(n.array([[1e-310,0],[0,2e-310]]),n.array([1e-310,2e-310]),
+                     n.ones(2),{"condition":true})
+print(small["verified"],small["condition_inf"])
+let diag = n.ones(257)
+diag[0] = 1e-300
+diag[256] = 1e-100
+let cond = s.verify(l.diagonal(diag),diag,n.ones(257),{"condition":true})
+print(cond["verified"],abs(cond["condition_inf"]/1e300-1)<1e-12)
+diag[0] = 0
+let singular = s.verify(l.diagonal(diag),diag,n.ones(257),{"condition":true})
+print(singular["verified"],singular["condition_inf"])
+""", "law 2 inf 1\nnae 2\nnae nae\nnae inf", stress=True)
+
+    def test_cg_borrows_packed_rhs_and_accounts_for_a_signed_stride_copy(self):
+        self.run_code(IMPORTS + """
+import tensor as t
+let a = l.diagonal(n.array([2,4,8]))
+let flat = t.array([8,4,2],"float64")
+let rev = t.view(flat,[3],[-1],2)
+let packed = n.array([2,4,8])
+let answer = s.solve("cg",a,packed,{"tol":1e-12,"workspace_bytes":72})
+let strided = s.solve("cg",a,rev,{"tol":1e-12,"workspace_bytes":96})
+print(answer["workspace_bytes"],strided["workspace_bytes"],
+      n.norm(answer["solution"]-strided["solution"])==0,
+      n.norm(answer["solution"]-1)<1e-12,n.tolist(packed))
+try:
+    s.solve("cg",a,rev,{"workspace_bytes":95})
+catch e:
+    print(e["code"])
+""", "72 96 nae nae [2, 4, 8]\nmemory_budget", stress=True)
+
+    def test_ilu_zero_nnz_reports_a_missing_pivot_without_null_copy(self):
+        self.run_code(IMPORTS + """
+let zero = sp.csr(2,2,[0,0,0],[],[])
+try:
+    s.solve("gmres",zero,n.ones(2),{"preconditioner":"ilu0"})
+catch e:
+    print(e["code"])
+""", "solver_breakdown", stress=True)

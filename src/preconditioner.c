@@ -80,7 +80,8 @@ static void setup_incomplete(VM *v, Preconditioner *pc) {
     const Sparse *s = pc->csr;
     double *f = pc->factors;
     size_t *diag = pc->diagonal;
-    memcpy(f, s->values, s->nnz * sizeof(double));
+    if (s->nnz)
+        memcpy(f, s->values, s->nnz * sizeof(double));
     for (size_t i = 0; i < pc->n; i++) {
         size_t begin = s->offset[i], end = s->offset[i + 1], middle = begin;
         while (middle < end && s->col[middle] < i)

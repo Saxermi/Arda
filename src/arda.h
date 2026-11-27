@@ -705,7 +705,7 @@ Val mathdoc_attribute(VM *v, Val target, const char *name);
 int mathir_derivative_tex(VM *v, Obj *function, const char *parameter, char *out, size_t size);
 Obj *dense_lu_solve(VM *v, Obj *a, Obj *b);
 Obj *dense_lu_try_solve(VM *v, Obj *a, Obj *b);
-double dense_condition_inf(VM *v, Obj *a, long double matrix_norm);
+double dense_condition_inf(VM *v, Obj *a);
 Val sparse_call(VM *v, int id, int argc, Val *a);
 const char *sparse_name(int id);
 Obj *sparse_module(VM *v);

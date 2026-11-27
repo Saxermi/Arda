@@ -209,3 +209,40 @@ pedo(t.tolist(t.read_tile("file",[0],[2])))
             self.assertEqual(result.stdout, "nae\n0\n[1, 2]\n")
             self.assertEqual((root / "file").read_bytes(), original)
             self.assertEqual({path.name for path in root.iterdir()}, {"file", "fail.arda"})
+
+    def test_truncated_block_releases_unpublished_output_before_catch(self):
+        self.run_code("""
+        import tensor as t
+        import compute as c
+        t.save("blocks.atn",t.zeros([4],"float64"))
+        let blocks = t.blocks("blocks.atn",2)
+        collect()
+        let live = c.memory_stats()["tensor_heap_bytes"]
+        c.memory_budget(live+16)
+        write_text("blocks.atn","")
+        for attempt in range(2):
+            try:
+                for item in blocks:
+                    print(item)
+            catch e:
+                print(e["message"],c.memory_stats()["tensor_heap_bytes"]==live)
+        t.close_blocks(blocks)
+        """, "tensor block read failed or data was truncated nae\n"
+             "tensor block read failed or data was truncated nae")
+
+    def test_view_stride_extremes_obey_physical_bounds(self):
+        self.run_code("""
+        import tensor as t
+        let a = t.array([1,2,3,4],"float64")
+        print(t.tolist(t.view(a,[2,2],[-2,1],2)))
+        print(t.at(t.view(a,[2000000000],[0],1),[1999999999]))
+        for stride in [9223372036854775807,-9223372036854775807]:
+            try:
+                t.view(a,[2],[stride],1)
+            catch e:
+                print(type(e))
+        try:
+            t.view(a,[2147483647,2147483647,2147483647],[0,0,0],0)
+        catch e:
+            print(type(e))
+        """, "[[3, 4], [1, 2]]\n2\nmap\nmap\nmap", stress=True)

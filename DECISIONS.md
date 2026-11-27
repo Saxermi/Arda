@@ -320,3 +320,21 @@ with model-specific checkpoint byte costs could pick better retention points
 and would add scheduler and graph-memory accounting complexity.
 
 [Contracts and direct measurements](research/implemented/ulmo-simulation.md#alternative-ulmo-methods)
+
+## 2026-11-27 — Resource-scoped tuning and Krylov audit fixes
+
+Filter ACE candidates by the live output and scratch budget before tuning.
+Reuse measurements only with the same eligible choices, actual stable teams
+and known CPU placement. This preserves useful entries when returning to an
+earlier mask or budget. Timing reuse on multi-node systems would require a
+placement policy or measurements associated with particular allocations.
+
+Restart GMRES after a productive near-invariant cycle using the freshly
+computed residual. This recovers correctable roundoff without adding an
+unbounded retry policy. Keep the public tolerance tied to verified residuals.
+Borrow packed right-hand sides and reuse transient CG vectors inside the
+synchronous solver. The copy path stays necessary for signed-stride inputs.
+For conditioning, keep the bounded dense path and support exact diagonal
+ratios. Large sparse inverse-norm estimates would need a separate contract
+for reliable transpose solves.
+[Audit](research/implemented/ace-aule-audit.md)

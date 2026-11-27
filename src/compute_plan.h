@@ -8,6 +8,5 @@ Val compute_explain(VM *v, Val plan);
 Val compute_execute(VM *v, Val plan, Val a, Val b);
 Val compute_last_run(VM *v);
 Val compute_compare(VM *v, Val a, Val b, Val options);
-void compute_clear_tuning(VM *v);
 
 #endif

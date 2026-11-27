@@ -1,11 +1,11 @@
 #include "solver.h"
 #include <float.h>
 
-size_t krylov_elements(SolverMethod method, size_t m, size_t n, int restart) {
+size_t krylov_elements(SolverMethod method, size_t m, size_t n, int restart, bool preconditioned) {
     size_t k = (size_t)restart;
     switch (method) {
     case SOLVER_CG:
-        return 4 * n;
+        return (preconditioned ? 4 : 3) * n;
     case SOLVER_MINRES:
         return 7 * n;
     case SOLVER_GMRES:
@@ -41,7 +41,8 @@ static void plus(size_t n, double *x, double factor, const double *y) {
 static bool cg_iteration(SolverProblem *p, double *r, double *z, double *d, double *q,
                          long double *old, bool restart) {
     size_t n = p->op.cols;
-    preconditioner_apply(&p->preconditioner, r, z);
+    if (z != r)
+        preconditioner_apply(&p->preconditioner, r, z);
     long double rho = linear_dot(n, r, z);
     if (!(rho > 0) || !isfinite(rho))
         return false;
@@ -69,7 +70,8 @@ static bool cg_iteration(SolverProblem *p, double *r, double *z, double *d, doub
 
 static void cg(SolverProblem *p, double *r) {
     size_t n = p->op.cols;
-    double *z = r + n, *d = z + n, *q = d + n;
+    double *d = r + n, *q = p->residual;
+    double *z = p->options.preconditioner == PC_NONE ? r : d + n;
     memcpy(r, p->b, n * sizeof(double));
     long double old = 0;
     bool restart = true;
@@ -195,12 +197,10 @@ static void gmres(SolverProblem *p, double *basis) {
         p->stop = STOP_BREAKDOWN;
         return;
     }
-    while (p->iterations < p->options.max_iterations) {
-        long double actual = solver_residual(p);
+    long double actual = solver_residual(p);
+    while (p->iterations < p->options.max_iterations && isfinite(actual)) {
         if (actual <= p->options.tolerance)
             return;
-        if (!isfinite(actual))
-            break;
         preconditioner_apply(&p->preconditioner, p->residual, q);
         long double beta = linear_norm(n, q, 1);
         if (!(beta > 0) || !isfinite(beta) || beta > DBL_MAX)
@@ -210,20 +210,24 @@ static void gmres(SolverProblem *p, double *basis) {
         memset(h, 0, pitch * restart * sizeof(double));
         g[0] = (double)beta;
         int taken = 0;
-        bool invariant = false;
+        bool invariant = false, breakdown = false;
         for (int j = 0; j < restart && p->iterations < p->options.max_iterations; j++) {
             double *c = h + (size_t)j * pitch;
             double length = arnoldi(p, basis, q, tmp, c, j);
-            if (!isfinite(length))
+            if (!isfinite(length)) {
+                breakdown = true;
                 break;
+            }
             for (int i = 0; i < j; i++) {
                 double next = cs[i] * c[i] + sn[i] * c[i + 1];
                 c[i + 1] = -sn[i] * c[i] + cs[i] * c[i + 1];
                 c[i] = next;
             }
             double rho = hypot(c[j], length);
-            if (!(rho > 0) || !isfinite(rho))
+            if (!(rho > 0) || !isfinite(rho)) {
+                breakdown = true;
                 break;
+            }
             cs[j] = c[j] / rho;
             sn[j] = length / rho;
             c[j] = rho;
@@ -240,13 +244,21 @@ static void gmres(SolverProblem *p, double *basis) {
         }
         if (!taken || !gmres_update(p, basis, h, g, tmp, taken, restart))
             break;
-        if (invariant) {
+        if (breakdown)
+            break;
+        if (p->iterations == p->options.max_iterations)
+            return;
+        // In finite precision the updated residual can point outside the
+        // nearly invariant basis. Restart only when the update made progress.
+        long double next = solver_residual(p);
+        if (invariant && isfinite(next) && next > p->options.tolerance &&
+            next >= actual * (1 - 8 * DBL_EPSILON)) {
             p->stop = STOP_STAGNATION;
             return;
         }
+        actual = next;
     }
-    if (p->iterations < p->options.max_iterations)
-        p->stop = STOP_BREAKDOWN;
+    p->stop = STOP_BREAKDOWN;
 }
 
 static void bicgstab(SolverProblem *p, double *r) {

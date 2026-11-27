@@ -9,7 +9,8 @@ import test_arda
 try:
     import numpy as np
     import scipy.linalg as la
-    from scipy.sparse.linalg import minres
+    from scipy.sparse import diags
+    from scipy.sparse.linalg import gmres, minres
 except ImportError:
     np = None
 
@@ -78,6 +79,42 @@ t.save("bicgstab.atn",r["solution"])
 """, ("gmres", "bicgstab"))
         for x in actual:
             np.testing.assert_allclose(x, la.solve(matrix, rhs), rtol=1e-10, atol=1e-11)
+
+    def test_gmres_preconditioned_scaled_nonnormal_system_at_two_restarts(self):
+        rng = np.random.default_rng(1920)
+        order = 17
+        normalized = 4*np.eye(order) + np.triu(rng.normal(0, 0.25, (order, order)), 1)
+        normalized += np.diag(np.full(order-1, -0.4), -1)
+        scale = np.logspace(-5, 5, order)
+        matrix = scale[:, None]*normalized
+        rhs = matrix @ rng.normal(size=order)
+        actual = self.run_problem({"a": matrix, "b": rhs}, """
+let a = t.mmap("a.atn")
+let b = t.mmap("b.atn")
+for k in [2,5]:
+    let r = s.solve("gmres",a,b,{"restart":k,"tol":1e-13,"preconditioner":"jacobi"})
+    print(r["reason"])
+    t.save("x"+str(k)+".atn",r["solution"])
+""", ("x2", "x5"))
+        m = diags(1/np.diag(matrix))
+        for restart, x in zip((2, 5), actual):
+            reference, info = gmres(matrix, rhs, M=m, restart=restart, rtol=1e-13, maxiter=400)
+            self.assertEqual(info, 0)
+            self.assertLess(la.norm(matrix@x-rhs)/la.norm(rhs), 1e-13)
+            np.testing.assert_allclose(x, reference, rtol=1e-9, atol=1e-10)
+
+    def test_gmres_near_invariant_directions_at_multiple_scales(self):
+        for exponent in (-300, 0, 300):
+            with self.subTest(exponent=exponent):
+                scale = np.ldexp(1., exponent)
+                matrix = scale*np.array([[1, 0], [0, 2**-18]])
+                rhs = scale*np.array([1, 2**-60])
+                recovered, = self.run_problem({"a": matrix, "b": rhs}, """
+let r = s.solve("gmres",t.mmap("a.atn"),t.mmap("b.atn"),{"restart":2,"tol":1e-22})
+print(r["reason"])
+t.save("x.atn",r["solution"])
+""", ("x",))
+                np.testing.assert_array_equal(recovered, la.solve(matrix, rhs))
 
     def test_rectangular_rank_deficient_least_squares(self):
         rng = np.random.default_rng(1903)

@@ -155,10 +155,11 @@ Val tensor_mmap(VM *v, Val path_value) {
 static Obj *read_flat(VM *v, int fd, DType dtype, size_t start, int count) {
     Obj *out = typed_new(v, dtype, 1, &count);
     size_t width = dtype_info[dtype].size;
-    return read_exact(fd, typed_element(&out->as.tensor, 0), (size_t)count * width,
-                      (off_t)(HEADER_SIZE + start * width))
-               ? out
-               : NULL;
+    if (read_exact(fd, typed_element(&out->as.tensor, 0), (size_t)count * width,
+                   (off_t)(HEADER_SIZE + start * width)))
+        return out;
+    tensor_buffer_discard(v, out->as.tensor.buffer);
+    return NULL;
 }
 
 Val tensor_read_block(VM *v, Val path_value, Val start, Val count) {
@@ -273,6 +274,7 @@ Val tensor_read_tile(VM *v, Val path_value, Val origin_value, Val shape_value) {
         if (!read_exact(fd, dst, row_length * width,
                         tile_row(&file, &layout, origin, i / row_length))) {
             close(fd);
+            tensor_buffer_discard(v, out->as.tensor.buffer);
             vmerror(v, "tensor tile read failed or data was truncated");
         }
     }

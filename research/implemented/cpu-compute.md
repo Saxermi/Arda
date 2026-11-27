@@ -50,7 +50,7 @@ The file tier estimates cold mapped-input traffic and does not measure cache mis
 Tuning accepts nonempty heap inputs with at most 64 million multiply-add terms. It runs one
 warm-up and three timed trials per candidate with a reused output and includes clearing that
 output. A per-VM cache retains the last eight measurements keyed by shape, strides, storage
-class and requested threads. Explicit kernel and block overrides bypass tuning. The tuning
+class, eligible candidate set, effective candidate teams, native dispatch and CPU affinity. Explicit kernel and block overrides bypass tuning. The tuning
 median models the sampled kernel on this machine and is reported separately from the analytical
 estimate. Tuning does not modify the VM-wide kernel or thread controls.
 

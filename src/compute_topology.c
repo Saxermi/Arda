@@ -1,6 +1,6 @@
 #define _GNU_SOURCE
 #include "compute_topology.h"
-#include "compute_plan.h"
+#include "typed_tensor.h"
 #include "cpu_kernels.h"
 #include <unistd.h>
 
@@ -170,6 +170,35 @@ static void hwloc_cpus(VM *v, Obj *cpus, hwloc_topology_t topology) {
 }
 #endif
 
+/* Reusing a timing across arbitrary heap operands is only defensible when
+ * the host has one memory node. On other hosts the candidate search still runs. */
+bool compute_tuning_placement(uint64_t mask[COMPUTE_AFFINITY_WORDS]) {
+#ifdef __linux__
+    cpu_set_t affinity;
+    if (CPU_SETSIZE > COMPUTE_AFFINITY_WORDS * 64 || !read_affinity(&affinity))
+        return false;
+    FILE *online = fopen("/sys/devices/system/node/online", "r");
+    if (!online)
+        return false;
+    char line[32];
+    bool single = false;
+    if (fgets(line, sizeof line, online)) {
+        size_t end = strspn(line, "0123456789");
+        single = end > 0 && line[end] == '\n';
+    }
+    fclose(online);
+    if (!single)
+        return false;
+    for (int cpu = 0; cpu < CPU_SETSIZE; cpu++)
+        if (CPU_ISSET(cpu, &affinity))
+            mask[cpu / 64] |= UINT64_C(1) << (cpu % 64);
+    return true;
+#else
+    (void)mask;
+    return false;
+#endif
+}
+
 Val compute_topology(VM *v) {
     Obj *cpus = list(v);
     const char *source = "unavailable";
@@ -233,7 +262,6 @@ Val compute_affinity(VM *v, int argc, Val *args) {
     state->initial = initial;
     state->changed = args[0].t != V_NIL;
     v->compute_thread_cap = state->changed ? CPU_COUNT(&actual) : 0;
-    compute_clear_tuning(v);
     return affinity_list(v, &actual);
 #else
     (void)argc;

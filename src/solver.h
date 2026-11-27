@@ -43,7 +43,8 @@ typedef struct {
     LinearOperator op;
     SolverOptions options;
     Preconditioner preconditioner;
-    double *b, *x, *residual, *normal;
+    const double *b;
+    double *x, *residual, *normal;
     long double rhs_norm, normal_rhs_norm;
     Obj *trace;
     int iterations;
@@ -73,7 +74,7 @@ Preconditioner preconditioner_setup(VM *v, Obj *input, const LinopContext *conte
                                     PreconditionerKind kind, unsigned char *memory);
 void preconditioner_apply(const Preconditioner *pc, const double *x, double *y);
 bool solver_update(size_t n, double *x, double alpha, const double *direction);
-size_t krylov_elements(SolverMethod method, size_t m, size_t n, int restart);
+size_t krylov_elements(SolverMethod method, size_t m, size_t n, int restart, bool preconditioned);
 long double krylov_orthogonalize(size_t n, const double *basis, int columns, double *vector,
                                  double *coefficients);
 long double solver_eigen_residual(LinearOperator op, double re, double im, const double *x,

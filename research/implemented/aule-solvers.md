@@ -130,10 +130,13 @@ future work.
 ## 0.19.4 verification, trace and execution contracts
 
 `solver.verify(A,b,x[,options])` recomputes the relative residual. It also reports the
-normwise infinity backward error and operator infinity norm for coefficient matrices,
-diagonal operators and Poisson stencils. For a square dense `numc` matrix of size at most
-128, `{"condition":true}` estimates `cond∞(A)` from the computed inverse. This opt-in
-operation needs `O(n³)` work and can be sensitive to roundoff.
+absolute residual and the normwise infinity backward error and operator infinity norm
+for coefficient matrices, diagonal operators and Poisson stencils. The
+`{"condition":true}` option reports `cond∞(A)` for a diagonal operator by its
+largest-to-smallest absolute coefficient ratio. For square dense `numc` matrices
+up to size 128 it computes an estimate from scaled LU and one-column solves,
+without forming an explicit inverse. The dense path needs `O(n³)` work and the
+estimate can be sensitive to roundoff.
 
 `solver.verify_eigen(A, lambda, x[,options])` accepts real and complex eigenpairs. Supply
 complex vector parts as `{"real": real_vector, "imag": imag_vector}`. The residual scales
