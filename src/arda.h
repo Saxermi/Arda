@@ -466,8 +466,8 @@ struct Obj {
             double weights[8];
         } linop;
         struct {
-            Obj *nodes, *elements;
-            int dimension, count;
+            Obj *nodes, *elements, *hierarchy;
+            int dimension, count, tree_count;
         } fem;
         Sparse sparse;
         SparseBuilder sparse_builder;

@@ -324,6 +324,10 @@ static Val solve(VM *v, SolverMethod method, Val input, Val rhs, Val settings) {
     return result;
 }
 
+Val solver_solve_minres(VM *v, Val input, Val rhs, Val settings) {
+    return solve(v, SOLVER_MINRES, input, rhs, settings);
+}
+
 Val solver_solve_cg(VM *v, Val input, Val rhs, Val settings) {
     return solve(v, SOLVER_CG, input, rhs, settings);
 }

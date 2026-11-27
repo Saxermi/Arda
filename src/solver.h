@@ -79,6 +79,7 @@ long double krylov_orthogonalize(size_t n, const double *basis, int columns, dou
 long double solver_eigen_residual(LinearOperator op, double re, double im, const double *x,
                                   const double *y, long double norm, double *ax, double *ay);
 void krylov_run(SolverProblem *p, SolverMethod method, double *work);
+Val solver_solve_minres(VM *v, Val input, Val rhs, Val settings);
 Val solver_solve_cg(VM *v, Val input, Val rhs, Val settings);
 Val solver_multigrid(VM *v, Val input, Val rhs, Val settings);
 Val solver_refine(VM *v, Val input, Val rhs, Val settings);

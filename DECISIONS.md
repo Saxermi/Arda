@@ -290,3 +290,33 @@ use a separate integrator. Its gradient approximates the continuous problem and 
 differ from the derivative of the numerical trajectory.
 
 [Methods, API and validation](research/implemented/ulmo-simulation.md)
+
+## 2026-11-27 — Alternatives for Ulmo refinement, flow and reverse replay
+
+**Status** — Owner requested the three alternatives and a comparison. Implemented
+as opt-in choices, with the original defaults available for the same problems.
+
+Newest-vertex bisection stores immutable parent and generation records, keeps
+the newest vertex on each leaf and closes the selected edges across adjacent
+triangles. It avoids the small angles observed in repeated partial midpoint
+subdivision on the benchmark grid. Closure can add triangles and retaining the
+tree uses memory. The existing midpoint path remains a compact option, and
+uniform midpoint subdivision does not exhibit the local benchmark's small-angle
+failure.
+
+The mixed triangular Darcy solver uses RT0 integrated edge flux and P0 cell
+pressure. It enforces the element balance and represents each internal edge
+flux once. Diagonally scaled MINRES reuses the sparse Krylov solver. The system
+has more unknowns and costs more than the P1 pressure solve followed by a
+gradient. Hybridization or an equivalent nonconforming pressure solve followed
+by flux reconstruction could reduce that cost and would require a separate
+assembly and reconstruction path.
+
+The stage-aware RK4 schedule holds a budgeted tail of differentiated steps
+during replay. It reuses each retained four-stage tape in the reverse sweep
+and cuts RHS invocations. The retained graphs increase tensor memory and GC
+work. The block schedule remains the default. A stage-aware dynamic program
+with model-specific checkpoint byte costs could pick better retention points
+and would add scheduler and graph-memory accounting complexity.
+
+[Contracts and direct measurements](research/implemented/ulmo-simulation.md#alternative-ulmo-methods)

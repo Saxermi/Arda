@@ -40,7 +40,7 @@ caro _callable(f):
 
 caro _config(options):
     esta out = {"checkpoint_stride": 32, "max_steps": 100000, "max_saved_states": 4096,
-                "stream": mun}
+                "checkpoint_strategy": "block", "max_stage_tapes": 2, "stream": mun}
     qui options != mun:
         qui type(options) != "map":
             _fail("type", "simulation options must be a map")
@@ -49,8 +49,11 @@ caro _config(options):
             qui key == "stream":
                 qui val != mun and not _callable(val):
                     _fail("type", "simulation stream must be callable")
+            elif key == "checkpoint_strategy":
+                qui val != "block" and val != "stages":
+                    _fail("domain", "unknown simulation checkpoint strategy")
             ai:
-                qui key != "checkpoint_stride" and key != "max_steps" and key != "max_saved_states":
+                qui key != "checkpoint_stride" and key != "max_steps" and key != "max_saved_states" and key != "max_stage_tapes":
                     _fail("domain", "unknown simulation option " + key)
                 qui type(val) != "int" or val < 1 or val > 100000000:
                     _fail("domain", "simulation limits must be integers in 1..100000000")
@@ -81,18 +84,21 @@ caro rk4(rhs):
         _fail("type", "simulation RK4 needs an RHS callable")
     caro step(t, y, p, h):
         nan _rk4_step(rhs, t, y, p, h)
+    caro record(t, y, p, h):
+        esta yy = _ad.variable(y)
+        esta pp = _ad.variable(p)
+        nan [step(t, yy, pp, h), yy, pp]
+    caro pullback(tape, seed):
+        nan [_ordinary(_ad.vjp(tape[0], tape[1], seed)),
+             _ordinary(_ad.vjp(tape[0], tape[2], seed))]
     caro forward(t, y, p, h, dy, dp):
-        esta yy = _ad.variable(y)
-        esta pp = _ad.variable(p)
-        esta z = step(t, yy, pp, h)
-        nan [_ordinary(_ad.value(z)), _ordinary(_ad.jvp(z, yy, dy)) +
-                                      _ordinary(_ad.jvp(z, pp, dp))]
+        esta tape = record(t, y, p, h)
+        nan [_ordinary(_ad.value(tape[0])), _ordinary(_ad.jvp(tape[0], tape[1], dy)) +
+                                            _ordinary(_ad.jvp(tape[0], tape[2], dp))]
     caro reverse(t, y, p, h, seed):
-        esta yy = _ad.variable(y)
-        esta pp = _ad.variable(p)
-        esta z = step(t, yy, pp, h)
-        nan [_ordinary(_ad.vjp(z, yy, seed)), _ordinary(_ad.vjp(z, pp, seed))]
-    nan {"step": step, "jvp": forward, "vjp": reverse, "heat": law}
+        nan pullback(record(t, y, p, h), seed)
+    nan {"step": step, "jvp": forward, "vjp": reverse, "heat": law,
+         "record": record, "pullback": pullback}
 
 caro heat(grid):
     esta count = _pde.grid_size(grid)
@@ -118,6 +124,8 @@ caro _setup(model, t0, y0, p, t1, h):
     nan [ys, ps, h]
 
 caro _advance(model, t0, y0, p, t1, h, size, config, mode, tangent = mun, dp = mun):
+    qui mode == "adjoint" and model["heat"] and config["checkpoint_strategy"] == "stages":
+        _fail("domain", "stage checkpoints require an RK4 model")
     esta t = t0
     esta y = y0
     esta step = 0
@@ -150,33 +158,67 @@ caro _reverse(model, t0, p, t1, h, seed, primal, sizes, config):
     esta block = len(saved) - 1
     esta gradient = p * 0.0
     esta replayed = 0
+    esta reused = 0
+    esta peak_slots = len(saved)
+    esta stage_mode = config["checkpoint_strategy"] == "stages"
+    esta stage_limit = config["max_stage_tapes"]
     tenna block >= 0:
         esta start = block * stride
-        qui len(saved) + stop - start - 1 > config["max_saved_states"]:
+        esta slots = len(saved) + stop - start - 1
+        qui slots > config["max_saved_states"]:
             _fail("memory_budget", "simulation replay state limit")
+        # One retained tape holds the four RK4 stages in addition to the
+        # restart states. Favor the tail of the block: those tapes die first.
+        esta capture = 0
+        qui stage_mode:
+            capture = int((config["max_saved_states"] - slots) / 4)
+            qui capture > stage_limit:
+                capture = stage_limit
+            qui capture > stop-start-1:
+                capture = stop-start-1
+        esta new_peak = slots + 4*capture
+        qui new_peak > peak_slots:
+            peak_slots = new_peak
         esta item = saved[block]
         esta t = item[0]
         esta y = item[1]
         esta steps = [item]
+        esta tapes = []
+        esta first_tape = stop - 1 - capture
         an i in range(start, stop - 1):
             esta next = _next_time(t0, t1, h, t, i)
-            y = _check(model["step"](t, y, p, next-t), sizes[0])
+            qui i >= first_tape:
+                esta tape = model["record"](t, y, p, next-t)
+                y = _check(_ordinary(_ad.value(tape[0])), sizes[0])
+                push(tapes, tape)
+            ai:
+                y = _check(model["step"](t, y, p, next-t), sizes[0])
             t = next
             push(steps, [t, y])
             replayed = replayed + 1
         esta i = stop - 1
         tenna i >= start:
-            esta state = steps[i - start]
-            t = state[0]
-            esta next = _next_time(t0, t1, h, t, i)
-            esta pair = model["vjp"](t, state[1], p, next-t, seed)
+            esta state = pop(steps)
+            esta pair = mun
+            qui i < stop - 1 and i >= first_tape:
+                pair = model["pullback"](pop(tapes), seed)
+                reused = reused + 1
+            ai:
+                t = state[0]
+                esta next = _next_time(t0, t1, h, t, i)
+                pair = model["vjp"](t, state[1], p, next-t, seed)
             seed = _check(pair[0], sizes[0])
             gradient = _check(gradient + _check(pair[1], sizes[1]), sizes[1])
             i = i - 1
         stop = start
         pop(saved)
         block = block - 1
-    nan {"initial_gradient": seed, "parameter_gradient": gradient, "recomputed_steps": replayed}
+    esta result = {"initial_gradient": seed, "parameter_gradient": gradient,
+                   "recomputed_steps": replayed, "reused_step_tapes": reused,
+                   "peak_checkpoint_slots": peak_slots}
+    qui not model["heat"]:
+        result["rhs_evaluations"] = 4*(2*primal["steps"] + replayed - reused)
+    nan result
 
 caro solve(model, t0, y0, p, t1, h, options = mun):
     esta sizes = _setup(model, t0, y0, p, t1, h)

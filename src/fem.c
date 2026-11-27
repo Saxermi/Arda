@@ -14,7 +14,12 @@ static int positive_count(VM *v, Val x) {
 }
 
 FemOptions fem_options(VM *v, Val value, bool refinement) {
-    FemOptions out = {number(1), number(0), SIZE_MAX, ARDA_MAX_ELEMENTS, ARDA_MAX_ELEMENTS, 0.5};
+    FemOptions out = {.diffusion = number(1),
+                      .reaction = number(0),
+                      .workspace = SIZE_MAX,
+                      .max_nodes = ARDA_MAX_ELEMENTS,
+                      .max_elements = ARDA_MAX_ELEMENTS,
+                      .fraction = 0.5};
     if (value.t == V_NIL)
         return out;
     if (!isobj(value, O_MAP))
@@ -32,6 +37,11 @@ FemOptions fem_options(VM *v, Val value, bool refinement) {
             out.max_nodes = positive_count(v, e.val);
         } else if (refinement && !strcmp(e.key, "max_elements")) {
             out.max_elements = positive_count(v, e.val);
+        } else if (refinement && !strcmp(e.key, "method")) {
+            const char *method = asstr(v, e.val);
+            if (strcmp(method, "midpoint") && strcmp(method, "nvb"))
+                vmerror_kind(v, "domain", "unknown FEM refinement method");
+            out.nvb = !strcmp(method, "nvb");
         } else if (refinement && !strcmp(e.key, "fraction")) {
             out.fraction = sparse_finite(v, e.val);
             if (out.fraction <= 0 || out.fraction > 1)
@@ -67,10 +77,17 @@ static FemMesh mesh_view(VM *v, Val x) {
     if (!isobj(x, O_FEM_MESH))
         vmerror_kind(v, "type", "expected a FEM mesh");
     Obj *mesh = x.o, *nodes = mesh->as.fem.nodes;
-    return (FemMesh){
-        nodes->as.array.data,   (const uint32_t *)mesh->as.fem.elements->as.buffer.data,
-        nodes->as.array.rows,   mesh->as.fem.count,
-        mesh->as.fem.dimension, mesh->as.fem.dimension + 1};
+    Obj *hierarchy = mesh->as.fem.hierarchy;
+    const FemBranch *tree = hierarchy ? (const FemBranch *)hierarchy->as.buffer.data : NULL;
+    return (FemMesh){.x = nodes->as.array.data,
+                     .cells = (const uint32_t *)mesh->as.fem.elements->as.buffer.data,
+                     .nodes = nodes->as.array.rows,
+                     .count = mesh->as.fem.count,
+                     .dimension = mesh->as.fem.dimension,
+                     .arity = mesh->as.fem.dimension + 1,
+                     .tree = tree,
+                     .leaves = tree ? (const uint32_t *)(tree + mesh->as.fem.tree_count) : NULL,
+                     .tree_count = hierarchy ? mesh->as.fem.tree_count : mesh->as.fem.count};
 }
 
 FemElement fem_geometry(VM *v, FemMesh mesh, const uint32_t *cell) {
@@ -183,7 +200,7 @@ FemData fem_read_data(VM *v, FemMesh m, Val source, Val boundary, FemOptions opt
     return d;
 }
 
-static uint32_t component(uint32_t *parent, uint32_t node) {
+uint32_t fem_component(uint32_t *parent, uint32_t node) {
     while (node != parent[node]) {
         parent[node] = parent[parent[node]];
         node = parent[node];
@@ -198,16 +215,16 @@ static void check_coercive(VM *v, FemMesh m, FemData data, uint32_t *parent, boo
     }
     for (int e = 0; e < m.count; e++) {
         const uint32_t *cell = m.cells + (size_t)e * m.arity;
-        uint32_t root = component(parent, cell[0]);
+        uint32_t root = fem_component(parent, cell[0]);
         for (int j = 1; j < m.arity; j++)
-            parent[component(parent, cell[j])] = root;
+            parent[fem_component(parent, cell[j])] = root;
     }
     for (int i = 0; i < m.nodes; i++)
         if (!isnan(data.boundary[i]))
-            anchored[component(parent, (uint32_t)i)] = true;
+            anchored[fem_component(parent, (uint32_t)i)] = true;
     for (int e = 0; e < m.count; e++)
         if (data.reaction[e] > 0)
-            anchored[component(parent, m.cells[(size_t)e * m.arity])] = true;
+            anchored[fem_component(parent, m.cells[(size_t)e * m.arity])] = true;
     for (int i = 0; i < m.nodes; i++)
         if (parent[i] == (uint32_t)i && !anchored[i])
             vmerror_kind(v, "domain",
@@ -299,9 +316,28 @@ static Val field_operation(VM *v, FemMesh mesh, Val field, Val mobility, bool ve
     return velocity ? objval(out) : number(fem_checked(v, (double)integral));
 }
 
-enum { MESH, NODES, ELEMENTS, ASSEMBLE, ESTIMATE, REFINE, INTEGRAL, DARCY };
-static const char *const names[] = {"mesh",     "nodes",  "elements", "assemble",
-                                    "estimate", "refine", "integral", "darcy_velocity"};
+static Val hierarchy_report(VM *v, FemMesh mesh) {
+    Obj *leaves = array_new(v, 1, mesh.count, 1);
+    Obj *parents = array_new(v, 1, mesh.tree_count, 1);
+    Obj *generations = array_new(v, 1, mesh.tree_count, 1);
+    for (int i = 0; i < mesh.count; i++)
+        leaves->as.array.data[i] = mesh.leaves ? mesh.leaves[i] : (uint32_t)i;
+    for (int i = 0; i < mesh.tree_count; i++) {
+        uint32_t p = mesh.tree ? mesh.tree[i].parent : UINT32_MAX;
+        parents->as.array.data[i] = p == UINT32_MAX ? -1.0 : (double)p;
+        generations->as.array.data[i] = mesh.tree ? mesh.tree[i].generation : 0;
+    }
+    Obj *result = newobj(v, O_MAP);
+    sparse_result_field(v, result, "leaves", objval(leaves));
+    sparse_result_field(v, result, "parents", objval(parents));
+    sparse_result_field(v, result, "generations", objval(generations));
+    return objval(result);
+}
+
+enum { MESH, NODES, ELEMENTS, ASSEMBLE, ESTIMATE, REFINE, INTEGRAL, DARCY, MIXED, HIERARCHY };
+static const char *const names[] = {"mesh",        "nodes",    "elements", "assemble",
+                                    "estimate",    "refine",   "integral", "darcy_velocity",
+                                    "darcy_mixed", "hierarchy"};
 
 Obj *fem_module(VM *v) {
     return named_native_module(v, "fem", names, sizeof names / sizeof *names, FEM_BASE);
@@ -331,6 +367,10 @@ static Val run(VM *v, int id, int argc, Val *args) {
         return id == ASSEMBLE ? assemble(v, mesh, args, options)
                               : fem_refine(v, mesh, args, options);
     }
+    if (id == MIXED && (argc == 4 || argc == 5))
+        return fem_darcy_mixed(v, mesh_view(v, args[0]), args, argc == 5 ? args[4] : nil());
+    if (id == HIERARCHY && argc == 1)
+        return hierarchy_report(v, mesh_view(v, args[0]));
     if (id == ESTIMATE && (argc == 4 || argc == 5))
         return fem_estimate(v, mesh_view(v, args[0]), args,
                             fem_options(v, argc == 5 ? args[4] : nil(), false));

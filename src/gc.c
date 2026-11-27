@@ -227,6 +227,7 @@ static void trace(VM *v, Obj *o) {
     case O_FEM_MESH:
         markobj(v, o->as.fem.nodes);
         markobj(v, o->as.fem.elements);
+        markobj(v, o->as.fem.hierarchy);
         break;
     case O_FACTOR:
         markobj(v, o->as.factor.packed);

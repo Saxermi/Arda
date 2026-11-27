@@ -2,16 +2,12 @@
 #include "sort_records.h"
 
 typedef struct {
-    uint32_t a, b, slot;
-} Face;
-
-typedef struct {
     double energy;
     int cell;
 } Mark;
 
 static int compare_faces(const void *left, const void *right) {
-    const Face *a = left, *b = right;
+    const FemFace *a = left, *b = right;
     if (a->a != b->a)
         return a->a < b->a ? -1 : 1;
     if (a->b != b->b)
@@ -19,21 +15,21 @@ static int compare_faces(const void *left, const void *right) {
     return (a->slot > b->slot) - (a->slot < b->slot);
 }
 
-static void make_faces(FemMesh mesh, Face *faces) {
+void fem_sort_faces(FemMesh mesh, FemFace *faces) {
     for (int e = 0; e < mesh.count; e++) {
         const uint32_t *cell = mesh.cells + (size_t)e * mesh.arity;
         for (int j = 0; j < mesh.arity; j++) {
             uint32_t a = cell[(j + 1) % mesh.arity];
             uint32_t b = mesh.dimension == 1 ? a : cell[(j + 2) % mesh.arity];
             uint32_t slot = (uint32_t)(e * mesh.arity + j);
-            faces[slot] = (Face){a < b ? a : b, a < b ? b : a, slot};
+            faces[slot] = (FemFace){a < b ? a : b, a < b ? b : a, slot};
         }
     }
-    Face temp;
+    FemFace temp;
     sort_records(faces, (size_t)mesh.count * mesh.arity, sizeof *faces, compare_faces, &temp);
 }
 
-static size_t face_end(VM *v, const Face *faces, size_t first, size_t count) {
+size_t fem_face_end(VM *v, const FemFace *faces, size_t first, size_t count) {
     size_t last = first + 1;
     while (last < count && faces[first].a == faces[last].a && faces[first].b == faces[last].b)
         last++;
@@ -53,11 +49,11 @@ static void face_normal(VM *v, FemMesh mesh, uint32_t slot, double *normal) {
 
 void fem_check_faces(VM *v, FemMesh mesh) {
     size_t count = (size_t)mesh.count * mesh.arity;
-    Obj *work = buffer_new(v, count * sizeof(Face));
-    Face *faces = (Face *)work->as.buffer.data;
-    make_faces(mesh, faces);
+    Obj *work = buffer_new(v, count * sizeof(FemFace));
+    FemFace *faces = (FemFace *)work->as.buffer.data;
+    fem_sort_faces(mesh, faces);
     for (size_t first = 0, last; first < count; first = last) {
-        last = face_end(v, faces, first, count);
+        last = fem_face_end(v, faces, first, count);
         if (last - first == 2) {
             double a[2], b[2];
             face_normal(v, mesh, faces[first].slot, a);
@@ -89,14 +85,14 @@ static double flux(VM *v, FemMesh mesh, FemData data, const double *u, uint32_t 
 Val fem_estimate(VM *v, FemMesh mesh, Val *args, FemOptions opts) {
     size_t values = 3 * (size_t)mesh.nodes + 2 * (size_t)mesh.count;
     size_t nfaces = (size_t)mesh.count * mesh.arity;
-    Obj *work = fem_work(v, values * sizeof(double) + nfaces * sizeof(Face),
+    Obj *work = fem_work(v, values * sizeof(double) + nfaces * sizeof(FemFace),
                          (size_t)mesh.count * sizeof(double), opts.workspace);
     double *storage = (double *)work->as.buffer.data;
     FemData data = fem_read_data(v, mesh, args[1], args[2], opts, storage);
     double *u = storage + values - mesh.nodes;
     solver_read_vector(v, args[3], mesh.nodes, u);
-    Face *faces = (Face *)(storage + values);
-    make_faces(mesh, faces);
+    FemFace *faces = (FemFace *)(storage + values);
+    fem_sort_faces(mesh, faces);
     Obj *out = array_new(v, 1, mesh.count, 1);
     double *energy = out->as.array.data;
     for (int e = 0; e < mesh.count; e++) {
@@ -113,14 +109,14 @@ Val fem_estimate(VM *v, FemMesh mesh, Val *args, FemOptions opts) {
                                             g.diameter / (mesh.arity * (mesh.arity + 1))));
     }
     for (size_t first = 0, last; first < nfaces; first = last) {
-        last = face_end(v, faces, first, nfaces);
-        Face a = faces[first];
+        last = fem_face_end(v, faces, first, nfaces);
+        FemFace a = faces[first];
         bool interior = last - first == 2;
         if (!interior && !isnan(data.boundary[a.a]) && !isnan(data.boundary[a.b]))
             continue;
         double h, other_h;
         long double jump = flux(v, mesh, data, u, a.slot, &h);
-        Face b = faces[last - 1];
+        FemFace b = faces[last - 1];
         if (interior) {
             jump += flux(v, mesh, data, u, b.slot, &other_h);
             h = fmin(h, other_h);
@@ -182,22 +178,125 @@ static void split_triangle(VM *v, uint32_t children[4][3], int *count, uint32_t 
     vmerror_kind(v, "domain", "invalid FEM subdivision");
 }
 
-static bool split_face(FemMesh mesh, const unsigned char *marked, Face a, Face b) {
+static bool split_face(FemMesh mesh, const unsigned char *marked, FemFace a, FemFace b) {
     return marked[a.slot / mesh.arity] || marked[b.slot / mesh.arity];
 }
 
+/* Choosing the longest initial edge gives reproducible labels, including ties.
+ * On a descendant vertex zero is the midpoint from its most recent bisection. */
+static uint32_t reference_slot(FemMesh mesh, int e) {
+    if (mesh.tree)
+        return 3 * (uint32_t)e;
+    const uint32_t *cell = mesh.cells + 3 * (size_t)e;
+    double longest = -1;
+    uint32_t lo = UINT32_MAX, hi = UINT32_MAX;
+    int best = 0;
+    for (int j = 0; j < 3; j++) {
+        uint32_t a = cell[(j + 1) % 3], b = cell[(j + 2) % 3];
+        if (b < a) {
+            uint32_t swap = a;
+            a = b;
+            b = swap;
+        }
+        const double *x = mesh.x + 2 * (size_t)a, *y = mesh.x + 2 * (size_t)b;
+        double length = hypot(x[0] - y[0], x[1] - y[1]);
+        if (length > longest || (length == longest && (a < lo || (a == lo && b < hi)))) {
+            best = j;
+            longest = length;
+            lo = a;
+            hi = b;
+        }
+    }
+    return 3 * (uint32_t)e + (uint32_t)best;
+}
+
+static void require_edge(uint32_t slot, uint32_t *selected, uint32_t *queue, size_t *tail) {
+    if (selected[slot] == UINT32_MAX) {
+        selected[slot] = 0;
+        queue[(*tail)++] = slot;
+    }
+}
+
+static void nvb_close(VM *v, FemMesh mesh, const FemFace *faces, const unsigned char *marked,
+                      uint32_t *mid, uint32_t *refs, uint32_t *peer, uint32_t *queue) {
+    size_t length = 3 * (size_t)mesh.count;
+    for (size_t first = 0, last; first < length; first = last) {
+        last = fem_face_end(v, faces, first, length);
+        uint32_t a = faces[first].slot, b = faces[last - 1].slot;
+        peer[a] = b;
+        peer[b] = a;
+    }
+    size_t tail = 0;
+    for (int e = 0; e < mesh.count; e++) {
+        refs[e] = reference_slot(mesh, e);
+        if (marked[e])
+            require_edge(refs[e], mid, queue, &tail);
+    }
+    // Every requested old edge also requires the reference edge of its owner.
+    // Its counterpart on the adjacent triangle shares the same midpoint.
+    for (size_t head = 0; head < tail; head++) {
+        uint32_t slot = queue[head];
+        require_edge(peer[slot], mid, queue, &tail);
+        require_edge(refs[slot / 3], mid, queue, &tail);
+    }
+}
+
+static void nvb_bisect(uint32_t left[3], uint32_t right[3], uint32_t mid, uint32_t *left_id,
+                       uint32_t *right_id, FemBranch *tree, int *used) {
+    uint32_t c = left[0], a = left[1], b = left[2], parent = *left_id;
+    left[0] = right[0] = mid;
+    left[1] = c;
+    left[2] = a;
+    right[1] = b;
+    right[2] = c;
+    FemBranch branch = {parent, tree[parent].generation + 1};
+    tree[*used] = tree[*used + 1] = branch;
+    *left_id = (uint32_t)(*used)++;
+    *right_id = (uint32_t)(*used)++;
+}
+
+static int nvb_children(const uint32_t *cell, const uint32_t *mid, int ref, uint32_t local[4][3],
+                        uint32_t ids[4], FemBranch *tree, int *used) {
+    for (int j = 0; j < 3; j++)
+        local[0][j] = cell[(ref + j) % 3];
+    if (mid[ref] == UINT32_MAX)
+        return 1;
+    nvb_bisect(local[0], local[1], mid[ref], ids, ids + 1, tree, used);
+    int count = 2;
+    // The remaining two original edges are the children's reference edges.
+    uint32_t left = mid[(ref + 2) % 3], right = mid[(ref + 1) % 3];
+    if (left != UINT32_MAX) {
+        nvb_bisect(local[0], local[count], left, ids, ids + count, tree, used);
+        count++;
+    }
+    if (right != UINT32_MAX) {
+        nvb_bisect(local[1], local[count], right, ids + 1, ids + count, tree, used);
+        count++;
+    }
+    return count;
+}
+
 Val fem_refine(VM *v, FemMesh mesh, Val *args, FemOptions opts) {
+    if (opts.nvb && mesh.dimension != 2)
+        vmerror_kind(v, "shape", "newest-vertex bisection requires a triangular mesh");
     size_t length = (size_t)mesh.count * mesh.arity;
     size_t values = (size_t)mesh.nodes + mesh.count;
     size_t face_count = mesh.dimension == 2 ? length : 0;
     size_t bytes = values * sizeof(double) + (size_t)mesh.count * sizeof(Mark) +
-                   face_count * (sizeof(Face) + sizeof(uint32_t)) + mesh.count;
+                   face_count * (sizeof(FemFace) + sizeof(uint32_t)) + mesh.count;
+    if (opts.nvb)
+        bytes += (2 * length + (size_t)mesh.count) * sizeof(uint32_t);
     Obj *work = fem_work(v, bytes, 0, opts.workspace);
     double *u = (double *)work->as.buffer.data, *energy = u + mesh.nodes;
     Mark *order = (Mark *)(u + values);
-    Face *faces = (Face *)(order + mesh.count);
+    FemFace *faces = (FemFace *)(order + mesh.count);
     uint32_t *mid = (uint32_t *)(faces + face_count);
-    unsigned char *marked = (unsigned char *)(mid + face_count);
+    uint32_t *refs = mid + face_count, *peer = refs, *queue = refs;
+    if (opts.nvb) {
+        peer = refs + mesh.count;
+        queue = peer + length;
+    }
+    unsigned char *marked = (unsigned char *)(queue + (opts.nvb ? length : 0));
     memset(marked, 0, (size_t)mesh.count);
     memset(mid, 0xff, face_count * sizeof *mid);
     solver_read_vector(v, args[1], mesh.nodes, u);
@@ -213,10 +312,14 @@ Val fem_refine(VM *v, FemMesh mesh, Val *args, FemOptions opts) {
             added += marked[e];
         children += added;
     } else {
-        make_faces(mesh, faces);
+        fem_sort_faces(mesh, faces);
+        if (opts.nvb)
+            nvb_close(v, mesh, faces, marked, mid, refs, peer, queue);
         for (size_t first = 0, last; first < length; first = last) {
-            last = face_end(v, faces, first, length);
-            if (split_face(mesh, marked, faces[first], faces[last - 1])) {
+            last = fem_face_end(v, faces, first, length);
+            bool split = opts.nvb ? mid[faces[first].slot] != UINT32_MAX
+                                  : split_face(mesh, marked, faces[first], faces[last - 1]);
+            if (split) {
                 for (size_t i = first; i < last; i++)
                     mid[faces[i].slot] = (uint32_t)(mesh.nodes + added);
                 added++;
@@ -225,19 +328,33 @@ Val fem_refine(VM *v, FemMesh mesh, Val *args, FemOptions opts) {
         }
     }
     int n = mesh.nodes + added;
+    size_t branches = opts.nvb ? (size_t)mesh.tree_count + 2 * (children - mesh.count) : 0;
+    size_t tree_bytes =
+        opts.nvb ? branches * sizeof(FemBranch) + (size_t)children * sizeof(uint32_t) : 0;
     size_t child_entries = (size_t)children * mesh.arity;
     size_t output =
         ((size_t)n * (mesh.dimension + 1) + (size_t)2 * added + children) * sizeof(double) +
         child_entries * sizeof(uint32_t);
-    if (n > opts.max_nodes || children > opts.max_elements ||
+    if (n > opts.max_nodes || children > opts.max_elements || branches > ARDA_MAX_ELEMENTS ||
         (size_t)n * mesh.dimension > ARDA_MAX_ELEMENTS || (size_t)2 * added > ARDA_MAX_ELEMENTS ||
-        output > tensor_memory_available(v))
+        output > tensor_memory_available(v) || tree_bytes > tensor_memory_available(v) - output)
         vmerror_kind(v, "memory_budget", "FEM refinement exceeds output budget");
     Obj *nodes = array_new(v, mesh.dimension, n, mesh.dimension);
     Obj *cells = buffer_new(v, child_entries * sizeof(uint32_t));
     Obj *field = array_new(v, 1, n, 1);
     Obj *parents = array_new(v, 1, children, 1);
     Obj *edges = array_new(v, 2, added, 2);
+    Obj *history = opts.nvb ? buffer_new(v, tree_bytes) : NULL;
+    FemBranch *tree = history ? (FemBranch *)history->as.buffer.data : NULL;
+    uint32_t *leaves = tree ? (uint32_t *)(tree + branches) : NULL;
+    int used = mesh.tree_count;
+    if (history) {
+        if (mesh.tree)
+            memcpy(tree, mesh.tree, (size_t)used * sizeof *tree);
+        else
+            for (int e = 0; e < used; e++)
+                tree[e] = (FemBranch){UINT32_MAX, 0};
+    }
     double *x = nodes->as.array.data, *fine = field->as.array.data;
     uint32_t *ix = (uint32_t *)cells->as.buffer.data;
     memcpy(x, mesh.x, (size_t)mesh.nodes * mesh.dimension * sizeof *x);
@@ -254,10 +371,10 @@ Val fem_refine(VM *v, FemMesh mesh, Val *args, FemOptions opts) {
             b = mesh.cells[2 * first + 1];
             first++;
         } else {
-            size_t last = face_end(v, faces, first, length);
+            size_t last = fem_face_end(v, faces, first, length);
             while (mid[faces[first].slot] == UINT32_MAX) {
                 first = last;
-                last = face_end(v, faces, first, length);
+                last = fem_face_end(v, faces, first, length);
             }
             a = faces[first].a;
             b = faces[first].b;
@@ -275,13 +392,22 @@ Val fem_refine(VM *v, FemMesh mesh, Val *args, FemOptions opts) {
 
     int child = 0;
     node = mesh.nodes;
-    FemMesh refined = {x, ix, n, children, mesh.dimension, mesh.arity};
+    FemMesh refined = {.x = x,
+                       .cells = ix,
+                       .nodes = n,
+                       .count = children,
+                       .dimension = mesh.dimension,
+                       .arity = mesh.arity};
     for (int e = 0; e < mesh.count; e++) {
         const uint32_t *cell = mesh.cells + (size_t)e * mesh.arity;
         uint32_t local[4][3];
         memcpy(local[0], cell, (size_t)mesh.arity * sizeof *cell);
         int count = 1;
-        if (mesh.dimension == 1 && marked[e]) {
+        uint32_t ids[4] = {mesh.leaves ? mesh.leaves[e] : (uint32_t)e};
+        if (opts.nvb)
+            count = nvb_children(cell, mid + 3 * (size_t)e, (int)(refs[e] % 3), local, ids, tree,
+                                 &used);
+        else if (mesh.dimension == 1 && marked[e]) {
             local[0][1] = local[1][0] = (uint32_t)node++;
             local[1][1] = cell[1];
             count++;
@@ -305,12 +431,20 @@ Val fem_refine(VM *v, FemMesh mesh, Val *args, FemOptions opts) {
             fem_geometry(v, refined, local[j]);
             memcpy(ix + (size_t)child * mesh.arity, local[j], (size_t)mesh.arity * sizeof *ix);
             parents->as.array.data[child] = e;
+            if (leaves)
+                leaves[child] = ids[j];
         }
     }
 
     solver_workspace_done(v, work);
     Obj *result = newobj(v, O_MAP);
-    sparse_result_field(v, result, "mesh", objval(fem_mesh_wrap(v, nodes, cells, children)));
+    Obj *out = fem_mesh_wrap(v, nodes, cells, children);
+    if (history) {
+        out->as.fem.hierarchy = history;
+        out->as.fem.tree_count = used;
+        barrier(v, out, objval(history));
+    }
+    sparse_result_field(v, result, "mesh", objval(out));
     sparse_result_field(v, result, "field", objval(field));
     sparse_result_field(v, result, "parents", objval(parents));
     sparse_result_field(v, result, "edge_midpoints", objval(edges));

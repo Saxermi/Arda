@@ -29,7 +29,8 @@ precision refinement and residual verification. [Solver contracts](research/impl
 Ulmo adds RK45 trajectories and events, implicit time stepping, and structured-grid PDE
 solvers for heat, waves, advection–diffusion and Poisson. The `fem` module assembles
 and refines P1 meshes, and `sim` differentiates selected time steppers and fits model
-parameters. [Simulation contracts](research/implemented/ulmo-simulation.md) ·
+parameters. An opt-in path adds newest-vertex bisection, locally conservative mixed
+Darcy flow, and RK4 stage-tape reuse. [Method comparison](research/implemented/ulmo-simulation.md#alternative-ulmo-methods) · [Simulation contracts](research/implemented/ulmo-simulation.md) ·
 [Time integration](examples/ulmo.arda) · [FEM and Darcy flow](examples/ulmo_fem.arda) ·
 [Sensitivities](examples/ulmo_sensitivity.arda)
 
