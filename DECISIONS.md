@@ -2,6 +2,16 @@
 
 Record the question, evidence, decision or recommendation, and when to revisit it. Use **Proposed** while a decision is open and **Accepted** once it is agreed. Link to the benchmark or roadmap that supports each entry.
 
+## 2026-11-27 — Bounded file kernels and exports
+
+**Status** — Implemented in the 0.21 development branch and open to owner revision
+
+Process stable tensor files through explicit block APIs and reuse atomic file publication. Keeping one output tile makes GEMM memory predictable, at the cost of rereading input panels. A panel cache or packed tile layout could reduce that traffic when measured workloads justify the added storage or memory. CSR uses separate typed files so existing tensor readers can validate the arrays. A dedicated sparse container could keep them together and add a row index for larger workloads.
+
+Use sequential Householder QR for the tall file path and compute right SVD results from its triangular factor. The full spectrum path keeps the original matrix outside RAM, with work proportional to the square of its column count. An explicit randomized row-space sketch reduces work for small target ranks. Power iterations could improve that approximation on slowly decaying spectra at the cost of more passes over the input.
+
+Stream SVG primitives and offer explicit stride selection for a smaller plot. A pixel- or extrema-based aggregation could preserve short features for very large series, with a different display contract. Use legacy binary VTK as a small portable scalar export. VTK XML is a candidate for larger grids, additional fields and partitioned datasets. [Processing and export contracts](research/implemented/beyond-ram.md)
+
 ## 2026-11-27 — Streaming imports and tiled output publication
 
 **Status** — Implemented in the 0.21 development branch and open to owner revision

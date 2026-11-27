@@ -80,6 +80,7 @@ class QuantTests(unittest.TestCase):
         let packed = q.quantize(t.zeros([64,65],"float64")+7,"q4")
         let x = t.zeros([65],"float64")+1
         collect()
+        collect()
         let base = c.memory_stats()["tensor_heap_bytes"]
         c.memory_budget(base+512)
         let output = q.gemv(packed,x)

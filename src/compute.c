@@ -1,6 +1,7 @@
 #include "compute_plan.h"
 #include "compute_topology.h"
 #include "cpu_kernels.h"
+#include "file_compute.h"
 
 static Val budget_value(const TensorMemory *m) {
     return m->limited ? integer((int64_t)m->limit) : nil();
@@ -135,13 +136,18 @@ enum {
     TOPOLOGY,
     AFFINITY,
     FIRST_TOUCH,
+    FILE_MATMUL,
+    FILE_SPMV,
+    FILE_QR_R,
+    FILE_RSVD_RIGHT,
     COMPUTE_COUNT
 };
 static const char *const names[] = {
-    "memory_stats",   "memory_budget", "trim_pool",  "plan",         "stream_stats", "cpu",
-    "matmul_kernel",  "vector_math",   "threads",    "tiled_matmul", "axpy",         "mul_add",
-    "fused_products", "map_reduce",    "explain",    "execute",      "last_run",     "compare",
-    "topology",       "affinity",      "first_touch"};
+    "memory_stats", "memory_budget", "trim_pool",      "plan",       "stream_stats",
+    "cpu",          "matmul_kernel", "vector_math",    "threads",    "tiled_matmul",
+    "axpy",         "mul_add",       "fused_products", "map_reduce", "explain",
+    "execute",      "last_run",      "compare",        "topology",   "affinity",
+    "first_touch",  "file_matmul",   "file_spmv",      "file_qr_r",  "file_rsvd_right"};
 _Static_assert(sizeof names / sizeof *names == COMPUTE_COUNT, "compute names");
 
 Obj *compute_module(VM *v) {
@@ -150,6 +156,25 @@ Obj *compute_module(VM *v) {
 
 Val compute_call(VM *v, int id, int argc, Val *args) {
     switch (id - COMPUTE_BASE) {
+    case FILE_MATMUL:
+        if (argc >= 3 && argc <= 5)
+            return compute_file_matmul(
+                v, args, argc > 3 ? compute_tile_size(v, args[3]) : COMPUTE_TILE_DEFAULT,
+                argc > 4 ? args[4] : nil());
+        break;
+    case FILE_SPMV:
+        if (argc >= 5 && argc <= 7)
+            return compute_file_spmv(v, args, argc > 5 ? args[5] : nil(),
+                                     argc > 6 ? args[6] : nil());
+        break;
+    case FILE_QR_R:
+        if (argc == 1 || argc == 2)
+            return compute_file_qr_r(v, args[0], argc > 1 ? args[1] : nil());
+        break;
+    case FILE_RSVD_RIGHT:
+        if (argc >= 2 && argc <= 5)
+            return compute_file_rsvd_right(v, argc, args);
+        break;
     case TILED:
         if (argc == 2 || argc == 3)
             return compute_tiled(v, args[0], args[1],

@@ -433,6 +433,7 @@ struct Obj {
             int fd, block;
             size_t elements;
             DType dtype;
+            int rank, shape[8];
         } tensor_blocks;
         struct {
             double *data;
@@ -652,6 +653,9 @@ void install_tensor(VM *v, Obj *module);
 #define SOLVER_BASE 2100
 #define FEM_BASE 2300
 #define CHECKPOINT_BASE 2400
+#define PLOT_BASE 2500
+Val plot_call(VM *v, int id, int argc, Val *args);
+Obj *plot_module(VM *v);
 Obj *fem_module(VM *v);
 Val fem_call(VM *v, int id, int argc, Val *args);
 const char *fem_name(int id);

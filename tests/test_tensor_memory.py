@@ -46,6 +46,7 @@ class TensorMemoryTests(unittest.TestCase):
         tol numc as nc
         t.save("values",t.array([1,2,3,4,5],"float64"))
         collect()
+        collect()
         c.memory_budget(15)
         esta plan = c.plan("stream_stats","values",2)
         pedo(plan["elements"],plan["block_elements"],plan["workspace_bytes"],plan["output_bytes"],plan["fits"])

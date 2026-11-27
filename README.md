@@ -266,6 +266,8 @@ The `tensor` module supports typed CPU arrays, read-only mapping, bounded blocks
 
 Use `tensor.import_npy` or `tensor.import_delimited` to stream dense NumPy arrays or numeric CSV/TSV tables into `.atn` files. Use `tensor.open_output` to build a new file tile by tile and publish it with one commit. [Import examples](research/implemented/typed-tensors.md#streaming-imports) · [Output example](research/implemented/typed-tensors.md#staged-tensor-outputs)
 
+Use `compute` to map, filter, reduce, or multiply tensor files with bounded blocks. Use `plot.svg` to draw plots directly from tensor files and `plot.vtk` to export regular scalar grids. [File computation and visualization](research/implemented/beyond-ram.md)
+
 ### `numc`: dense arrays and linear algebra
 
 ```arda

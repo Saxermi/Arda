@@ -4,6 +4,8 @@ All notable changes to Arda are recorded here. Planned features are documented i
 
 ## Unreleased — Beyond-RAM I/O
 
+- Added blockwise file map, filter and reduce, tiled Float64 matrix multiplication, file CSR matrix–vector multiplication, tall-matrix QR, and full and randomized right SVD. [Computation contracts](research/implemented/beyond-ram.md#0212--file-computation)
+- Added streamed SVG line, scatter, histogram, heatmap, contour and vector plots, and legacy binary VTK scalar-grid export. [Export contracts](research/implemented/beyond-ram.md#0213--svg-and-vtk-exports)
 - Added streaming imports of dense little-endian NPY arrays and numeric CSV/TSV tables into `.atn` files. [Import contracts](research/implemented/typed-tensors.md#streaming-imports)
 - Added staged tensor outputs with bounded tile access, a logical disk budget, and atomic publication. [Output contracts](research/implemented/typed-tensors.md#staged-tensor-outputs)
 

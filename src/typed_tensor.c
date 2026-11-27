@@ -748,7 +748,10 @@ enum {
     IMPORT_DELIMITED,
     OPEN_OUTPUT,
     COMMIT_OUTPUT,
-    ABORT_OUTPUT
+    ABORT_OUTPUT,
+    FILE_INFO,
+    WRITE_BLOCK,
+    TRUNCATE_OUTPUT
 };
 static const char *const names[] = {"array",
                                     "zeros",
@@ -793,9 +796,13 @@ static const char *const names[] = {"array",
                                     "import_delimited",
                                     "open_output",
                                     "commit_output",
-                                    "abort_output"};
-static const int arities[] = {2, 2, 2, 1, 1, 1, 1, 2, 3, 4, 2, 1, 1, 2, 2, 4, 2, 3, 2, 1, 1, 3,
-                              1, 3, 2, 2, 1, 3, 3, 2, 2, 2, 4, 2, 1, 1, 1, 1, 1, 2, 3, 3, 1, 1};
+                                    "abort_output",
+                                    "file_info",
+                                    "write_block",
+                                    "truncate_output"};
+static const int arities[] = {2, 2, 2, 1, 1, 1, 1, 2, 3, 4, 2, 1, 1, 2, 2, 4,
+                              2, 3, 2, 1, 1, 3, 1, 3, 2, 2, 1, 3, 3, 2, 2, 2,
+                              4, 2, 1, 1, 1, 1, 1, 2, 3, 3, 1, 1, 1, 3, 2};
 _Static_assert(sizeof names / sizeof *names == sizeof arities / sizeof *arities, "tensor arities");
 
 Val typed_tensor_call(VM *v, int id, int argc, Val *args) {
@@ -870,6 +877,12 @@ Val typed_tensor_call(VM *v, int id, int argc, Val *args) {
         return tensor_open_output(v, args[0], args[1], args[2], argc == 4 ? args[3] : nil());
     if (op == COMMIT_OUTPUT)
         return tensor_commit_output(v, args[0]);
+    if (op == FILE_INFO)
+        return tensor_file_info(v, args[0]);
+    if (op == WRITE_BLOCK)
+        return tensor_write_block(v, args[0], args[1], args[2]);
+    if (op == TRUNCATE_OUTPUT)
+        return tensor_truncate_output(v, args[0], args[1]);
     if (op == ABORT_OUTPUT) {
         if (!isobj(args[0], O_TENSOR_OUTPUT))
             vmerror_kind(v, "type", "expected a tensor output handle");
