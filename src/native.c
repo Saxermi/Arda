@@ -46,7 +46,6 @@ static const char *typename(Val v) {
                                   "ad",
                                   "sparse",
                                   "sparse_builder",
-                                  "sparse_workspace",
                                   "factor",
                                   "generator",
                                   "moments",
@@ -103,8 +102,6 @@ char *value_string(Val v) {
         } else if (isobj(v, O_LINOP)) {
             snprintf(b, sizeof b, "<linear operator shape=%dx%d>", v.o->as.linop.rows,
                      v.o->as.linop.cols);
-        } else if (isobj(v, O_SPARSE_WORKSPACE)) {
-            snprintf(b, sizeof b, "<sparse solver workspace>");
         } else if (isobj(v, O_SPARSE_BUILDER)) {
             snprintf(b, sizeof b, "<sparse builder>");
         } else if (isobj(v, O_SPARSE)) {

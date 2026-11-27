@@ -39,22 +39,18 @@ typedef enum {
     SP_ESTIMATE,
     SP_READ_MM,
     SP_WRITE_MM,
-    SP_CG,
-    SP_PCG,
-    SP_VERIFY,
-    SP_WORKSPACE,
     SP_SET_BUDGET,
     SP_MEMORY
 } SparseOp;
 
 static const char *names[] = {
-    "coo",      "csr",       "to_csr",     "to_coo",     "shape",     "nnz",        "bytes",
-    "format",   "get",       "components", "from_dense", "todense",   "describe",   "builder",
-    "append",   "extend",    "finish",     "eye",        "diags",     "tridiag",    "matvec",
-    "spmm",     "transpose", "add",        "scale",      "diagonal",  "estimate",   "read_mm",
-    "write_mm", "cg",        "pcg",        "verify",     "workspace", "set_budget", "memory"};
-static const int nargs[] = {5, 5, 1, 1, 1, 1, 1, 1, 3, 1, 1, 1, 1, 2, 4, 4, 1, 1,
-                            4, 4, 2, 2, 1, 2, 2, 1, 1, 1, 2, 4, 4, 3, 1, 1, 0};
+    "coo",      "csr",        "to_csr",     "to_coo",     "shape",    "nnz",      "bytes",
+    "format",   "get",        "components", "from_dense", "todense",  "describe", "builder",
+    "append",   "extend",     "finish",     "eye",        "diags",    "tridiag",  "matvec",
+    "spmm",     "transpose",  "add",        "scale",      "diagonal", "estimate", "read_mm",
+    "write_mm", "set_budget", "memory"};
+static const int nargs[] = {5, 5, 1, 1, 1, 1, 1, 1, 3, 1, 1, 1, 1, 2, 4, 4,
+                            1, 1, 4, 4, 2, 2, 1, 2, 2, 1, 1, 1, 2, 1, 0};
 _Static_assert(sizeof names / sizeof *names == sizeof nargs / sizeof *nargs,
                "sparse dispatch arity table");
 
@@ -69,11 +65,6 @@ void sparse_release_payload(Obj *o) {
     if (o->type == O_SPARSE_BUILDER) {
         free(o->as.sparse_builder.data);
         o->as.sparse_builder.data = NULL;
-        return;
-    }
-    if (o->type == O_SPARSE_WORKSPACE) {
-        free(o->as.sparse_workspace.data);
-        o->as.sparse_workspace.data = NULL;
         return;
     }
     free(S(o).row);
@@ -720,11 +711,6 @@ static Val describe(VM *v, Val name) {
                "O(rows + nnz) in CSR."));
     if (!strcmp(s, "diagonal"))
         return objval(string(v, "v1: d[i] = A[i,i]. Binary search each applicable CSR row."));
-    if (!strcmp(s, "cg") || !strcmp(s, "pcg") || !strcmp(s, "verify"))
-        return objval(string(
-            v, "v1: CG for symmetric positive definite A, with optional Jacobi "
-               "preconditioner M = diag(A). Start at x = 0. Verify with norm(b - A*x)/norm(b), "
-               "or the absolute norm if b is zero."));
     if (!strcmp(s, "to_coo"))
         return objval(string(v, "v1: for each row r, emit (r,col[j],value[j]) for offset[r] <= j < "
                                 "offset[r+1]. O(rows + nnz) time; O(nnz) output."));
@@ -750,12 +736,6 @@ static Val sparse_dispatch(VM *v, int id, int argc, Val *a) {
             vmerror(v, "Matrix Market symmetric flag must be a boolean");
         sparse_write_mm(v, asstr(v, a[0]), as_sparse(v, a[1]), argc == 3 && a[2].n);
         return nil();
-    }
-    if (op == SP_CG || op == SP_PCG) {
-        if (argc != 4 && argc != 5)
-            vmerror(v, "sparse.%s expects 4 or 5 arguments", names[op]);
-        return sparse_solve(v, as_sparse(v, a[0]), a[1], a[2], a[3], argc == 5 ? a[4] : nil(),
-                            op == SP_PCG);
     }
     if (op == SP_MATVEC && argc == 3) {
         Obj *pattern = as_sparse(v, a[0]);
@@ -784,8 +764,6 @@ static Val sparse_dispatch(VM *v, int id, int argc, Val *a) {
                                                         : integer((int64_t)v->sparse_limit));
         return objval(result);
     }
-    if (op == SP_WORKSPACE)
-        return objval(sparse_workspace_new(v, nonnegative_size(v, a[0])));
     if (op == SP_READ_MM)
         return objval(sparse_read_mm(v, asstr(v, a[0])));
     if (op == SP_FROM_DENSE)
@@ -858,8 +836,6 @@ static Val sparse_dispatch(VM *v, int id, int argc, Val *a) {
         return objval(sparse_diagonal(v, o));
     case SP_ESTIMATE:
         return sparse_estimate(v, o);
-    case SP_VERIFY:
-        return sparse_verify(v, o, a[1], a[2]);
     case SP_TO_DENSE:
         return objval(todense(v, o));
     default:

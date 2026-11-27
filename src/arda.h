@@ -270,7 +270,6 @@ typedef enum {
     O_AD,
     O_SPARSE,
     O_SPARSE_BUILDER,
-    O_SPARSE_WORKSPACE,
     O_FACTOR,
     O_RNG,
     O_MOMENTS,
@@ -354,7 +353,7 @@ typedef struct {
 } Quantity;
 
 static inline int sparse_owns_payload(OType type) {
-    return type == O_SPARSE || type == O_SPARSE_BUILDER || type == O_SPARSE_WORKSPACE;
+    return type == O_SPARSE || type == O_SPARSE_BUILDER;
 }
 typedef struct {
     char *key;
@@ -461,15 +460,11 @@ struct Obj {
         struct {
             Obj *first, *second;
             int kind, rows, cols, lower, upper;
-            int extent[3];
-            double weights[3];
+            int grid_rank, extent[8];
+            double weights[8];
         } linop;
         Sparse sparse;
         SparseBuilder sparse_builder;
-        struct {
-            size_t length;
-            double *data;
-        } sparse_workspace;
     } as;
 };
 typedef struct {

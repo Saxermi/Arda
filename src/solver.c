@@ -114,13 +114,13 @@ void solver_check_symmetric(VM *v, Obj *input, const LinopContext *context,
         vmerror_kind(v, "shape", "symmetric solver requires a square operator");
     if (context->csr) {
         const Sparse *s = &context->csr->as.sparse;
-        if (sparse_symmetric(s)) {
-            if (positive)
-                for (size_t i = 0; i < rows; i++)
-                    if (!(sparse_csr_at(s, i, (uint32_t)i) > 0))
-                        vmerror_kind(v, "domain", "CG requires a positive diagonal");
-            return;
-        }
+        if (!sparse_symmetric(s))
+            vmerror_kind(v, "domain", "solver requires symmetric coefficients");
+        if (positive)
+            for (size_t i = 0; i < rows; i++)
+                if (!(sparse_csr_at(s, i, (uint32_t)i) > 0))
+                    vmerror_kind(v, "domain", "CG requires a positive diagonal");
+        return;
     } else if (input->type == O_ARRAY || input->type == O_TYPED_TENSOR) {
         for (size_t i = 0; i < rows; i++) {
             if (positive && !(linop_dense_at(input, i, i) > 0))

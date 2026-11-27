@@ -438,6 +438,8 @@ The runtime is C11; Python is only needed to run the tests, regenerate embedded 
 
 ### Module `high` (native C)
 
+This section documents the Arda 0.13 API. See the [current solver migration table](../research/implemented/aule-solvers.md#solver-api-migration) for runnable calls.
+
 | Function | Contract |
 |---|---|
 | `cg(A,b,tolerance,maxiter)` | Jacobi-preconditioned CG for a nonempty symmetric positive-definite square matrix and vector. Starts at zero. Matrix symmetry is checked exactly; positive definiteness is a caller assumption (nonpositive curvature is detected when encountered). |

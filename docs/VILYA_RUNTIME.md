@@ -27,13 +27,13 @@ catch issue:
 
 | API | Result fields |
 | --- | --- |
-| `high.cg`, `high.poisson`, `high.lstsq`, `sparse.cg`, `sparse.pcg` | `solution`, `iterations`, `residual`, `converged`, `reason` |
+| `solver.solve`, `solver.multigrid` | `solution`, `iterations`, `residual`, `converged`, `reason` |
 | `ode.rk45` | `solution`, `accepted_steps`, `rejected_steps` |
 | `opt.lbfgs` | `solution`, `iterations`, `gradient_norm`, `converged`, `value`, `reason` |
 | Zeroth-order optimizers | The L-BFGS fields and `evaluations` |
 | `opt.adam` | `parameters`, `first_moment`, `second_moment` |
 
-An L-BFGS objective callback returns a map with `value` and `gradient`. Direct solves return the solution value. CG and Poisson report the relative data residual. CGLS reports the relative normal-equation residual.
+An L-BFGS objective callback returns a map with `value` and `gradient`. Direct solves return the solution value. Iterative solves report the relative data residual. LSQR and LSMR also report the relative normal-equation residual as `normal_residual`. [Solver contracts](../research/implemented/aule-solvers.md)
 
 Use `at(x,[i,j])` and `put(x,[i,j],value)` for dense element access. Use `tensor.sum(x[,axis])` for typed full and axis sums. Float64 reductions use extended accumulation where `long double` provides it. The optional axis removes that axis. A rank-one axis reduction returns a scalar. Use `opt.sgd` and `opt.adam` for optimizer updates, `sparse.csr` and `sparse.to_csr` for CSR construction and conversion, and `linalg.eigh` for symmetric eigenpairs.
 

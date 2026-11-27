@@ -5,6 +5,7 @@ All notable changes to Arda are recorded here. Planned features are documented i
 ## 0.19.4 — Verified Numerical Solvers
 
 - Added independent residual reports for linear solutions, real and complex eigenpairs, and singular triplets. Added optional dense condition estimation, bounded solver traces and method requirements.
+- Consolidated the previous iterative solve, Poisson and sparse verification calls under `solver` and `linop`. Migrated the examples and retained rank 1–8 Poisson operators. [Migration table](research/implemented/aule-solvers.md#solver-api-migration)
 
 ## 0.19.3 — Mixed-Precision Refinement
 

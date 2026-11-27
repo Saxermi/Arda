@@ -23,11 +23,10 @@ let b = sp.tridiag(3,-1,2,-1)
 let rhs = n.array([0,0,4])
 let current = s.solve("cg",a,rhs)
 let csr = s.solve("cg",b,rhs)
-let legacy = sp.cg(b,rhs,1e-8,100)
 print(l.info(a)["dtype"],l.info(a)["rows"],l.info(a)["workspace_bytes"])
 print(n.tolist(l.apply(a,n.array([1,2,3]))),n.tolist(l.apply_transpose(a,n.array([1,2,3]))))
 print(current["reason"]==csr["reason"],current["iterations"]==csr["iterations"])
-print(abs(n.at(current["solution"],[2])-3) < 1e-12,s.verify(b,rhs,legacy["solution"])["verified"])
+print(abs(n.at(current["solution"],[2])-3) < 1e-12,s.verify(b,rhs,csr["solution"])["verified"])
 """, "float64 3 0\n[0, 0, 4] [0, 0, 4]\nnae nae\nnae nae", stress=True)
 
     def test_typed_negative_strides_and_structured_operators(self):
@@ -188,3 +187,10 @@ catch err:
     supported = err["code"]=="backend"
 print(supported)
 """, "nae", stress=True)
+
+    def test_retired_solver_exports_are_absent(self):
+        imports = "tol high\ntol sparse as sp\n"
+        for name in ("high.cg", "high.poisson", "high.laplace", "high.lstsq",
+                     "sp.cg", "sp.pcg", "sp.verify", "sp.workspace"):
+            with self.subTest(name=name):
+                self.run_code(imports + f"pedo({name})", error="no attribute", stress=True)

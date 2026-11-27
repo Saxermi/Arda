@@ -1,4 +1,4 @@
-"""Compare Arda Geometric Multigrid, legacy CG and SciPy on a discrete Poisson problem."""
+"""Compare Arda Multigrid, Arda CG and SciPy CG on a discrete Poisson problem."""
 import argparse
 import json
 import os
@@ -62,18 +62,18 @@ def scipy_worker(n, tol):
 
 
 def arda_script(method, n, tol):
-    common = """
-import tensor as t
-import solver as s
-import linop as l
-import high
-"""
+    common = "import tensor as t\n"
     if method == "legacy":
+        common += "import high\n"
         setup = 'let b = t.to_numc(t.mmap("rhs_grid.atn"))'
         expression = f"high.poisson(b,{tol},1000)"
     else:
+        common += "import solver as s\nimport linop as l\n"
         setup = f'let op = l.poisson([{n},{n},{n}])\nlet b = t.mmap("rhs.atn")'
-        expression = f's.multigrid(op,b,{{"tol":{tol},"maxiter":100}})'
+        if method == "cg":
+            expression = f's.solve("cg",op,b,{{"tol":{tol},"maxiter":1000}})'
+        else:
+            expression = f's.multigrid(op,b,{{"tol":{tol},"maxiter":100}})'
     return common + f"""
 {setup}
 collect()
@@ -90,8 +90,9 @@ def main():
     parser.add_argument("--arda", type=Path, default=Path("arda"))
     parser.add_argument("--sizes", nargs="+", type=int, default=[16, 32, 64, 128])
     parser.add_argument("--tol", type=float, default=1e-8)
-    parser.add_argument("--methods", nargs="+", choices=("multigrid", "legacy", "scipy"),
-                        default=["multigrid", "legacy", "scipy"])
+    parser.add_argument("--methods", nargs="+", choices=("multigrid", "cg", "legacy", "scipy"),
+                        default=["multigrid", "cg", "scipy"])
+    parser.add_argument("--legacy-arda", type=Path, help="Pre-migration Arda binary for legacy CG")
     parser.add_argument("--cpu", type=int)
     parser.add_argument("--rounds", type=int, default=3)
     parser.add_argument("--scipy-worker", nargs=2, help=argparse.SUPPRESS)
@@ -101,6 +102,8 @@ def main():
         return
     if any(n < 2 or n**3 > 16_000_000 for n in args.sizes) or not 0 < args.tol < 1 or args.rounds < 1:
         parser.error("use a grid that fits Arda's 16 million element limit, tolerance in (0,1), and positive rounds")
+    if "legacy" in args.methods and args.legacy_arda is None:
+        parser.error("--methods legacy needs --legacy-arda pointing to a pre-migration build")
     for name in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS", "BLIS_NUM_THREADS"):
         os.environ[name] = "1"
     if args.cpu is not None:
@@ -111,6 +114,7 @@ def main():
     if timer is None:
         parser.error("GNU time is needed to measure peak RSS")
     binary = args.arda.resolve()
+    legacy = args.legacy_arda.resolve() if args.legacy_arda else None
     script = Path(__file__).resolve()
     with tempfile.TemporaryDirectory(prefix="arda-aule-") as tmp:
         root = Path(tmp)
@@ -119,7 +123,8 @@ def main():
             np.testing.assert_allclose(stencil(expected.ravel(), n), rhs.ravel(),
                                        atol=1e-13, rtol=1e-10)
             save_tensor(root / "rhs.atn", rhs.ravel())
-            save_tensor(root / "rhs_grid.atn", rhs)
+            if "legacy" in args.methods:
+                save_tensor(root / "rhs_grid.atn", rhs)
             runs = {method: [] for method in args.methods}
             for iteration in range(args.rounds):
                 shift = iteration % len(args.methods)
@@ -128,7 +133,7 @@ def main():
                         command = [sys.executable, str(script), "--scipy-worker", str(n), str(args.tol)]
                     else:
                         (root / "run.arda").write_text(arda_script(method, n, args.tol), encoding="utf-8")
-                        command = [str(binary), "--mathdoc=none", "run.arda"]
+                        command = [str(legacy if method == "legacy" else binary), "--mathdoc=none", "run.arda"]
                     run = subprocess.run([timer, "-f", "%M", "-o", "rss.txt", *command],
                                          cwd=root, check=True, capture_output=True, text=True, timeout=600)
                     elapsed, iterations, reported, reason = run.stdout.split()

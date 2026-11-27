@@ -37,8 +37,26 @@ entries, 0–10,000) and `workspace_bytes` (default 256 MiB). The workspace cove
 scratch, including packed right-hand sides, Krylov basis, factors and operator apply scratch.
 The tensor budget also covers outputs. The COO setup estimate is exposed separately, and
 the sparse budget charges that conversion. Trace maps are VM objects. Allocated solver
-tensor scratch is cleared on return or exception. The existing `high`, `sparse` and `linalg`
-entry points remain available. User-defined callbacks are an optional future extension.
+tensor scratch is cleared on return or exception. User-defined callbacks are an optional
+future extension.
+
+## Solver API migration
+
+| Previous call | Current call |
+| --- | --- |
+| `high.cg(A,b,tol,maxiter)` or `sparse.pcg(A,b,tol,maxiter)` | `solver.solve("cg",A,b,{"tol":tol,"maxiter":maxiter,"preconditioner":"jacobi"})` |
+| `sparse.cg(A,b,tol,maxiter)` | `solver.solve("cg",A,b,{"tol":tol,"maxiter":maxiter})` |
+| `sparse.verify(A,b,x)` | `solver.verify(A,b,x)["residual"]` |
+| `high.lstsq(A,b,tol,maxiter)` | `solver.solve("lsqr",A,b,{"tol":tol,"maxiter":maxiter})`. Read `normal_residual` for the former least-squares stopping metric. |
+| `high.laplace(x)` | `linop.apply(linop.poisson(shape),x_flat)` |
+| `high.poisson(b,tol,maxiter)` | `solver.solve("cg",linop.poisson(shape),b_flat,{"tol":tol,"maxiter":maxiter})` |
+| `sparse.workspace(n)` | Use the solver option `workspace_bytes` and `compute.memory_budget` to cap solver allocation. |
+
+The previous entries have been removed. Reshape a flattened Poisson result with
+`numc.reshape(result["solution"],shape)` when the application uses a tensor grid.
+Use `compute.memory_stats()` for numeric vectors and scratch, and `sparse.memory()`
+for sparse storage and COO conversion. Direct `linalg` factorizations and solves
+have their own contracts.
 
 ## 0.19.1 Krylov methods, preconditioning and partial spectra
 
@@ -75,12 +93,12 @@ original operator. Its basis uses the same two-pass Gram–Schmidt as GMRES.
 
 ## 0.19.2 geometric Multigrid
 
-`linop.poisson(shape[, weights])` builds the negative discrete Laplacian in one to three
+`linop.poisson(shape[, weights])` builds the negative discrete Laplacian in one to eight
 dimensions. The diagonal is twice the sum of the positive axis weights. Each direction
 uses nearest neighbors with homogeneous Dirichlet values outside the interior grid.
 Inputs to the solver use flattened row-major ordering.
 
-`solver.multigrid(op,b[,options])` uses a V-cycle with three weighted Jacobi sweeps on
+`solver.multigrid(op,b[,options])` supports one to three grid axes and uses a V-cycle with three weighted Jacobi sweeps on
 each side, tensor-product linear interpolation, volume-scaled transpose restriction, a
 rediscretized coarse operator and a direct one-point solve. The transfer coordinates
 use the same physical domain at each level, including even fine grid sizes. The hierarchy
@@ -188,18 +206,27 @@ make
 python3 benchmarks/poisson_aule.py --arda ./arda --cpu 0 --rounds 3
 ```
 
-The benchmark needs NumPy, SciPy and GNU `time`. Choose a CPU available to the local
-process or omit the pinning option.
+The default comparison uses the current common CG solver. To reproduce the legacy column
+above, pass `--methods multigrid legacy scipy --legacy-arda /path/to/pre-migration/arda`
+with a binary built at commit `edc7ba8`. The benchmark needs NumPy, SciPy and GNU `time`.
+Choose a CPU available to the local process or omit the pinning option.
+
+After the API migration, a single repeat on the same 128³ fixture gave 1.37 s and
+72.1 MiB for Multigrid with the same independent residual. The common CG path took
+436 iterations and 7.11 s, with a relative residual of 9.505e-9 and 129.2 MiB peak RSS.
+The pre-migration CG executable took 6.88 s and 97.2 MiB in that run. The common path
+allocates a packed RHS and a separate verification residual, accounting for the extra
+32 MiB on this workload.
 
 ## Local validation
 
-The runtime suite passed 265 tests in each of five configurations, including the
+The runtime suite passed 266 tests in each of five configurations, including the
 portable and OpenMP builds and AddressSanitizer/UndefinedBehaviorSanitizer checks.
 Both OpenBLAS/LAPACK configurations passed all 75 numerical reference tests. The
 other configurations passed 65, with ten expected LAPACK-specific skips. The Aulë
 tests cover mixed-precision fallback, signed-stride views, workspace cleanup on
 exceptions, inconsistent least squares, complex eigenpairs, a nonsymmetric restarted
 solve and the anisotropic grid case. Formatting and generated-source checks passed.
-Clang x86-64 and GCC AArch64 under QEMU each passed 16 focused Aulë tests, with the
+Clang x86-64 and GCC AArch64 under QEMU each passed 17 focused Aulë tests, with the
 LAPACK-only Arnoldi reference skipped. A final isolated run using the complete portable
 binary reproduced the 128³ residual and solution error with 73,808 KiB peak RSS.

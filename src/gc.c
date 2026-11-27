@@ -223,7 +223,6 @@ static void trace(VM *v, Obj *o) {
     case O_TENSOR_BLOCKS:
     case O_SPARSE:
     case O_SPARSE_BUILDER:
-    case O_SPARSE_WORKSPACE:
         break;
     case O_FACTOR:
         markobj(v, o->as.factor.packed);
@@ -327,7 +326,6 @@ static void release(VM *v, Obj *o) {
         break;
     case O_SPARSE:
     case O_SPARSE_BUILDER:
-    case O_SPARSE_WORKSPACE:
         sparse_release_payload(o);
         break;
     case O_AD:

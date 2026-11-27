@@ -26,11 +26,10 @@ static double coefficient(VM *v, Obj *op, const Sparse *s, size_t i, size_t j) {
     if (op->as.linop.kind == LINOP_DIAGONAL)
         return i == j ? A(op->as.linop.first).data[i] : 0;
     if (op->as.linop.kind == LINOP_POISSON) {
-        PoissonGrid g = poisson_grid(op);
         if (i == j)
-            return g.diagonal;
+            return poisson_diagonal(op);
         if ((i < j ? j - i : i - j) == 1)
-            return i / (size_t)g.extent[2] == j / (size_t)g.extent[2] ? -g.weights[2] : 0;
+            return -poisson_neighbor_weight(op, i < j ? i : j);
         return 0;
     }
     vmerror_kind(v, "domain", "preconditioner needs explicit coefficients or a known diagonal");

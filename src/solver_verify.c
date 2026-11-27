@@ -33,13 +33,12 @@ static long double infinity_norm(Obj *op, const LinopContext *context, size_t m,
     } else if (op->as.linop.kind == LINOP_DIAGONAL) {
         largest = max_abs(n, A(op->as.linop.first).data);
     } else if (op->as.linop.kind == LINOP_POISSON) {
-        PoissonGrid g = poisson_grid(op);
-        largest = g.diagonal;
-        for (int i = 0; i < 3; i++)
-            largest += (g.extent[i] == 1   ? 0
-                        : g.extent[i] == 2 ? 1
-                                           : 2) *
-                       (long double)g.weights[i];
+        largest = poisson_diagonal(op);
+        for (int i = 0; i < op->as.linop.grid_rank; i++) {
+            int length = op->as.linop.extent[i];
+            int neighbors = length < 3 ? length - 1 : 2;
+            largest += neighbors * (long double)op->as.linop.weights[i];
+        }
     } else
         return NAN;
     return largest;

@@ -2,7 +2,7 @@
 
 **Status** — Research candidates and follow-ups for Aulë and distributed execution. The implemented
 solver, preconditioner, verification and Poisson contracts are in [Aulë numerical solvers](../implemented/aule-solvers.md).
-The earlier baseline is [Moria CG/PCG and CGLS](../implemented/sparse-matrices.md).
+The historical baselines are [Moria CG/PCG](../../docs/MORIA_0.14.3.md#solvers-and-budget) and [the 0.13 CGLS implementation](../../docs/legacy-reference-de.md#module-high-native-c).
 Let $n$ be the dimension, $z$ stored entries, and $k$ the restart or block basis size.
 
 | Capability | Candidate and alternative | Cost and numerical trade-off | Implementation and validation |

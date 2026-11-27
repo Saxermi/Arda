@@ -166,6 +166,8 @@ static void cycle(Level *level, int count) {
 Val solver_multigrid(VM *v, Val input, Val rhs, Val settings) {
     if (!isobj(input, O_LINOP) || input.o->as.linop.kind != LINOP_POISSON)
         vmerror_kind(v, "type", "multigrid needs a linop.poisson operator");
+    if (input.o->as.linop.grid_rank > 3)
+        vmerror_kind(v, "shape", "multigrid supports up to three grid axes");
     SolverOptions opts = solver_options(v, settings);
     if (opts.preconditioner != PC_NONE || solver_has_options(settings, "restart") ||
         solver_has_options(settings, "basis") || solver_has_options(settings, "assume") ||

@@ -20,7 +20,7 @@ def execute(code):
         path = pathlib.Path(tmp) / 'ref.arda'
         # Convert tensors to lists before printing to avoid abbreviated arrays.
         code = code.replace('pedo(', 'emit(')
-        path.write_text('tol numc as nc\ntol calc as ca\ntol high\ntol ode\ntol opt\ncaro emit(x):\n    qui type(x) == "array":\n        pedo(nc.tolist(x))\n    ai:\n        pedo(x)\n' + code + '\n')
+        path.write_text('tol numc as nc\ntol calc as ca\ntol high\ntol solver as s\ntol linop as l\ntol ode\ntol opt\ncaro emit(x):\n    qui type(x) == "array":\n        pedo(nc.tolist(x))\n    ai:\n        pedo(x)\n' + code + '\n')
         p = subprocess.run([str(BIN), '--gc-stress', str(path)], text=True,
                            capture_output=True, timeout=30)
         if p.returncode:
@@ -92,27 +92,35 @@ class ReferenceTests(unittest.TestCase):
 
     def test_cg_and_lstsq(self):
         a=self.rng.normal(size=(12,12)); a=a.T@a+2*np.eye(12); b=self.rng.normal(size=12)
-        r=execute(f'esta r=high.cg(nc.array({literal(a)}),nc.array({literal(b)}),1e-11,100)\npedo(r["solution"])\npedo(r["converged"])\n')
+        r=execute(f'esta r=s.solve("cg",nc.array({literal(a)}),nc.array({literal(b)}),{{"tol":1e-11,"maxiter":100,"preconditioner":"jacobi"}})\npedo(r["solution"])\npedo(r["converged"])\n')
         self.assertTrue(r[1]); cg=self.compare('CG',r[0],linalg.solve(a,b),atol=1e-10)
         a=self.rng.normal(size=(30,8)); b=self.rng.normal(size=30)
-        r=execute(f'esta r=high.lstsq(nc.array({literal(a)}),nc.array({literal(b)}),1e-11,100)\npedo(r["solution"])\npedo(r["converged"])\n')
-        self.assertTrue(r[1]); ls=self.compare('CGLS',r[0],linalg.lstsq(a,b)[0],atol=1e-10)
-        print(f'\nCG max abs error {cg:.3g}; CGLS {ls:.3g}')
+        r=execute(f'esta r=s.solve("lsqr",nc.array({literal(a)}),nc.array({literal(b)}),{{"tol":1e-11,"maxiter":100}})\npedo(r["solution"])\npedo(r["converged"])\n')
+        self.assertTrue(r[1]); ls=self.compare('LSQR',r[0],linalg.lstsq(a,b)[0],atol=1e-10)
+        print(f'\nCG max abs error {cg:.3g}; LSQR {ls:.3g}')
 
     def test_poisson_independent_sparse_operator(self):
         errors=[]
         for shape in [(5,), (3,4), (2,3,4), (2,2,3,4), (2,2,2,2,2,2,2,2)]:
             n=int(np.prod(shape)); matrix=sparse.csr_matrix((n,n))
+            weights = list(range(1, len(shape) + 1))
             for axis,m in enumerate(shape):
-                t=sparse.diags([2*np.ones(m),-np.ones(m-1),-np.ones(m-1)],[0,-1,1],format='csr')
+                t=weights[axis]*sparse.diags([2*np.ones(m),-np.ones(m-1),-np.ones(m-1)],[0,-1,1],format='csr')
                 left=int(np.prod(shape[:axis])); right=int(np.prod(shape[axis+1:]))
                 matrix+=sparse.kron(sparse.eye(left),sparse.kron(t,sparse.eye(right)),format='csr')
-            b=self.rng.normal(size=shape)
-            x,stencil,ok=execute(f'esta b=nc.array({literal(b)})\nesta r=high.poisson(b,1e-11,500)\npedo(r["solution"])\npedo(high.laplace(b))\npedo(r["converged"])\n')
+            b=self.rng.normal(size=n)
+            x,stencil,ok=execute(f'''
+esta b=nc.array({literal(b)})
+esta op=l.poisson({list(shape)},{weights})
+esta r=s.solve("cg",op,b,{{"tol":1e-11,"maxiter":500}})
+pedo(r["solution"])
+pedo(l.apply(op,b))
+pedo(r["converged"])
+''')
             self.assertTrue(ok)
-            expected=spsolve(matrix,b.ravel()).reshape(shape)
+            expected=spsolve(matrix,b)
             errors.append(self.compare('poisson',x,expected,atol=1e-10))
-            self.compare('laplace',stencil,(matrix@b.ravel()).reshape(shape))
+            self.compare('laplace',stencil,matrix@b)
         print(f'\nPoisson: 5 independent sparse systems, up to 8D; max abs error {max(errors):.3g}')
 
     def test_rk45_and_quadrature(self):

@@ -162,7 +162,9 @@ Baseline reproduzieren. `O_SPARSE` oder zwei explizite Objekttypen, `src/sparse.
 
 **Status** — Implementiert.
 
-`sp.cg` und `sp.pcg` lösen SPD-Systeme mit optional wiederverwendbarem Workspace und berechnen das wahre Schlussresiduum. `sp.verify` prüft Lösungen separat. `sp.set_budget` und `sp.memory` begrenzen und erfassen verwaltete Sparse- und Solver-Puffer. Ergebnisse und Grenzen sind in der [0.14.3-Spezifikation für Sparse-Solver und Speicherbudgets](docs/MORIA_0.14.3.md) dokumentiert. Der direkte tridiagonale Solver gehört zu [0.15.0](#arda-015--numerical-methods-and-mathematical-documentation).
+Seit 0.19 löst `solver.solve("cg",A,b)` SPD-Systeme und `solver.verify` prüft Lösungen separat.
+`sp.set_budget` und `sp.memory` erfassen Sparse-Speicher. Das Solver-Workspace nutzt das Tensorbudget.
+Historische Moria-Messungen und der damalige Vertrag stehen in der [0.14.3-Spezifikation](docs/MORIA_0.14.3.md). Der direkte tridiagonale Solver gehört zu [0.15.0](#arda-015--numerical-methods-and-mathematical-documentation).
 
 **Querschnitt:** Versionierte statische mathematische Deskriptoren decken Konvertierung, Sparse-Algebra und Solver ab. Mathematische Verträge und Komplexitätsangaben werden mit der abschließenden 0.14.4-Validierung konsolidiert. Globale und lokale Indizes bleiben getrennte Konzepte.
 
@@ -565,7 +567,7 @@ Verbindlicher Kern: sichere Runtime, native Sparse/Dense, portabler optimierter 
 ## 13. Gemeinsame Ziel-API (Illustration, nicht implementiert)
 
 ```python
-tol sparse as sp
+tol solver as s
 tol compute
 tol mathdoc
 
@@ -574,7 +576,7 @@ compute.configure({"device": "cpu", "threads": 4,
                    "allow_approximation": law})
 
 caro system(A, b):
-    nan sp.cg(A, b)
+    nan s.solve("cg", A, b)
 
 # Statisch: keine Berechnung starten
 pedo(system.getTex(3))

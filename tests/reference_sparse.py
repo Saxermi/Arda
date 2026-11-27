@@ -74,9 +74,9 @@ class SparseReferenceTests(unittest.TestCase):
         tol numc as nc
         esta a = sp.tridiag({n},{edge.tolist()},{main.tolist()},{edge.tolist()})
         esta b = nc.array({b.tolist()})
-        esta w = sp.workspace({n})
-        esta u = sp.cg(a,b,1e-11,100,w)
-        esta v = sp.pcg(a,b,1e-11,100,w)
+        tol solver as s
+        esta u = s.solve("cg",a,b,{{"tol":1e-11,"maxiter":100}})
+        esta v = s.solve("cg",a,b,{{"tol":1e-11,"maxiter":100,"preconditioner":"jacobi"}})
         pedo(u["reason"],v["reason"],v["iterations"] < u["iterations"])
         pedo(u["residual"],v["residual"])
         pedo(nc.tolist(u["solution"]))
@@ -119,7 +119,8 @@ class SparseReferenceTests(unittest.TestCase):
         tol numc as nc
         esta a = sp.tridiag({n},{edge.tolist()},{main.tolist()},{edge.tolist()})
         esta b = nc.array({b.tolist()})
-        esta r = sp.pcg(a,b,1e-12,150)
+        tol solver as s
+        esta r = s.solve("cg",a,b,{{"tol":1e-12,"maxiter":150,"preconditioner":"jacobi"}})
         pedo(r["reason"],r["residual"])
         pedo(nc.tolist(r["solution"]))
         """, stress=True).splitlines()

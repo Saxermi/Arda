@@ -217,3 +217,20 @@ directions. The matrix-free stencil keeps storage bounded on regular grids. Gene
 Galerkin or algebraic multigrid could serve more operators and variable coefficients,
 with higher setup, storage and testing costs. Keep the known CG and SciPy paths as baseline
 comparators. [Algorithms and local validation](research/implemented/aule-solvers.md)
+
+## 2026-11-27 — Retire the parallel iterative-solver API
+
+**Status** — API migration approved by the owner
+
+Use `solver` for iterative solves and solution verification, and `linop` for operator
+construction and application. Remove the duplicate entries and their private sparse workspace
+type. The old reusable workspace avoided allocations across solves. The common solver instead
+budgets transient scratch per call and uses tensor memory accounting. A compatibility layer
+would preserve the old signatures and accounting contract alongside the new one.
+
+Route least-squares examples through LSQR. CGLS was a separate recurrence for the same
+least-squares problem. The current result preserves both data and normal residuals. Use
+the existing specialized stencil for up to three axes and a general matrix-free stencil
+for higher ranks. This keeps the four- and eight-dimensional examples runnable. Generalizing
+the Multigrid hierarchy would add variable-rank transfer kernels and needs separate validation.
+[API migration](research/implemented/aule-solvers.md#solver-api-migration)
