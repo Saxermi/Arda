@@ -2,6 +2,16 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
+## 0.21.4 — Beyond-RAM Data Processing and Visualization (development)
+
+- Added versioned experiment manifests with input fingerprints, output quotas and atomic publication. Added integrity checks for persistent RK45 and heat checkpoints.
+- Added bounded AMDE reports in Markdown, JSON, HTML and LaTeX, with separate static documentation and observed verification or trace. [Experiment and report contracts](research/implemented/beyond-ram.md#0214--experiment-manifests-and-amde-reports)
+
+- Added blockwise file map, filter and reduce, tiled Float64 matrix multiplication, file CSR matrix–vector multiplication, tall-matrix QR, and full and randomized right SVD. [Computation contracts](research/implemented/beyond-ram.md#0212--file-computation)
+- Added streamed SVG line, scatter, histogram, heatmap, contour and vector plots, and legacy binary VTK scalar-grid export. [Export contracts](research/implemented/beyond-ram.md#0213--svg-and-vtk-exports)
+- Added streaming imports of dense little-endian NPY arrays and numeric CSV/TSV tables into `.atn` files. [Import contracts](research/implemented/typed-tensors.md#streaming-imports)
+- Added staged tensor outputs with bounded tile access, a logical disk budget, and atomic publication. [Output contracts](research/implemented/typed-tensors.md#staged-tensor-outputs)
+
 ## 0.20.6 — Scientific Simulation Release Validation
 
 - Completed clean-source Ulmo validation with local builds, independent references, sanitizers, and measured comparisons. The physical Ulmo replay is scheduled in the pre-1.0 laptop validation. [Validation report](research/implemented/ulmo-simulation.md#0206-release-validation)

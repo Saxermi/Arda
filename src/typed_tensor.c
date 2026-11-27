@@ -1,4 +1,5 @@
 #include "autodiff.h"
+#include "tensor_file.h"
 
 static int is_tensor(Val x) {
     return isobj(x, O_TYPED_TENSOR) || isobj(x, O_ARRAY);
@@ -742,25 +743,75 @@ enum {
     COS,
     EXP,
     LOG,
-    SQRT
+    SQRT,
+    IMPORT_NPY,
+    IMPORT_DELIMITED,
+    OPEN_OUTPUT,
+    COMMIT_OUTPUT,
+    ABORT_OUTPUT,
+    FILE_INFO,
+    WRITE_BLOCK,
+    TRUNCATE_OUTPUT
 };
-static const char *const names[] = {
-    "array",      "zeros",     "cast",       "dtype",   "shape",   "bytes",        "tolist",
-    "at",         "put",       "view",       "permute", "to_numc", "readonly",     "matmul",
-    "sum",        "tensordot", "gather",     "scatter", "mask",    "fft",          "ifft",
-    "einsum",     "mmap",      "read_block", "save",    "blocks",  "close_blocks", "read_tile",
-    "write_tile", "contract",  "spec",       "reshape", "slice",   "mean",         "sin",
-    "cos",        "exp",       "log",        "sqrt"};
-static const int arities[] = {2, 2, 2, 1, 1, 1, 1, 2, 3, 4, 2, 1, 1, 2, 2, 4, 2, 3, 2, 1,
-                              1, 3, 1, 3, 2, 2, 1, 3, 3, 2, 2, 2, 4, 2, 1, 1, 1, 1, 1};
+static const char *const names[] = {"array",
+                                    "zeros",
+                                    "cast",
+                                    "dtype",
+                                    "shape",
+                                    "bytes",
+                                    "tolist",
+                                    "at",
+                                    "put",
+                                    "view",
+                                    "permute",
+                                    "to_numc",
+                                    "readonly",
+                                    "matmul",
+                                    "sum",
+                                    "tensordot",
+                                    "gather",
+                                    "scatter",
+                                    "mask",
+                                    "fft",
+                                    "ifft",
+                                    "einsum",
+                                    "mmap",
+                                    "read_block",
+                                    "save",
+                                    "blocks",
+                                    "close_blocks",
+                                    "read_tile",
+                                    "write_tile",
+                                    "contract",
+                                    "spec",
+                                    "reshape",
+                                    "slice",
+                                    "mean",
+                                    "sin",
+                                    "cos",
+                                    "exp",
+                                    "log",
+                                    "sqrt",
+                                    "import_npy",
+                                    "import_delimited",
+                                    "open_output",
+                                    "commit_output",
+                                    "abort_output",
+                                    "file_info",
+                                    "write_block",
+                                    "truncate_output"};
+static const int arities[] = {2, 2, 2, 1, 1, 1, 1, 2, 3, 4, 2, 1, 1, 2, 2, 4,
+                              2, 3, 2, 1, 1, 3, 1, 3, 2, 2, 1, 3, 3, 2, 2, 2,
+                              4, 2, 1, 1, 1, 1, 1, 2, 3, 3, 1, 1, 1, 3, 2};
 _Static_assert(sizeof names / sizeof *names == sizeof arities / sizeof *arities, "tensor arities");
 
 Val typed_tensor_call(VM *v, int id, int argc, Val *args) {
     int op = id - TYPED_TENSOR_BASE;
     if (op < 0 || (size_t)op >= sizeof names / sizeof *names ||
-        (argc != arities[op] && !((op == ARRAY || op == SAVE) && argc == 3) &&
-         !(op == WRITE_TILE && argc == 4) && !(op == CONTRACT && argc == 3) &&
-         !((op == SUM || op == MEAN) && argc == 1) && !(op == SLICE && argc == 5)))
+        (argc != arities[op] && !((op == ARRAY || op == SAVE || op == IMPORT_NPY) && argc == 3) &&
+         !((op == WRITE_TILE || op == IMPORT_DELIMITED || op == OPEN_OUTPUT) && argc == 4) &&
+         !(op == CONTRACT && argc == 3) && !((op == SUM || op == MEAN) && argc == 1) &&
+         !(op == SLICE && argc == 5)))
         vmerror(v, "invalid tensor API arity");
     Val left = args[0], primal = ad_primal(left);
     bool tracked = isobj(left, O_AD);
@@ -818,6 +869,26 @@ Val typed_tensor_call(VM *v, int id, int argc, Val *args) {
         return tensor_read_tile(v, args[0], args[1], args[2]);
     if (op == WRITE_TILE)
         return tensor_write_tile(v, args[0], args[1], args[2], argc == 4 ? args[3] : nil());
+    if (op == IMPORT_NPY)
+        return tensor_import_npy(v, args[0], args[1], argc == 3 ? args[2] : nil());
+    if (op == IMPORT_DELIMITED)
+        return tensor_import_delimited(v, args[0], args[1], args[2], argc == 4 ? args[3] : nil());
+    if (op == OPEN_OUTPUT)
+        return tensor_open_output(v, args[0], args[1], args[2], argc == 4 ? args[3] : nil());
+    if (op == COMMIT_OUTPUT)
+        return tensor_commit_output(v, args[0]);
+    if (op == FILE_INFO)
+        return tensor_file_info(v, args[0]);
+    if (op == WRITE_BLOCK)
+        return tensor_write_block(v, args[0], args[1], args[2]);
+    if (op == TRUNCATE_OUTPUT)
+        return tensor_truncate_output(v, args[0], args[1]);
+    if (op == ABORT_OUTPUT) {
+        if (!isobj(args[0], O_TENSOR_OUTPUT))
+            vmerror_kind(v, "type", "expected a tensor output handle");
+        tensor_output_abort(args[0].o);
+        return nil();
+    }
     if (op == EINSUM)
         return einsum(v, asstr(v, args[0]), typed_tensor(v, args[1]), typed_tensor(v, args[2]));
     if (op == ARRAY || op == ZEROS) {

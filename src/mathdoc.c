@@ -1,9 +1,9 @@
-#include "arda.h"
+#include "mathdoc_report.h"
 
-enum { TEX, ALGORITHM, ASSUMPTIONS, COMPLEXITY, COST, DERIVATIVE_TEX, SENSITIVITY };
-static const char *const methods[] = {"getTex",        "getAlgorithm", "getAssumptions",
-                                      "getComplexity", "getCost",      "getDerivativeTex",
-                                      "getSensitivity"};
+enum { TEX, ALGORITHM, ASSUMPTIONS, COMPLEXITY, COST, DERIVATIVE_TEX, SENSITIVITY, EXPORT };
+static const char *const methods[] = {"getTex",         "getAlgorithm", "getAssumptions",
+                                      "getComplexity",  "getCost",      "getDerivativeTex",
+                                      "getSensitivity", "export"};
 _Static_assert(MATHDOC_BASE + SENSITIVITY == MATHDOC_SENSITIVITY_ID, "sensitivity method ID");
 
 typedef enum { NO_COST, DENSE_SOLVE, DENSE_MATMUL, DENSE_DOT, CSR_MATVEC } CostModel;
@@ -415,6 +415,8 @@ Val mathdoc_call(VM *v, int id, int argc, Val *args) {
     int method = id - MATHDOC_BASE;
     if (method < 0 || (size_t)method >= sizeof methods / sizeof *methods)
         vmerror(v, "unknown mathdoc query");
+    if (method == EXPORT)
+        return mathdoc_export(v, argc, args);
     if (argc != (method >= COST ? 2 : 1) && !(method == TEX && argc == 2))
         vmerror(v, "invalid mathdoc.%s arity", methods[method]);
     if (!documented_target(args[0]))
@@ -467,9 +469,20 @@ Val mathdoc_call(VM *v, int id, int argc, Val *args) {
     }
 }
 
+Val mathdoc_describe(VM *v, Val target, Val level) {
+    Obj *record = newobj(v, O_MAP);
+    const char *const keys[] = {"formula_tex", "algorithm", "assumptions", "complexity"};
+    Val args[] = {target, level};
+    for (int i = TEX; i <= COMPLEXITY; i++) {
+        Val value = mathdoc_call(v, MATHDOC_BASE + i, i == TEX ? 2 : 1, args);
+        tableset(v, record, &record->as.map.tab, keys[i], value);
+    }
+    return objval(record);
+}
+
 Val mathdoc_attribute(VM *v, Val target, const char *name) {
     if (documented_target(target))
-        for (size_t i = 0; i < sizeof methods / sizeof *methods; i++) {
+        for (size_t i = 0; i < EXPORT; i++) {
             if (strcmp(methods[i], name))
                 continue;
             Obj *method = newobj(v, O_NATIVE);

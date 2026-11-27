@@ -1,4 +1,4 @@
-#include "arda.h"
+#include "file_compute.h"
 #include "linear_operator.h"
 #include <float.h>
 
@@ -146,53 +146,77 @@ static void cholesky_factor(VM *v, Obj *a) {
     }
 }
 
-static void apply_reflector(VM *v, const Obj *packed, int k, double tau, Obj *target,
-                            int first_col) {
+static bool apply_packed_reflector(const double *w, int rows, int columns, int k, double tau,
+                                   double *data, int target_columns, int first_col) {
     if (tau == 0.0)
-        return;
-    const double *w = A(packed).data;
-    double *data = A(target).data;
-    for (int j = first_col; j < A(target).cols; j++) {
-        long double dot = data[index_at(target, k, j)];
-        for (int i = k + 1; i < A(packed).rows; i++)
-            dot += (long double)w[index_at(packed, i, k)] * data[index_at(target, i, j)];
+        return true;
+    for (int j = first_col; j < target_columns; j++) {
+        long double dot = data[(size_t)k * target_columns + j];
+        for (int i = k + 1; i < rows; i++)
+            dot += (long double)w[(size_t)i * columns + k] * data[(size_t)i * target_columns + j];
         long double scale = tau * dot;
-        size_t first = index_at(target, k, j);
-        data[first] = checked(v, (long double)data[first] - scale);
-        for (int i = k + 1; i < A(packed).rows; i++) {
-            size_t next = index_at(target, i, j);
-            data[next] = checked(v, (long double)data[next] - scale * w[index_at(packed, i, k)]);
+        size_t first = (size_t)k * target_columns + j;
+        long double value = (long double)data[first] - scale;
+        if (!isfinite(value) || fabsl(value) > DBL_MAX)
+            return false;
+        data[first] = (double)value;
+        for (int i = k + 1; i < rows; i++) {
+            size_t pos = (size_t)i * target_columns + j;
+            value = (long double)data[pos] - scale * w[(size_t)i * columns + k];
+            if (!isfinite(value) || fabsl(value) > DBL_MAX)
+                return false;
+            data[pos] = (double)value;
         }
     }
+    return true;
+}
+
+static void apply_reflector(VM *v, const Obj *packed, int k, double tau, Obj *target,
+                            int first_col) {
+    if (!apply_packed_reflector(A(packed).data, A(packed).rows, A(packed).cols, k, tau,
+                                A(target).data, A(target).cols, first_col))
+        vmerror(v, "nonfinite factorization or solution");
 }
 
 /* Generate each reflector in scaled coordinates. This avoids squaring large
  * entries and forming alpha - beta in the original scale. */
-static void qr_factor(VM *v, Obj *f) {
-    Obj *a = F(f).packed;
-    double *w = A(a).data, *tau = (double *)(f + 1);
-    int m = A(a).rows, n = A(a).cols;
+bool dense_qr_packed(double *w, int m, int n, double *tau) {
     for (int k = 0; k < m && k < n; k++) {
         double tail_max = 0.0;
         for (int i = k + 1; i < m; i++)
-            tail_max = fmax(tail_max, fabs(w[index_at(a, i, k)]));
+            tail_max = fmax(tail_max, fabs(w[(size_t)i * n + k]));
+        if (tau)
+            tau[k] = 0.0;
         if (tail_max == 0.0)
             continue;
-        size_t diag = index_at(a, k, k);
+        size_t diag = (size_t)k * n + k;
         double scale = fmax(fabs(w[diag]), tail_max);
         double alpha = w[diag] / scale;
         double norm = fabs(alpha);
         for (int i = k + 1; i < m; i++)
-            norm = hypot(norm, w[index_at(a, i, k)] / scale);
+            norm = hypot(norm, w[(size_t)i * n + k] / scale);
         double beta = -copysign(norm, w[diag]);
-        tau[k] = (beta - alpha) / beta;
+        double reflector = (beta - alpha) / beta;
+        if (tau)
+            tau[k] = reflector;
         for (int i = k + 1; i < m; i++) {
-            size_t p = index_at(a, i, k);
+            size_t p = (size_t)i * n + k;
             w[p] = (w[p] / scale) / (alpha - beta);
         }
-        w[diag] = checked(v, (long double)scale * beta);
-        apply_reflector(v, a, k, tau[k], a, k + 1);
+        long double diagonal = (long double)scale * beta;
+        if (!isfinite(diagonal) || fabsl(diagonal) > DBL_MAX)
+            return false;
+        w[diag] = (double)diagonal;
+        if (!apply_packed_reflector(w, m, n, k, reflector, w, n, k + 1))
+            return false;
     }
+    return true;
+}
+
+static void qr_factor(VM *v, Obj *f) {
+    Obj *a = F(f).packed;
+    if (!dense_qr_packed(A(a).data, A(a).rows, A(a).cols, (double *)(f + 1)))
+        vmerror(v, "nonfinite factorization or solution");
 }
 
 static Obj *factorize(VM *v, Obj *input, FactorKind kind, const char *nonfinite, int *det_sign) {
@@ -329,15 +353,22 @@ Obj *dense_lu_try_solve(VM *v, Obj *a, Obj *b) {
     return sign ? solve_factor(v, factor, b) : NULL;
 }
 
+bool dense_qr_basis(const double *packed, int rows, int columns, const double *tau, double *basis,
+                    int width) {
+    memset(basis, 0, (size_t)rows * width * sizeof(double));
+    for (int i = 0; i < width; i++)
+        basis[(size_t)i * width + i] = 1;
+    for (int i = width - 1; i >= 0; i--)
+        if (!apply_packed_reflector(packed, rows, columns, i, tau[i], basis, width, 0))
+            return false;
+    return true;
+}
+
 static void qr_basis(VM *v, const Obj *f, Obj *q) {
     const Obj *a = F(f).packed;
-    int k = A(q).cols;
-    memset(A(q).data, 0, A(q).n * sizeof(double));
-    for (int i = 0; i < k; i++)
-        A(q).data[index_at(q, i, i)] = 1;
-    const double *tau = (const double *)(f + 1);
-    for (int i = k - 1; i >= 0; i--)
-        apply_reflector(v, a, i, tau[i], q, 0);
+    if (!dense_qr_basis(A(a).data, A(a).rows, A(a).cols, (const double *)(f + 1), A(q).data,
+                        A(q).cols))
+        vmerror(v, "nonfinite factorization or solution");
 }
 
 static Val factor_parts(VM *v, const Obj *f) {
@@ -767,6 +798,22 @@ Val linalg_projected_eigen(VM *v, Obj *matrix) {
 static void gaussian(Obj *out, RandomState *rng) {
     for (size_t i = 0; i < A(out).n; i++)
         A(out).data[i] = (double)random_normal_unit(rng);
+}
+
+Val dense_projected_right_svd(VM *v, Obj *r, Obj *basis, int rank) {
+    int width = A(basis).cols, cols = A(basis).rows;
+    Svd projected = singular_value_decomposition(v, r, 1);
+    Obj *s = array_new(v, 1, rank, 1), *vt = array_new(v, 2, rank, cols);
+    memcpy(A(s).data, A(projected.s).data, (size_t)rank * sizeof(double));
+    for (int i = 0; i < rank; i++)
+        for (int j = 0; j < cols; j++)
+            A(vt).data[(size_t)i * cols + j] =
+                checked(v, linear_dot(width, A(projected.vt).data + (size_t)i * width,
+                                      A(basis).data + (size_t)j * width));
+    Obj *result = list(v);
+    append(v, result, objval(s));
+    append(v, result, objval(vt));
+    return objval(result);
 }
 
 static void orthonormalize(VM *v, Obj *factor, Obj *input, Obj *basis) {

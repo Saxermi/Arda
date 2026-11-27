@@ -1,3 +1,4 @@
+#include "experiment.h"
 #include "autodiff.h"
 #include "simulation_checkpoint.h"
 #include <time.h>
@@ -61,8 +62,9 @@ static const char *typename(Val v) {
                                   "offload_plan",
                                   "quantized_matrix",
                                   "compute_plan",
-                                  "fem_mesh"};
-        _Static_assert(sizeof n / sizeof *n == O_FEM_MESH + 1, "object type names");
+                                  "fem_mesh",
+                                  "tensor_output"};
+        _Static_assert(sizeof n / sizeof *n == O_TENSOR_OUTPUT + 1, "object type names");
         return n[v.o->type];
     }
     }
@@ -206,6 +208,10 @@ int64_t range_element(const Obj *range, uint64_t index) {
 }
 
 Val native_call(VM *v, int id, int argc, Val *a) {
+    if (id >= EXPERIMENT_BASE)
+        return experiment_call(v, id, argc, a);
+    if (id >= PLOT_BASE)
+        return plot_call(v, id, argc, a);
     if (id >= CHECKPOINT_BASE)
         return checkpoint_call(v, id, argc, a);
     if (id >= FEM_BASE)
@@ -552,6 +558,10 @@ Obj *named_native_module(VM *v, const char *name, const char *const *names, size
 }
 
 Obj *native_module(VM *v, const char *name) {
+    if (!strcmp(name, "experiment"))
+        return experiment_module(v);
+    if (!strcmp(name, "plot"))
+        return plot_module(v);
     if (!strcmp(name, "_checkpoint"))
         return checkpoint_module(v);
     if (!strcmp(name, "fem"))

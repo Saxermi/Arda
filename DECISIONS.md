@@ -2,6 +2,24 @@
 
 Record the question, evidence, decision or recommendation, and when to revisit it. Use **Proposed** while a decision is open and **Accepted** once it is agreed. Link to the benchmark or roadmap that supports each entry.
 
+## 2026-11-27 — Bounded file kernels and exports
+
+**Status** — Implemented in the 0.21 development branch and open to owner revision
+
+Process stable tensor files through explicit block APIs and reuse atomic file publication. Keeping one output tile makes GEMM memory predictable, at the cost of rereading input panels. A panel cache or packed tile layout could reduce that traffic when measured workloads justify the added storage or memory. CSR uses separate typed files so existing tensor readers can validate the arrays. A dedicated sparse container could keep them together and add a row index for larger workloads.
+
+Use sequential Householder QR for the tall file path and compute right SVD results from its triangular factor. The full spectrum path keeps the original matrix outside RAM, with work proportional to the square of its column count. An explicit randomized row-space sketch reduces work for small target ranks. Power iterations could improve that approximation on slowly decaying spectra at the cost of more passes over the input.
+
+Stream SVG primitives and offer explicit stride selection for a smaller plot. A pixel- or extrema-based aggregation could preserve short features for very large series, with a different display contract. Use legacy binary VTK as a small portable scalar export. VTK XML is a candidate for larger grids, additional fields and partitioned datasets. [Processing and export contracts](research/implemented/beyond-ram.md)
+
+## 2026-11-27 — Streaming imports and tiled output publication
+
+**Status** — Implemented in the 0.21 development branch and open to owner revision
+
+Convert supported external formats to the existing `.atn` layout with bounded buffers. This makes imported data available to every existing file reader with one implementation of bounds and tile access. It takes an extra file and one conversion pass. Direct reads of validated NPY files could save that copy for binary inputs. Add a shared read-only source interface if repeated binary reads justify the additional format-specific lifetime and layout checks.
+
+Use one temporary sibling for a tiled result. The caller writes only the tiles it needs and publishes the result at commit. Assembling a result from scratch has tile-sized data writes, and replacing an existing result gives current readers a stable snapshot. A persistent chunk store could support incremental edits and restartable writes, with the added cost of metadata and recovery. Revisit that alternative when implementing the cache and recovery work. [File contracts](research/implemented/typed-tensors.md#streaming-imports) · [0.21 roadmap](ROADMAP.md#arda-021--beyond-ram-data-processing-and-visualization-ame-v2)
+
 ## 2026-11-24 — Sparse PCG performance and numerical checks
 
 **Status** — Proposed
@@ -369,4 +387,26 @@ Run the implementation gate on the cloud machine for 0.20.5.
 Complete 0.20.6 with a clean source archive, cloud validation and measured
 comparisons. Record Ulmo's physical 8 GB laptop check in the 0.28.2 hardware
 matrix and run it on the final 1.0 release candidate alongside the full test
-matrix. This ties the measurements to the actual 1.0 source. [Roadmap](ROADMAP.md#physischer-ulmo-laptop-test)
+matrix. This ties the measurements to the actual 1.0 source. [Roadmap](ROADMAP.md#physische-laptop-tests-vor-10)
+
+## 2026-11-27 — Bounded experiment records and scientific reports
+
+Use a typed, versioned manifest with a one-mebibyte maximum record size,
+atomic publication and a SHA-256 digest. This preserves Int64 and Float64
+values through a reload and lets one check an input or checkpoint separately.
+Binary records require an Arda reader. A text manifest would be easier to edit
+and inspect with other tools, with additional rules needed for numeric
+round-trips and which exact bytes the digest covers. Keep reading legacy solver
+checkpoints. Writing only the checksummed layout makes new checkpoint corruption
+detectable at the cost of hashing every state byte. A separate digest file would
+leave older readers usable but require coordination of two publications.
+
+Use the same static AMDE description in four report renderers. Keep declared
+units, verification and optional trace separate. Passing already collected
+measurements keeps export independent of execution. An execution wrapper could
+automate collection and bind measurements to one invocation, with new contracts
+for callbacks, failures, trace memory and result lifetime.
+
+Run feasible cloud validation for every milestone. Collect owner-dependent
+hardware and manual tests in the final pre-1.0 acceptance matrix.
+[Contracts and cloud acceptance](research/implemented/beyond-ram.md#0214--experiment-manifests-and-amde-reports)

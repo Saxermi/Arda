@@ -12,7 +12,11 @@ Its long-term goal is to combine scientifically validated numerical algorithms w
 
 *Development codename: Mithril*
 
-**Development version** — Arda 0.20.6 — Scientific Simulation Release Validation
+**Development version** — Arda 0.21.4 — Beyond-RAM Data Processing and Visualization
+
+Use `experiment.save` to persist a small, checksummed run manifest, and
+`mathdoc.export` to attach mathematical documentation and supplied verification
+to a report. [File computation, reproducible experiments, and reports](research/implemented/beyond-ram.md)
 
 Use `compute.cpu()` to inspect CPU features. An `OPENMP=1` build can use `compute.threads(2)` for large native Float64 matrix products and AXPY. The normal build and default runtime setting run these kernels serially. [Kernel controls, benchmark results, and build options](research/implemented/transforms-and-kernels.md#0182-controlled-cpu-parallelism)
 
@@ -263,6 +267,10 @@ The `lowrank` module builds CP, Tucker, and tensor trains from factors or cores.
 The `units` module handles SI quantities, temperature scales, and dimensional compatibility for scalar and Float64 tensor arithmetic. Use `tensor.contract` to check a live tensor's shape and dtype and `tensor.spec` to describe logical dimensions with 64-bit integers. [Scientific type contracts](research/implemented/scientific-types.md) · [Runnable example](examples/scientific_types.arda)
 
 The `tensor` module supports typed CPU arrays, read-only mapping, bounded blocks and rectangular tiles. Use `tensor.array(values,dtype[,shape])` for flat input, `tensor.cast` for explicit conversion, and `tensor.to_numc` to materialize a Float64 array for the existing kernels. The `compute` module reports buffer and workspace usage and runs budgeted mean and variance directly on tensor files. [Typed tensor and file contracts](research/implemented/typed-tensors.md) · [Memory budgets and streaming](research/implemented/typed-tensors.md#memory-budgets-and-streaming)
+
+Use `tensor.import_npy` or `tensor.import_delimited` to stream dense NumPy arrays or numeric CSV/TSV tables into `.atn` files. Use `tensor.open_output` to build a new file tile by tile and publish it with one commit. [Import examples](research/implemented/typed-tensors.md#streaming-imports) · [Output example](research/implemented/typed-tensors.md#staged-tensor-outputs)
+
+Use `compute` to map, filter, reduce, or multiply tensor files with bounded blocks. Use `plot.svg` to draw plots directly from tensor files and `plot.vtk` to export regular scalar grids. [File computation and visualization](research/implemented/beyond-ram.md)
 
 ### `numc`: dense arrays and linear algebra
 

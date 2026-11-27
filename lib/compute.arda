@@ -1,4 +1,6 @@
 tol _compute as _native
+tol tensor as _tensor
+tol linalg as _linalg
 
 esta memory_stats = _native.memory_stats
 esta memory_budget = _native.memory_budget
@@ -21,10 +23,96 @@ esta compare = _native.compare
 esta topology = _native.topology
 esta affinity = _native.affinity
 esta first_touch = _native.first_touch
+esta file_matmul = _native.file_matmul
+esta file_spmv = _native.file_spmv
+esta file_qr_r = _native.file_qr_r
+esta file_rsvd_right = _native.file_rsvd_right
+
+caro file_svd_right(source, block_rows = mun):
+    esta r = file_qr_r(source,block_rows)
+    esta factors = _linalg.svd(r)
+    nan [factors[1],factors[2]]
 
 caro _callable(f):
     esta kind = type(f)
     nan kind == "function" or kind == "native" or kind == "method"
+
+caro _collect_consumed_blocks():
+    # Finish any active cycle, then reclaim blocks marked before they were dropped.
+    collect()
+    collect()
+
+caro reduce_file(source, initial, step, block_elements = 65536):
+    qui not _callable(step):
+        throw {"code":"type","message":"file reducer must be callable"}
+    esta blocks = _tensor.blocks(source,block_elements)
+    esta accumulator = initial
+    try:
+        an block in blocks:
+            accumulator = step(accumulator,block)
+            block = mun
+            _collect_consumed_blocks()
+    catch error:
+        _tensor.close_blocks(blocks)
+        throw error
+    _tensor.close_blocks(blocks)
+    nan accumulator
+
+caro _filter_block(block, predicate, dtype):
+    esta kept = []
+    an value in _tensor.tolist(block):
+        esta selected = predicate(value)
+        qui type(selected) != "bool":
+            throw {"code":"type","message":"file filter predicate must return a Boolean"}
+        qui selected:
+            push(kept,value)
+    nan _tensor.array(kept,dtype)
+
+caro _write_transformed_file(source, destination, callback, filter, dtype, block_elements, disk_budget):
+    qui not _callable(callback):
+        throw {"code":"type","message":"file transform must be callable"}
+    esta blocks = _tensor.blocks(source,block_elements)
+    esta output = mun
+    esta offset = 0
+    try:
+        esta info = _tensor.file_info(blocks)
+        esta shape = info["shape"]
+        qui filter:
+            shape = [info["elements"]]
+            dtype = info["dtype"]
+        elif dtype == mun:
+            dtype = info["dtype"]
+        output = _tensor.open_output(destination,shape,dtype,disk_budget)
+        an block in blocks:
+            esta tile = mun
+            qui filter:
+                tile = _filter_block(block,callback,dtype)
+            ai:
+                tile = callback(block)
+            esta tile_shape = _tensor.shape(tile)
+            qui len(tile_shape) != 1 or (not filter and tile_shape[0] != _tensor.shape(block)[0]):
+                throw {"code":"shape","message":"file map must return a vector of the same length"}
+            _tensor.write_block(output,offset,tile)
+            offset = offset + tile_shape[0]
+            block = mun
+            tile = mun
+            _collect_consumed_blocks()
+        qui filter:
+            _tensor.truncate_output(output,offset)
+        _tensor.commit_output(output)
+    catch error:
+        qui output != mun:
+            _tensor.abort_output(output)
+        _tensor.close_blocks(blocks)
+        throw error
+    _tensor.close_blocks(blocks)
+    nan offset
+
+caro map_file(source, destination, callback, dtype = mun, block_elements = 65536, disk_budget = mun):
+    nan _write_transformed_file(source,destination,callback,law,dtype,block_elements,disk_budget)
+
+caro filter_file(source, destination, predicate, block_elements = 65536, disk_budget = mun):
+    nan _write_transformed_file(source,destination,predicate,nae,mun,block_elements,disk_budget)
 
 caro _sweep_config(options):
     esta config = {"max_cases":10000,"max_errors":100,"stream":mun,"factor":mun}

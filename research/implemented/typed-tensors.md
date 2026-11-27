@@ -73,6 +73,49 @@ pedo(plan["fits"],plan["workspace_bytes"],stats["count"],stats["mean"],stats["va
 
 The program prints `nae 16 4 2.5 1.25`.
 
+## Streaming imports
+
+Both imports write the existing `ARDATEN1` layout in row-major order using a 64 KiB data buffer. Input must be a regular file. An optional logical disk budget covers the 128-byte header and the complete payload. The destination is published after successful validation and writing. On errors, the previously published file stays available. The imported file works with `tensor.mmap`, `tensor.read_tile`, `tensor.blocks`, and other supported file operations.
+
+| API | Input contract |
+| --- | --- |
+| `tensor.import_npy(source,destination[,disk_budget])` | NPY 1.0, 2.0, or 3.0 up to a 4 KiB header. Dense C-order arrays of rank 1–8 with Boolean, UInt8, Int32, Int64, Float16, Float32, Float64, Complex64, or Complex128 elements. Multibyte values must be little-endian. The payload length must match the header exactly. |
+| `tensor.import_delimited(source,destination,[rows,columns][,options])` | Finite Float64 decimal data with the exact supplied shape. Options are `delimiter` (comma by default or tab), `header` (Boolean, false by default), and `disk_budget`. Fields may be double-quoted and have up to 256 decoded bytes. Records end with LF or CRLF, with an optional final line ending. A header, when requested, must have the specified column count. |
+
+Matrix Market data uses the existing sparse I/O API. JSON, NPZ, VTK, HDF5, NPY Fortran order, NPY scalar arrays, structured or object dtypes, and endian conversion remain outside these import contracts. [NumPy file format](https://numpy.org/doc/stable/reference/generated/numpy.lib.format.html) · [RFC 4180 quoting conventions](https://www.rfc-editor.org/rfc/rfc4180) · [Sparse I/O](../../docs/MORIA_0.14.3.md)
+
+For a tab-separated input with a header and two data rows of three columns:
+
+```arda
+tol tensor as t
+t.import_delimited("samples.tsv","samples.atn",[2,3],
+    {"delimiter":"\t","header":nae,"disk_budget":176})
+pedo(t.tolist(t.read_tile("samples.atn",[0,0],[1,3])))
+```
+
+For a first data row of 1, 2, and 3, the program prints `[[1, 2, 3]]`.
+
+## Staged tensor outputs
+
+`tensor.open_output(path,shape,dtype[,disk_budget])` opens a zero-initialized temporary file beside the destination. Filesystems with sparse files can represent those zeros without writing every block. The logical disk budget includes the header and all elements, including zeros, and applies per file. It does not reserve physical space, so operating-system I/O errors can still occur.
+
+`tensor.write_tile(output,origin,tile)` patches the staged file at zero-based coordinates. Tiles must match the output dtype and fit its shape. Noncontiguous tiles use at most 64 KiB of budgeted packing workspace. `tensor.read_tile(output,origin,shape)` materializes only the requested tile and checks the heap and memory limits. Multiple writes may overlap, with later writes overwriting earlier writes.
+
+`tensor.commit_output(output)` flushes the file and atomically publishes it under the destination path. Existing open readers keep their previous file. `tensor.abort_output(output)` discards the temporary file, and collection also discards abandoned handles. Handles become inactive after commit, abort, or a failed write or commit caused by I/O. Serialize separate writers to the same destination to retain every edit. Forced termination can leave a temporary file, and a system crash can affect directory-entry durability. A chunk cache and restart protocol are pending. [Implementation](../../src/tensor_storage.c)
+
+```arda
+tol tensor as t
+esta output = t.open_output("result.atn",[2,3],"float32",152)
+t.write_tile(output,[0,0],t.array([1,2,3],"float32",[1,3]))
+t.write_tile(output,[1,1],t.array([4,5],"float32",[1,2]))
+t.commit_output(output)
+pedo(t.tolist(t.read_tile("result.atn",[0,0],[2,3])))
+```
+
+The program prints `[[1, 2, 3], [0, 4, 5]]`.
+
+For a local comparison, both paths wrote the same three 2 × 2 Float64 tiles at `[1,3]`, `[1000,31]`, and `[5998,998]` in a zero-filled 6,000 × 1,000 output. Both produced byte-identical 48,000,128-byte files. The path-based API started from a precreated zero file and copied the full file on each call. The staged timing included initialization and commit, with 96 bytes of tile data written. The Linux cloud run used one Arda thread on an AMD EPYC 9V74, GCC 14.2 with the default `-O2` build, BLAS disabled, and an overlay filesystem. Timings are end-to-end wall-clock medians of seven fresh invocations after two warmups, including the file flushes. The path-based calls took 77.11 ms with 1,504 KiB median peak RSS. The staged run took 3.65 ms with 1,372 KiB median peak RSS. These measurements cover sparse tile updates at this size. The 20 GB and 80 GB real-file gates are pending. [Roadmap](../../ROADMAP.md#arda-021--beyond-ram-data-processing-and-visualization-ame-v2)
+
 ## Contiguous Float64 matrix products
 
 Vilya dispatches contiguous rank-two Float64 tensors to the same blocked or CBLAS kernel as `numc.matmul`. Mixed dtypes, strided matrices, and batched products retain the typed contraction path.

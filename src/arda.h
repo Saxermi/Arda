@@ -284,7 +284,8 @@ typedef enum {
     O_OFFLOAD_PLAN,
     O_QUANTIZED,
     O_COMPUTE_PLAN,
-    O_FEM_MESH
+    O_FEM_MESH,
+    O_TENSOR_OUTPUT
 } OType;
 
 typedef struct {
@@ -432,6 +433,7 @@ struct Obj {
             int fd, block;
             size_t elements;
             DType dtype;
+            int rank, shape[8];
         } tensor_blocks;
         struct {
             double *data;
@@ -612,6 +614,7 @@ void tensor_buffer_release(VM *v, Buffer *buffer);
 void tensor_buffer_discard(VM *v, Obj *buffer);
 Val tensor_block_next(VM *v, Obj *blocks, size_t *cursor);
 void tensor_blocks_close(Obj *blocks);
+void tensor_output_abort(Obj *output);
 void tensor_require_writable(VM *v, Obj *x);
 Obj *tensor_new(VM *v, int rank, const int *shape);
 Obj *tensor_copy(VM *v, Obj *x);
@@ -650,6 +653,9 @@ void install_tensor(VM *v, Obj *module);
 #define SOLVER_BASE 2100
 #define FEM_BASE 2300
 #define CHECKPOINT_BASE 2400
+#define PLOT_BASE 2500
+Val plot_call(VM *v, int id, int argc, Val *args);
+Obj *plot_module(VM *v);
 Obj *fem_module(VM *v);
 Val fem_call(VM *v, int id, int argc, Val *args);
 const char *fem_name(int id);
