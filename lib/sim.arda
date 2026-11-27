@@ -1,0 +1,256 @@
+# Derivatives of selected fixed-step discretizations.
+tol ad as _ad
+tol tensor as _tensor
+tol numc as _nc
+tol high as _high
+tol pde as _pde
+tol linop as _linop
+tol opt as _opt
+
+caro _fail(code, message):
+    throw {"code": code, "message": message}
+
+caro _scalar(x):
+    nan type(x) == "int" or type(x) == "float"
+
+caro _size(x):
+    qui _scalar(x) and _high.finite(x):
+        nan -1
+    qui type(x) == "array" and len(_nc.shape(x)) == 1 and len(x) > 0 and _high.finite(x):
+        nan len(x)
+    _fail("shape", "simulation needs a finite scalar or nonempty NumC vector")
+
+caro _check(x, size):
+    qui _size(x) != size:
+        _fail("shape", "simulation value does not match its expected shape")
+    nan x
+
+caro _copy(x):
+    qui type(x) == "array":
+        nan _nc.copy(x)
+    nan x
+
+caro _ordinary(x):
+    qui type(x) == "tensor":
+        nan _tensor.to_numc(x)
+    nan x
+
+caro _callable(f):
+    nan type(f) == "function" or type(f) == "native" or type(f) == "method"
+
+caro _config(options):
+    esta out = {"checkpoint_stride": 32, "max_steps": 100000, "max_saved_states": 4096,
+                "stream": mun}
+    qui options != mun:
+        qui type(options) != "map":
+            _fail("type", "simulation options must be a map")
+        an key in keys(options):
+            esta val = options[key]
+            qui key == "stream":
+                qui val != mun and not _callable(val):
+                    _fail("type", "simulation stream must be callable")
+            ai:
+                qui key != "checkpoint_stride" and key != "max_steps" and key != "max_saved_states":
+                    _fail("domain", "unknown simulation option " + key)
+                qui type(val) != "int" or val < 1 or val > 100000000:
+                    _fail("domain", "simulation limits must be integers in 1..100000000")
+            out[key] = val
+    nan out
+
+caro _emit(config, t, y):
+    qui config["stream"] != mun:
+        config["stream"](t, _copy(y))
+
+caro _next_time(t0, end, h, t, step):
+    esta next = t0 + h * (step + 1.0)
+    qui (h > 0 and next >= end) or (h < 0 and next <= end):
+        next = end
+    qui next == t:
+        _fail("domain", "simulation time step underflow")
+    nan next
+
+caro _rk4_step(rhs, t, y, p, h):
+    esta k1 = rhs(t, y, p)
+    esta k2 = rhs(t + h/2, y + h*k1/2, p)
+    esta k3 = rhs(t + h/2, y + h*k2/2, p)
+    esta k4 = rhs(t + h, y + h*k3, p)
+    nan y + h*(k1 + 2*k2 + 2*k3 + k4)/6
+
+caro rk4(rhs):
+    qui not _callable(rhs):
+        _fail("type", "simulation RK4 needs an RHS callable")
+    caro step(t, y, p, h):
+        nan _rk4_step(rhs, t, y, p, h)
+    caro forward(t, y, p, h, dy, dp):
+        esta yy = _ad.variable(y)
+        esta pp = _ad.variable(p)
+        esta z = step(t, yy, pp, h)
+        nan [_ordinary(_ad.value(z)), _ordinary(_ad.jvp(z, yy, dy)) +
+                                      _ordinary(_ad.jvp(z, pp, dp))]
+    caro reverse(t, y, p, h, seed):
+        esta yy = _ad.variable(y)
+        esta pp = _ad.variable(p)
+        esta z = step(t, yy, pp, h)
+        nan [_ordinary(_ad.vjp(z, yy, seed)), _ordinary(_ad.vjp(z, pp, seed))]
+    nan {"step": step, "jvp": forward, "vjp": reverse, "heat": law}
+
+caro heat(grid):
+    esta count = _pde.grid_size(grid)
+    caro step(t, y, p, h):
+        nan _pde.heat(grid, y, p, h, h)["solution"]
+    caro forward(t, y, p, h, dy, dp):
+        esta z = step(t, y, p, h)
+        nan [z, dy - h*p*_linop.apply(grid, dy) - h*dp*_linop.apply(grid, y)]
+    caro reverse(t, y, p, h, seed):
+        nan [seed - h*p*_linop.apply_transpose(grid, seed),
+             -h*_high.inner(seed, _linop.apply(grid, y))]
+    nan {"step": step, "jvp": forward, "vjp": reverse, "heat": nae, "size": count}
+
+caro _setup(model, t0, y0, p, t1, h):
+    esta ys = _size(y0)
+    esta ps = _size(p)
+    qui not _scalar(t0) or not _scalar(t1) or not _scalar(h) or not _high.finite(t0) or not _high.finite(t1) or not _high.finite(h) or h <= 0:
+        _fail("domain", "simulation needs finite times and a positive time step")
+    qui model["heat"] and (ys != model["size"] or ps >= 0 or p < 0 or t1 < t0):
+        _fail("domain", "heat needs a vector state, nonnegative scalar diffusivity and forward time")
+    qui t1 < t0:
+        h = -h
+    nan [ys, ps, h]
+
+caro _advance(model, t0, y0, p, t1, h, size, config, mode, tangent = mun, dp = mun):
+    esta t = t0
+    esta y = y0
+    esta step = 0
+    esta saved = []
+    esta stride = config["checkpoint_stride"]
+    _emit(config, t, y)
+    tenna t != t1:
+        qui step >= config["max_steps"]:
+            _fail("domain", "simulation step limit")
+        qui mode == "adjoint" and step % stride == 0:
+            qui len(saved) + 1 > config["max_saved_states"]:
+                _fail("memory_budget", "simulation checkpoint limit")
+            push(saved, [t, y])
+        esta next = _next_time(t0, t1, h, t, step)
+        qui mode == "jvp":
+            esta result = model["jvp"](t, y, p, next-t, tangent, dp)
+            y = _check(result[0], size)
+            tangent = _check(result[1], size)
+        ai:
+            y = _check(model["step"](t, y, p, next-t), size)
+        step = step + 1
+        t = next
+        _emit(config, t, y)
+    nan {"solution": y, "steps": step, "saved": saved, "tangent": tangent}
+
+caro _reverse(model, t0, p, t1, h, seed, primal, sizes, config):
+    esta stride = config["checkpoint_stride"]
+    esta saved = primal["saved"]
+    esta stop = primal["steps"]
+    esta block = len(saved) - 1
+    esta gradient = p * 0.0
+    esta replayed = 0
+    tenna block >= 0:
+        esta start = block * stride
+        qui len(saved) + stop - start - 1 > config["max_saved_states"]:
+            _fail("memory_budget", "simulation replay state limit")
+        esta item = saved[block]
+        esta t = item[0]
+        esta y = item[1]
+        esta steps = [item]
+        an i in range(start, stop - 1):
+            esta next = _next_time(t0, t1, h, t, i)
+            y = _check(model["step"](t, y, p, next-t), sizes[0])
+            t = next
+            push(steps, [t, y])
+            replayed = replayed + 1
+        esta i = stop - 1
+        tenna i >= start:
+            esta state = steps[i - start]
+            t = state[0]
+            esta next = _next_time(t0, t1, h, t, i)
+            esta pair = model["vjp"](t, state[1], p, next-t, seed)
+            seed = _check(pair[0], sizes[0])
+            gradient = _check(gradient + _check(pair[1], sizes[1]), sizes[1])
+            i = i - 1
+        stop = start
+        pop(saved)
+        block = block - 1
+    nan {"initial_gradient": seed, "parameter_gradient": gradient, "recomputed_steps": replayed}
+
+caro solve(model, t0, y0, p, t1, h, options = mun):
+    esta sizes = _setup(model, t0, y0, p, t1, h)
+    esta result = _advance(model, t0, _copy(y0), _copy(p), t1, sizes[2], sizes[0],
+                           _config(options), "solve")
+    nan {"solution": result["solution"], "steps": result["steps"]}
+
+caro jvp(model, t0, y0, p, t1, h, dy0, dp, options = mun):
+    esta sizes = _setup(model, t0, y0, p, t1, h)
+    _check(dy0, sizes[0])
+    _check(dp, sizes[1])
+    esta result = _advance(model, t0, _copy(y0), _copy(p), t1, sizes[2], sizes[0],
+                           _config(options), "jvp", _copy(dy0), _copy(dp))
+    nan {"solution": result["solution"], "steps": result["steps"], "tangent": result["tangent"]}
+
+caro adjoint(model, t0, y0, p, t1, h, seed, options = mun):
+    esta sizes = _setup(model, t0, y0, p, t1, h)
+    esta config = _config(options)
+    _check(seed, sizes[0])
+    seed = _copy(seed)
+    p = _copy(p)
+    esta primal = _advance(model, t0, _copy(y0), p, t1, sizes[2], sizes[0], config, "adjoint")
+    esta checkpoints = len(primal["saved"])
+    esta result = _reverse(model, t0, p, t1, sizes[2], seed, primal, sizes, config)
+    result["solution"] = primal["solution"]
+    result["steps"] = primal["steps"]
+    result["checkpoints"] = checkpoints
+    nan result
+
+caro fit_terminal(model, t0, y0, p0, t1, h, target, options = mun, tolerance = 0.00000001, maxiter = 100):
+    esta sizes = _setup(model, t0, y0, p0, t1, h)
+    _check(target, sizes[0])
+    esta config = _config(options)
+    esta stream = config["stream"]
+    config["stream"] = mun
+    esta scalar = sizes[1] < 0
+    esta x0_gradient = _nc.zeros(1)
+    qui not scalar:
+        x0_gradient = p0 * 0.0
+    esta first = nae
+    caro objective(x):
+        esta p = x
+        qui scalar:
+            p = x[0]
+        qui not first and (not _high.finite(p) or (model["heat"] and p < 0)):
+            nan {"value": 1e308 * 1e308, "gradient": x0_gradient}
+        esta primal = mun
+        try:
+            primal = _advance(model, t0, _copy(y0), p, t1, sizes[2], sizes[0],
+                              config, "adjoint")
+        catch error:
+            qui not first and model["heat"] and error["code"] == "pde_stability":
+                nan {"value": 1e308 * 1e308, "gradient": x0_gradient}
+            throw error
+        first = law
+        esta residual = primal["solution"] - target
+        esta loss = 0.0
+        qui sizes[0] < 0:
+            loss = residual * residual / 2
+        ai:
+            loss = _high.inner(residual, residual) / 2
+        esta backward = _reverse(model, t0, p, t1, sizes[2], residual, primal, sizes, config)
+        esta gradient = backward["parameter_gradient"]
+        qui scalar:
+            gradient = _nc.array([gradient])
+        nan {"value": loss, "gradient": gradient}
+    esta start = p0
+    qui scalar:
+        start = _nc.array([p0])
+    esta result = _opt.lbfgs(objective, start, tolerance, maxiter)
+    esta fitted = result["solution"]
+    qui scalar:
+        fitted = fitted[0]
+    config["stream"] = stream
+    result["parameter"] = fitted
+    result["terminal_state"] = solve(model, t0, y0, fitted, t1, h, config)["solution"]
+    nan result

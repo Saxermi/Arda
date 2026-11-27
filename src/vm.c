@@ -4,6 +4,7 @@
 #include "cpu_kernels.h"
 #include "numerics_source.h"
 #include "ode_source.h"
+#include "sim_source.h"
 #include "opt_source.h"
 #include "uncertainty_source.h"
 static _Noreturn void jump_error(VM *v) {
@@ -673,6 +674,7 @@ static void module_import(VM *v, Frame *f, const char *name) {
         const char *name, *path, *source;
     } stdlib[] = {
         {"ode", "<stdlib:ode>", ode_source},
+        {"sim", "<stdlib:sim>", sim_source},
         {"opt", "<stdlib:opt>", opt_source},
         {"numerics", "<stdlib:numerics>", numerics_source},
         {"uncertainty", "<stdlib:uncertainty>", uncertainty_source},

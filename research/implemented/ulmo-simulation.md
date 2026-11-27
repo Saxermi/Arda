@@ -126,8 +126,7 @@ on CPU 0 on the Intel Xeon Platinum 8573C host, with GCC 14.2.0 and the default
 error of **1.48e-8** against the exact continuous solution, and ran in **51.2 ms**
 median for the stepping call. Median whole-process peak RSS was **6.9 MiB**
 (7,044 KiB), including the ODE examples. The stiff forced decay example used
-50 Radau steps and had a final absolute error of **2.86e-8**. The full 0.20
-acceptance gate also requires the FEM example from a later milestone.
+50 Radau steps and had a final absolute error of **2.86e-8**. The FEM example and its memory measurements are below.
 
 ```sh
 make
@@ -139,3 +138,172 @@ The code is original. Published methods supply the numerical formulas. Recent
 mixed-precision Runge–Kutta results motivate further study of stage precision
 and local error estimates. This implementation uses Float64 states and arithmetic.
 [Mixed-precision Runge–Kutta research](https://doi.org/10.1007/s40324-026-00428-9)
+
+## 0.20.3 Linear finite elements
+
+The scalar elliptic model is `-div(k grad u) + c u = f`, with positive diffusivity
+`k` and nonnegative reaction `c`. Geometry and assembly use Float64. Source and
+reaction products are integrated exactly for the given P1 interpolant of the source,
+using the simplex mass entry `measure * (1 + [i == j]) / (arity * (arity + 1))`.
+Element gradients are constant and their products give the diffusion stiffness.
+An analytic source supplied as nodal samples therefore incurs an interpolation error.
+
+| API | Contract |
+| --- | --- |
+| `fem.mesh(nodes,cells)` | Snapshots rank-one coordinates for segments or an N×2 NumC array for triangles. Each cell is a list of two or three zero-based node indices. Either orientation works. The caller supplies a conforming, nonoverlapping mesh. Shape, finite geometry, isolated vertices, degeneracy and invalid shared faces are checked. Nonlocal intersections and hanging nodes in input meshes are outside these checks. |
+| `fem.nodes(mesh)`, `fem.elements(mesh)` | Independent coordinate and connectivity copies. The mesh itself is immutable. |
+| `fem.assemble(mesh,source,dirichlet[,options])` | Returns `matrix` (canonical sparse CSR) and `rhs` (NumC). Source is a finite scalar or nodal Float64 vector. Coefficients `diffusivity` and `reaction` in the options are scalars or Float64 vectors in element order, defaulting to 1 and 0. |
+| `fem.estimate(mesh,source,dirichlet,field[,options])` | One squared residual indicator per element. Uses the (h_T^2)-weighted volume residual, jumps of normal diffusive flux on shared faces and zero-flux residual on natural boundary faces. A Dirichlet boundary face in 2D has both its endpoints prescribed. |
+| `fem.refine(mesh,field,indicators[,options])` | Bulk marking in decreasing indicator order with element-index tie breaking. `fraction` is in (0,1], default 0.5. Zero total error yields an equivalent mesh. Returns `mesh`, `field`, zero-based element `parents` and `edge_midpoints`, whose row gives the two old endpoints of each appended node. `max_nodes`, `max_elements` and `workspace_bytes` bound refinement. |
+| `fem.integral(mesh,field)` | Integrates the P1 interpolant over the mesh. |
+| `fem.darcy_velocity(mesh,pressure,mobility)` | Returns `-mobility * grad pressure` per element, in an array of shape E or E×2. Mobility is strictly positive and can be scalar or cellwise. |
+
+Dirichlet values are a list of unique `[node,value]` pairs. Prescribed values are
+eliminated from free rows and the corresponding columns. Prescribed rows then
+have a unit diagonal, preserving symmetry. Unspecified boundary faces have
+homogeneous natural Neumann data. Every connected component needs at least
+one prescribed node or positive reaction on a cell. For example, solve with
+`solver.solve("cg", system["matrix"], system["rhs"])`. General Neumann loads,
+3D elements, and transient or nonlinear CFD are outside the implemented scope.
+
+Marking bisects marked segments or splits all three edges of marked triangles.
+Neighboring triangles that share a split edge also get that midpoint. A shared
+midpoint uses one global node. Fully split triangles use four similar subtriangles.
+The transferred P1 field is the same piecewise-linear function on the refined mesh,
+which preserves its integral to roundoff. The caller uses `parents` to transfer
+cell coefficients and the edge map to update its boundary conditions. Assign
+midpoint Dirichlet data only to edges on the relevant boundary. The implementation
+does not claim arbitrary-contrast estimator robustness or optimal adaptive complexity.
+
+For N nodes and E elements, temporary COO storage is O(E+N). CSR canonicalization
+sorts within each row and merges duplicate entries. Mesh validation, marking and
+face matching use O(E log E) time with in-place record sorting, O(N+E) checked
+buffers and no dense matrix intermediates. Assembly and estimate accept
+`workspace_bytes` for their dense scratch. The process tensor and sparse budgets
+also apply, including which allocator accounts for the COO-to-CSR workspace. Input
+lists and caller-owned outputs still contribute to process RSS.
+
+The steady Darcy example uses an affine pressure and zero normal flux along the
+top and bottom. The per-element gradient is a velocity diagnostic. It need not
+produce a locally conservative normal flux at interfaces with general data. A mixed
+velocity–pressure formulation is an option when local flux balance is required.
+[Example](../../examples/ulmo_fem.arda) · [Assembly](../../src/fem.c) ·
+[Estimator and refinement](../../src/fem_refine.c)
+
+The estimator follows the classical residual approach and bulk marking follows
+Dörfler. Newest-vertex bisection is a plausible extension for stronger long-run
+shape and complexity guarantees. Literature convergence results for specific
+adaptive schemes do not establish those guarantees for this subdivision.
+[Babuška and Rheinboldt](https://doi.org/10.1137/0715049) ·
+[Dörfler](https://doi.org/10.1137/0733054) ·
+[Recent work on adaptive optimality (preprint)](https://arxiv.org/abs/2610.39719)
+
+## 0.20.4 Differentiable simulation
+
+| API | Contract |
+| --- | --- |
+| `sim.rk4(rhs)` | Builds an RK4 model from a deterministic `rhs(t,y,p)` using AD-supported operations. Scalar and nonempty rank-one NumC Float64 states and parameters are supported. Do not mutate inputs or depend on external side effects in the RHS. |
+| `sim.heat(grid)` | Builds a forward Euler model from an existing Cartesian PDE grid. State is a flat NumC vector. The scalar parameter is the nonnegative diffusivity and the existing CFL check applies. `pde.grid_size(grid)` reports the required vector length. |
+| `sim.solve(model,t0,y0,p,t1,h[,options])` | Returns `solution` and `steps`. Uses positive nominal step `h`, clips the final step and supports descending times for RK4. |
+| `sim.jvp(model,t0,y0,p,t1,h,dy0,dp[,options])` | Adds the terminal `tangent` for the supplied joint direction in initial state and parameter. |
+| `sim.adjoint(model,t0,y0,p,t1,h,seed[,options])` | Returns the terminal state, `initial_gradient`, `parameter_gradient`, `steps`, checkpoint count and recomputed step count. The seed is the terminal cotangent, with the same shape as the state. |
+| `sim.fit_terminal(model,t0,y0,p0,t1,h,target[,options,tolerance,maxiter])` | Fits a parameter to a terminal observation using half the squared Euclidean discrepancy and the existing L-BFGS optimizer. Returns its convergence report plus `parameter` and `terminal_state`. The starting heat diffusivity must be feasible. Heat trials outside the allowed interval are backtracked. It does not guarantee identifiability or a global optimum. |
+
+ODE step derivatives use the existing local AD graph, including the four RK stages.
+The heat update is `z = (I - h k A)y` for the existing matrix-free negative
+Laplacian. The JVP combines `(I - h k A) dy` and `-h A y dk`. The reverse step
+applies the transpose to the seed and accumulates `-h <seed, A y>` for the
+diffusivity. All derivatives are for the fixed numerical step schedule. Adaptive
+RK45, implicit solvers, FEM shape derivatives and event times are outside this API.
+
+Options are `checkpoint_stride` (default 32), `max_steps` (100,000),
+`max_saved_states` (4,096 explicit checkpoint/replay states) and `stream(t,y)`.
+The stream receives independent snapshots of the initial and accepted endpoint
+values during the forward pass. It is called once per endpoint, including during
+a parameter fit's final forward run only. Reverse replay performs no stream calls.
+External callbacks may retain snapshots separately. The tensor memory budget
+also applies to checkpoint, replay and temporary tensors; the state-count limit
+does not count every stage or VM allocation. Checkpoints reside in memory.
+
+For S steps with a block size B, storage for saved states is
+O(ceil(S/B) + B) including one replay block. With `B=1` there is no block replay.
+Other strides replay at most S minus the count of stored checkpoints. Each RK4
+derivative still evaluates the four-stage calculation for the local AD graph.
+Multistage and dependency-aware scheduling can use a fixed byte budget more
+efficiently when step costs vary. DJ4Earth uses differentiated models, compiler
+transformations and checkpointing for substantially broader model classes.
+[Simulation source](../../lib/sim.arda) · [Step-based checkpointing](https://doi.org/10.1016/j.jocs.2024.102405) ·
+[Multistage adjoint scheduling](https://doi.org/10.1016/j.jocs.2022.101913) ·
+[DJ4Earth](https://doi.org/10.1029/2025MS005615)
+
+### FEM and sensitivity validation
+
+All 284 runtime tests passed in each of five local configurations: portable GCC,
+GCC with ASan/UBSan, OpenMP, OpenBLAS/LAPACK, and OpenBLAS/LAPACK with ASan/UBSan.
+Both LAPACK builds passed all 86 numerical references. The other builds passed 76
+with ten LAPACK-specific skips. Clang x86-64 and GCC AArch64 under QEMU each
+passed all 29 focused Ulmo tests.
+
+Independent SciPy assembly uses triangle quadrature and a sparse direct reference
+for irregular geometry, heterogeneous materials and nonzero Dirichlet data. Line
+refinement produces a fourfold reduction in integrated L² error per halving of
+uniform spacing. The triangular manufactured Poisson problem shows near fourfold
+nodal error reduction. The adaptive suite checks shared-face conformity, integrated
+field conservation and zero or negative indicator handling. Darcy interface flux
+is checked against a two-material 1D analytical solution. Simulation references
+check the ODE primal and initial/parameter derivatives against closed forms, the
+heat gradient against a discrete Fourier multiplier, JVP/adjoint duality,
+centered finite differences, mass conservation and two parameter-recovery cases.
+Runtime tests also exercise error cleanup, memory limits and GC stress.
+[Independent references](../../tests/reference_ulmo_fem_ad.py) ·
+[Runtime coverage](../../tests/test_ulmo_fem_ad.py)
+
+The implementation and benchmarks use project-authored code. The independent
+reference checks require NumPy/SciPy, and the runtime keeps its portable dependency
+contract.
+
+### Performance and memory
+
+Five separate runs per case were pinned to CPU 0 of an Intel Xeon Platinum 8573C,
+with GCC 14.2.0 and the portable `-std=c11 -O2` build, or NumPy 2.3.5 and
+SciPy 1.17.0 with one BLAS thread. Times are medians of monotonic in-program
+measurements. GNU time reports whole-process peak RSS, including interpreter imports,
+mesh construction, and any example diagnostics.
+
+On a 4,096-node, 7,938-triangle square, both implementations formed 19,716 CSR
+entries and took 93 Jacobi-preconditioned CG iterations with relative tolerance
+1e-10. Arda's mesh phase includes topology validation. SciPy uses vectorized
+construction of the regular input and uses the known geometry of the generated
+triangles. The median for mesh construction, assembly and CG together was 18.23 ms
+for Arda and 11.36 ms for NumPy/SciPy on this affine Darcy benchmark.
+
+| Implementation | Mesh phase | Assembly | CG | Relative residual | Relative nodal error | Peak RSS |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Arda | 12.0 ms | 2.54 ms | 3.70 ms | 1.90e-11 | 1.15e-12 | 8.39 MiB |
+| NumPy/SciPy | 0.40 ms | 6.22 ms | 4.56 ms | 2.48e-11 | 1.35e-12 | 48.9 MiB |
+
+The 64×64 heat adjoint took 256 steps at dt = 2⁻¹² and diffusivity 0.1. Both
+schedules gave a parameter gradient of -1.92835033157075, with absolute error
+2.26e-14 against the analytical discrete Fourier derivative. Each streamed 257
+snapshots. Peak RSS includes the preceding scalar fit.
+
+| Checkpoint stride | Stored checkpoints | Recomputed steps | Adjoint time | Peak RSS |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 256 | 0 | 28.7 ms | 17.6 MiB |
+| 16 | 16 | 240 | 29.2 ms | 4.47 MiB |
+
+```sh
+make
+/usr/bin/time -f '%M KiB peak RSS' taskset -c 0 ./arda examples/ulmo_fem.arda
+OPENBLAS_NUM_THREADS=1 /usr/bin/time -f '%M KiB peak RSS' taskset -c 0 python3 benchmarks/ulmo_fem_scipy.py
+scratch=$(mktemp -d)
+for stride in 1 16; do
+    sed "s/\[1,16\]/[$stride]/" examples/ulmo_sensitivity.arda >"$scratch/heat-$stride.arda"
+    /usr/bin/time -f '%M KiB peak RSS' taskset -c 0 ./arda "$scratch/heat-$stride.arda"
+done
+```
+
+The Cartesian heat, FEM and differentiable simulation examples also passed with
+GC stress under a 1 GiB virtual-memory limit on this host. A physical laptop was
+outside the measurement environment. [SciPy baseline](../../benchmarks/ulmo_fem_scipy.py) ·
+[Sensitivity example](../../examples/ulmo_sensitivity.arda)

@@ -224,6 +224,10 @@ static void trace(VM *v, Obj *o) {
     case O_SPARSE:
     case O_SPARSE_BUILDER:
         break;
+    case O_FEM_MESH:
+        markobj(v, o->as.fem.nodes);
+        markobj(v, o->as.fem.elements);
+        break;
     case O_FACTOR:
         markobj(v, o->as.factor.packed);
         break;

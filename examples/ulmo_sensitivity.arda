@@ -1,0 +1,38 @@
+import sim
+import pde
+import numc as n
+import ad
+
+def decay(t,y,p):
+    return -p*y
+let model = sim.rk4(decay)
+let target = ad.exp(-0.6)
+let estimate = sim.fit_terminal(model,0,1.0,0.2,1,0.02,target)
+print("Fitted decay rate",estimate["parameter"],estimate["converged"])
+
+# Compare retaining every step against block replay for a periodic Fourier mode.
+let width = 64
+let initial = n.zeros(width * width)
+for i in range(width*width):
+    initial[i] = sin(2*3.141592653589793*(i % width)/width)
+let seed = initial / n.dot(initial,initial)
+let heat = sim.heat(pde.grid([width,width],1.0/width,"periodic"))
+let dt = 0.000244140625
+let duration = 256*dt
+let eigenvalue = 4*width*width*sin(3.141592653589793/width)*sin(3.141592653589793/width)
+let k = 0.1
+let exact = -256*dt*eigenvalue*ad.pow(1-dt*k*eigenvalue,255)
+let snapshots = 0
+def stream(t,y):
+    snapshots = snapshots+1
+for stride in [1,16]:
+    snapshots = 0
+    collect()
+    let start = monotonic()
+    let gradient = sim.adjoint(heat,0,initial,k,duration,dt,seed,
+        {"checkpoint_stride":stride,"stream":stream})
+    let ms = 1000*(monotonic()-start)
+    print("Stride, checkpoints, replayed steps, streamed snapshots",stride,
+          gradient["checkpoints"],gradient["recomputed_steps"],snapshots)
+    print("Diffusivity gradient, absolute error, milliseconds",gradient["parameter_gradient"],
+          abs(gradient["parameter_gradient"]-exact),ms)

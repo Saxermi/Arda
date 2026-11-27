@@ -283,7 +283,8 @@ typedef enum {
     O_RANGE,
     O_OFFLOAD_PLAN,
     O_QUANTIZED,
-    O_COMPUTE_PLAN
+    O_COMPUTE_PLAN,
+    O_FEM_MESH
 } OType;
 
 typedef struct {
@@ -464,6 +465,10 @@ struct Obj {
             unsigned char boundary[3];
             double weights[8];
         } linop;
+        struct {
+            Obj *nodes, *elements;
+            int dimension, count;
+        } fem;
         Sparse sparse;
         SparseBuilder sparse_builder;
     } as;
@@ -643,6 +648,9 @@ void install_tensor(VM *v, Obj *module);
 #define UNCERTAINTY_BASE 1900
 #define QUANT_BASE 2000
 #define SOLVER_BASE 2100
+#define FEM_BASE 2300
+Obj *fem_module(VM *v);
+Val fem_call(VM *v, int id, int argc, Val *args);
 #define PDE_BASE 2200
 Obj *pde_module(VM *v);
 Val pde_call(VM *v, int id, int argc, Val *args);

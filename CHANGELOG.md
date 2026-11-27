@@ -2,6 +2,16 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
+## 0.20.4 — Differentiable Simulation
+
+- Added fixed-step RK4 and Cartesian heat JVPs and discrete adjoints for initial state and parameters.
+- Added terminal-observation parameter fitting with L-BFGS, in-memory block checkpoints and synchronous streaming. [Sensitivity contracts](research/implemented/ulmo-simulation.md#0204-differentiable-simulation)
+
+## 0.20.3 — Linear Finite Elements
+
+- Added native P1 segment and triangle assembly, exact integration of P1 loads and mass terms, cellwise diffusion and reaction, and symmetric Dirichlet elimination into canonical CSR.
+- Added residual indicators, conforming budgeted refinement, integral-preserving P1 prolongation and experimental Darcy velocity recovery. [Finite-element contracts](research/implemented/ulmo-simulation.md#0203-linear-finite-elements)
+
 ## 0.20.2 — Structured-Grid PDEs
 
 - Added matrix-free Poisson, heat, wave and conservative advection–diffusion on Cartesian grids with homogeneous Dirichlet, Neumann and periodic boundaries.

@@ -378,14 +378,17 @@ static Val wave(VM *v, Obj *grid, Val initial, Val initial_speed, Val speed, Tim
     return result;
 }
 
-enum { GRID, POISSON, HEAT, WAVE, TRANSPORT };
-static const char *const names[] = {"grid", "poisson", "heat", "wave", "advection_diffusion"};
+enum { GRID, POISSON, HEAT, WAVE, TRANSPORT, GRID_SIZE };
+static const char *const names[] = {"grid",     "poisson", "heat", "wave", "advection_diffusion",
+                                    "grid_size"};
 
 Obj *pde_module(VM *v) {
     return named_native_module(v, "pde", names, sizeof names / sizeof *names, PDE_BASE);
 }
 
 static Val run(VM *v, int which, int argc, Val *a) {
+    if (which == GRID_SIZE && argc == 1)
+        return integer((int64_t)grid_object(v, a[0])->as.linop.rows);
     if (which == GRID && (argc == 2 || argc == 3))
         return make_grid(v, a[0], a[1], argc == 3 ? a[2] : nil());
     if (which == POISSON && (argc == 2 || argc == 3))

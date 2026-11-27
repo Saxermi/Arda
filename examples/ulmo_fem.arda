@@ -1,0 +1,48 @@
+# Steady Darcy flow on a square with prescribed pressures on the left and right.
+import fem
+import numc as n
+import solver
+import sparse
+
+let width = 64
+let nodes = n.zeros(width * width, 2)
+let pressure = n.zeros(width * width)
+let cells = []
+let fixed = []
+let start = monotonic()
+for j in range(width):
+    for i in range(width):
+        let a = j * width + i
+        let x = i / (width - 1)
+        n.put(nodes,[a,0],x)
+        n.put(nodes,[a,1],j / (width - 1))
+        pressure[a] = x
+        if i == 0 or i == width-1:
+            push(fixed,[a,x])
+        if i < width-1 and j < width-1:
+            push(cells,[a,a+1,a+width+1])
+            push(cells,[a,a+width+1,a+width])
+let mesh = fem.mesh(nodes,cells)
+let created = monotonic()
+let system = fem.assemble(mesh,0,fixed)
+let assembled = monotonic()
+let result = solver.solve("cg",system["matrix"],system["rhs"],
+                          {"tol":1e-10,"maxiter":1000,"preconditioner":"jacobi"})
+let elapsed = monotonic()
+let solution = result["solution"]
+let flow = fem.darcy_velocity(mesh,solution,1)
+print("Vertices, triangles, CSR entries",len(pressure),len(cells),sparse.nnz(system["matrix"]))
+print("Converged, iterations, relative residual",result["converged"],result["iterations"],result["residual"])
+print("Relative nodal error",n.norm(solution-pressure)/n.norm(pressure))
+print("Mesh, assembly, CG milliseconds",1000*(created-start),1000*(assembled-created),
+      1000*(elapsed-assembled))
+print("First Darcy velocity",n.at(flow,[0,0]),n.at(flow,[0,1]))
+
+let line = fem.mesh(n.array([0,0.5,1]),[[0,1],[1,2]])
+let boundary = [[0,0],[2,0]]
+let problem = fem.assemble(line,2,boundary)
+let u = solver.solve("cg",problem["matrix"],problem["rhs"])["solution"]
+let indicators = fem.estimate(line,2,boundary,u)
+let next = fem.refine(line,u,indicators,{"fraction":0.5,"max_nodes":16,"max_elements":16})
+print("Adaptive cells",fem.elements(next["mesh"]))
+print("Field integral before and after",fem.integral(line,u),fem.integral(next["mesh"],next["field"]))

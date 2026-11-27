@@ -59,8 +59,9 @@ static const char *typename(Val v) {
                                   "range",
                                   "offload_plan",
                                   "quantized_matrix",
-                                  "compute_plan"};
-        _Static_assert(sizeof n / sizeof *n == O_COMPUTE_PLAN + 1, "object type names");
+                                  "compute_plan",
+                                  "fem_mesh"};
+        _Static_assert(sizeof n / sizeof *n == O_FEM_MESH + 1, "object type names");
         return n[v.o->type];
     }
     }
@@ -204,6 +205,8 @@ int64_t range_element(const Obj *range, uint64_t index) {
 }
 
 Val native_call(VM *v, int id, int argc, Val *a) {
+    if (id >= FEM_BASE)
+        return fem_call(v, id, argc, a);
     if (id >= PDE_BASE)
         return pde_call(v, id, argc, a);
     if (id >= SOLVER_BASE)
@@ -546,6 +549,8 @@ Obj *named_native_module(VM *v, const char *name, const char *const *names, size
 }
 
 Obj *native_module(VM *v, const char *name) {
+    if (!strcmp(name, "fem"))
+        return fem_module(v);
     if (!strcmp(name, "pde"))
         return pde_module(v);
     if (!strcmp(name, "solver"))

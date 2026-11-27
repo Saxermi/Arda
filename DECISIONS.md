@@ -258,3 +258,35 @@ numerical diffusion. Higher-order limiters could sharpen transport and would req
 additional stability and monotonicity tests. The Poisson wrapper applies an explicit
 zero-mean gauge on the compatible constant-nullspace cases.
 [Contracts and measurements](research/implemented/ulmo-simulation.md)
+
+## 2026-11-27 — P1 transfer and fixed-step simulation derivatives
+
+**Status** — Implemented for 0.20.3–0.20.4 and open to owner revision
+
+Use conforming midpoint subdivision for segments and triangles. The coarse P1
+space is contained in the fine space, so midpoint interpolation preserves the
+field and its integral to roundoff. Local closure also splits neighbors of marked
+cells. Propagating repeated partial splits can reduce element quality. Newest-vertex
+bisection would give a stronger basis for shape-regularity and adaptive complexity
+analysis at the cost of compatible edge labels and a refinement hierarchy. A
+general remesher could optimize shape or remove nodes. Transfer in that case would
+need a conservative projection and an overlap integration or mass solve.
+
+Use continuous P1 pressure and cellwise velocity recovery for experimental steady
+Darcy flow. It reuses the scalar diffusion solver and is exact for a constant
+mobility and affine pressure. Cellwise recovered velocities can have unequal normal
+fluxes across a face. Mixed Raviart–Thomas FEM would represent a locally conservative
+flux and would need extra face degrees of freedom and a mixed-system solver.
+
+Differentiate the selected discrete RK4 and Cartesian heat steps on a fixed time
+schedule. Reverse replay stores block boundaries and rebuilds one block at a time.
+This reproduces the numerical trajectory and gives an explicit bound on retained
+checkpoint/replay states. Replay costs extra primal steps and requires a deterministic
+RHS. Multistage checkpoint scheduling can spend a given memory budget more efficiently,
+at the cost of stage-specific state management. Differentiating adaptive stepping,
+implicit solves or events would require contracts for step selection, linear solves
+and event derivatives. A continuous adjoint is also viable for smooth models and can
+use a separate integrator. Its gradient approximates the continuous problem and can
+differ from the derivative of the numerical trajectory.
+
+[Methods, API and validation](research/implemented/ulmo-simulation.md)
