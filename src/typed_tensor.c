@@ -348,7 +348,8 @@ static Obj *matmul(VM *v, TypedTensor a, TypedTensor b) {
     TypedTensor *dst = &out->as.tensor;
     if (rank == 2 && a.dtype == DT_F64 && b.dtype == DT_F64 && typed_contiguous(&a) &&
         typed_contiguous(&b)) {
-        dense_matmul_into(m, a.shape[da], n, (const double *)typed_element(&a, (ptrdiff_t)a.offset),
+        dense_matmul_into(v, m, a.shape[da], n,
+                          (const double *)typed_element(&a, (ptrdiff_t)a.offset),
                           (const double *)typed_element(&b, (ptrdiff_t)b.offset),
                           (double *)typed_element(dst, 0));
         return out;

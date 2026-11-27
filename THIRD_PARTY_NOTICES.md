@@ -12,6 +12,15 @@ Arda's own source and documentation are distributed under the [MIT License](LICE
 
 The Makefile links libraries installed in the build environment. For a package that bundles libraries, verify the exact binary, upstream revision, transitive components and applicable notices. Keep the notice files required by each component with that distribution. [Build configuration](Makefile)
 
+The optional `VECMATH=1` build links the system GNU C Library vector math library. Arda calls its x86-64 vector ABI through original adapters. Provider versions and redistribution terms follow the installed GNU C Library. [GNU C Library licensing](https://www.gnu.org/software/libc/)
+
+The optional `OPENMP=1` build uses the compiler-supplied OpenMP runtime. The GCC build links GNU libgomp. Its runtime terms include the GCC Runtime Library Exception. [GNU libgomp](https://gcc.gnu.org/projects/gomp/) · [GCC Runtime Library Exception](https://www.gnu.org/licenses/gcc-exception-3.1.html)
+
+The optional `HWLOC=1` build links the installed hwloc 2.x library for topology discovery.
+Arda does not vendor hwloc source. Preserve the upstream BSD 3-Clause notices when distributing
+the library. The prefetch worker uses the platform POSIX threading implementation.
+[hwloc license](https://www.open-mpi.org/projects/hwloc/license.php)
+
 ## Local development and comparison tools
 
 | Component | Use | License source |
@@ -29,6 +38,6 @@ Literary inspiration is described in the README. Use original logos, artwork and
 
 ## Preliminary patent research
 
-A targeted reading for planned quantization identified two application publications whose claims merit review if Arda adopts similar designs. Claim 1 of US20230350678A1 describes a single processor instruction that quantizes elements from input vector registers and packs them into an output register. Claim 1 of WO2025165444A1 describes a combination of codebook rank reduction, optimization against layer reconstruction error and quantization of a resulting factor. These specific combinations are design-review leads for future fused instructions or learned codebook compression. The roadmap has no concrete implementation of either to compare claim by claim. Family status, territorial coverage and applicability remain unverified. [US application](https://patents.google.com/patent/US20230350678A1/en#claims) · [PCT publication](https://patents.google.com/patent/WO2025165444A1/en#claims)
+A targeted reading for planned quantization identified two application publications whose claims merit review if Arda adopts similar designs. Claim 1 of US20230350678A1 describes a single processor instruction that quantizes elements from input vector registers and packs them into an output register. Claim 1 of WO2025165444A1 describes a combination of codebook rank reduction, optimization against layer reconstruction error and quantization of a resulting factor. These specific combinations are design-review leads for future fused instructions or learned codebook compression. Arda 0.18.3 uses ordinary scalar software instructions to choose scales and pack integer codes. Its SIMD kernels decode those blocks and compute products. The implementation uses uniform scales computed from the largest absolute value in each block. Family status, territorial coverage and applicability remain unverified. [US application](https://patents.google.com/patent/US20230350678A1/en#claims) · [PCT publication](https://patents.google.com/patent/WO2025165444A1/en#claims)
 
 Before integrating a concrete novel mechanism, search by its claim elements, check the relevant family and current status, and escalate credible unresolved overlap. A preliminary search cannot establish freedom to operate. [WIPO PATENTSCOPE](https://www.wipo.int/en/web/patentscope) · [EPO Espacenet](https://www.epo.org/en/searching-for-patents/technical/espacenet) · [WIPO patent FAQs](https://www.wipo.int/en/web/patents/faq_patents)

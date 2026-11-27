@@ -1,4 +1,5 @@
 #include "arda.h"
+#include "cpu_kernels.h"
 #include "linear_operator.h"
 #include <float.h>
 #define A(o) ((o)->as.array)
@@ -17,6 +18,34 @@ static int same(Obj *a, Obj *b) {
 
 static Obj *like(VM *v, Obj *a) {
     return tensor_new(v, A(a).rank, A(a).shape);
+}
+
+static void axpy_span(size_t n, double alpha, const double *x, const double *y, double *out) {
+    for (size_t i = 0; i < n; i++)
+        out[i] = alpha * x[i] + y[i];
+}
+
+static void axpy(VM *v, size_t n, double alpha, const double *x, const double *y, double *out) {
+#if defined(_OPENMP) && !defined(ARDA_BLAS)
+    enum { CHUNK = 131072 };
+    int partitions = (int)(n / CHUNK);
+    if (partitions >= 2) {
+        int team = cpu_parallel_team(v, partitions);
+        if (team > 1) {
+#pragma omp parallel for num_threads(team) schedule(static) default(none)                          \
+    firstprivate(partitions, n, alpha, x, y, out)
+            for (int part = 0; part < partitions; part++) {
+                size_t begin = n * (uint64_t)part / partitions;
+                size_t end = n * (uint64_t)(part + 1) / partitions;
+                axpy_span(end - begin, alpha, x + begin, y + begin, out + begin);
+            }
+            return;
+        }
+    }
+#else
+    (void)v;
+#endif
+    axpy_span(n, alpha, x, y, out);
 }
 
 static double finite_num(VM *v, Val x) {
@@ -340,8 +369,7 @@ Val high_call(VM *v, int id, int argc, Val *a) {
         return number((double)linear_dot(A(x).n, A(x).data, A(y).data));
     double alpha = finite_num(v, a[2]);
     Obj *o = like(v, x);
-    for (size_t i = 0; i < A(x).n; i++)
-        A(o).data[i] = alpha * A(x).data[i] + A(y).data[i];
+    axpy(v, A(x).n, alpha, A(x).data, A(y).data, A(o).data);
     return objval(o);
 }
 

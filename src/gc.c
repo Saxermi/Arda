@@ -214,6 +214,7 @@ static void trace(VM *v, Obj *o) {
     case O_STRING:
     case O_RANGE:
     case O_OFFLOAD_PLAN:
+    case O_COMPUTE_PLAN:
     case O_NATIVE:
     case O_RNG:
     case O_MOMENTS:
@@ -233,6 +234,9 @@ static void trace(VM *v, Obj *o) {
         break;
     case O_ARRAY:
         markobj(v, o->as.array.buffer);
+        break;
+    case O_QUANTIZED:
+        markobj(v, o->as.quantized.buffer);
         break;
     case O_TYPED_TENSOR:
         markobj(v, o->as.tensor.buffer);

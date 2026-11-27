@@ -147,3 +147,48 @@ Use seeded products and allow independent standard deviations or a supplied cova
 **Status** — Proposal for owner review before any distributed implementation
 
 Use stable logical parameter IDs and aggregate local gradient sums with exact sample counts. Start the design with replicated parameters and optimizer state because this gives each rank local reads and a straightforward comparison with serial training. Each rank pays the full model and optimizer memory cost. Sharded ownership would lower those memory costs and require an explicit map from parameters to ranks, remote reads and coordinated restart. The proposal leaves ownership granularity and the eventual distributed API open. [Draft contract and acceptance cases](research/planned/computing-systems.md#draft-distributed-parameter-and-gradient-ownership-contract)
+
+## 2026-11-26 — Register blocking with separate multiply and add by default
+
+**Status** — Implemented for 0.18.1 and open to owner revision
+
+Use register tiles over the existing row-major Float64 inputs. This reuses right-hand values across rows without an additional packed matrix or tensor workspace. Keeping each dot product's order and leaving contraction disabled preserves the default rounding behavior. Packing panels would improve locality for more shapes and give larger microkernels predictable access. Packing also needs extra storage, data movement and budget checks.
+
+Expose AVX2 FMA and GNU libmvec as explicit choices. They can improve throughput, and vector providers and fused arithmetic can differ in the last bits. Selecting them automatically would broaden their speed benefits and change the default numerical behavior. [Kernel contracts](research/implemented/transforms-and-kernels.md#0181-register-blocked-matrix-multiplication)
+
+## 2026-11-26 — Optional OpenMP for coarse native CPU work
+
+**Status** — Implemented for 0.18.2 and open to owner revision
+
+Use compiler-managed OpenMP teams for large packed GEMM and AXPY. A per-VM setting defaults to one thread. Static output partitions preserve per-element arithmetic order and keep VM state and error handling on the caller thread. The runtime can reuse workers, and the implementation stays small. OpenMP adds a build dependency and leaves worker placement and some scheduling behavior to its provider.
+
+A native pool could give Arda direct control of worker lifetime, CPU placement and shutdown. It would require new synchronization, lifecycle management and error tests. Use the linked provider's threading for CBLAS builds to avoid nested Arda and BLAS teams. [Thread controls and measurements](research/implemented/transforms-and-kernels.md#0182-controlled-cpu-parallelism)
+
+## 2026-11-26 — Explicit symmetric Q4 and Q8, with widened arithmetic
+
+**Status** — Implemented for 0.18.3 and open to owner revision
+
+Use immutable weight snapshots with symmetric 32-value row blocks and a Float32 scale. This keeps storage predictable and makes zero easy to represent. Uniform per-block rounding can lose small coefficients near outliers. Asymmetric blocks could use the code range more effectively for skewed inputs, while adding zero-point metadata and arithmetic. Calibrated scales could improve model quality and require representative data and a calibration pass.
+
+Decode one block at a time and multiply Float64 activations. This preserves the caller's activation precision and bounds scratch. Integer products with quantized activations could improve throughput for larger batches. They would introduce activation quantization error and require scale management and overflow analysis. The separate Float16/BFloat16 path widens into Float32 and gives callers explicit control over that trade-off. [Contracts and evidence](research/implemented/quantization.md)
+
+## 2026-11-26 — Explicit fusion, calibrated plans and CPU placement
+
+**Status** — Implemented for 0.18.4–0.18.6 and open to owner revision
+
+Keep fusion explicit and round each Float64 operation in expression order. This reduces full
+tensor materialization with predictable numerics. Callers must opt in and select one of the
+supported regions. A compiler pass could recognize more expressions and require fewer source
+changes. It would need dependency, aliasing and exception-order checks before applying a rewrite.
+
+Use a bounded, per-VM search for ACE and report measured medians separately from the lower-bound
+cost model. Cached measurements keep normal executions cheap but can age as machine load changes.
+Always-on adaptive tuning could respond to load and locality changes. It would also add timing
+variance and work to ordinary executions.
+
+Keep prefetch and CPU pinning opt-in. One POSIX worker makes prefetch workspace and lifetime
+predictable. An asynchronous I/O backend could overlap more requests but brings extra platform
+and queue-management costs. Keep caller affinity and OpenMP worker affinity explicit. An
+Arda-managed NUMA scheduler could put work and pages on chosen nodes directly, with added
+worker lifecycle and memory-placement complexity. Cold SSD and multi-node NUMA data are
+needed before revisiting these defaults. [Contracts and measurements](research/implemented/cpu-compute.md)

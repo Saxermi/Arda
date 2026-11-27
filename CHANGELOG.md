@@ -2,6 +2,42 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
+## 0.18.6 — CPU Topology, Placement and Backend Comparison
+
+- Added optional hwloc discovery, Linux caller affinity and explicit first-touch tensor initialization.
+- Added backend comparison with common tolerance, warm-up and repeated timings, plus actual kernel and worker reports. [Controls and validation](research/implemented/cpu-compute.md#0186-topology-and-backend-comparison)
+
+## 0.18.5 — Explainable CPU Execution Plans
+
+- Added reusable Float64 GEMM/GEMV plans, workspace estimates, explicit backend overrides and execution reports.
+- Added a calibrated lower-bound model and bounded, opt-in kernel tuning with a per-VM cache. [Plan contracts](research/implemented/cpu-compute.md#0185-ace-v1-plans)
+
+## 0.18.4 — Tiled and Fused Float64 Kernels
+
+- Added tiled GEMM/GEMV for ordinary Float64 tensors, including strided views with bounded panel scratch.
+- Added opt-in two-buffer prefetch for file statistics and explicit fused elementwise and reduction kernels with ordered Float64 arithmetic. [Compute contracts](research/implemented/cpu-compute.md#0184-bounded-kernels)
+
+## 0.18.3 — Block Quantization and Mixed-Precision CPU Products
+
+- Added symmetric Q4/Q8 matrix snapshots, per-block Float32 scales, payload metadata and explicit dequantization.
+- Added packed GEMV and GEMM with portable C, AVX2 and AArch64 NEON paths. Products consume bounded weight blocks.
+- Added explicit Float16 and BFloat16 matrix products with Float32 accumulation and SIMD widening where supported. [Contracts and measurements](research/implemented/quantization.md)
+
+## 0.18.2 — Controlled CPU Parallelism
+
+- Added optional OpenMP teams for large packed Float64 matrix products and AXPY. Per-VM thread settings default to one, and small operations stay serial.
+- Added native thread availability and last packed GEMM team size to `compute.cpu()`. CBLAS thread settings remain provider-owned. [Thread controls and measurements](research/implemented/transforms-and-kernels.md#0182-controlled-cpu-parallelism)
+
+## 0.18.1 — CPU Kernel Dispatch and Register Blocking
+
+- Added runtime-selected register-blocked Float64 matrix multiplication for x86 SSE2/AVX2 and AArch64 NEON. The previous kernel remains selectable.
+- Added explicit AVX2/FMA selection and optional GNU libmvec sine, cosine and exponential for ordinary Float64 arrays. [Kernel contracts and measurements](research/implemented/transforms-and-kernels.md#0181-register-blocked-matrix-multiplication)
+
+## 0.18.0 — CPU Kernel Baselines
+
+- Added a reproducible dense Float64 GEMM comparison against Eigen and NumPy, plus CPU microbenchmarks for GEMV, SpMV, AXPY, reductions, math, copies and VM loops.
+- Added `compute.cpu()` for CPU feature reporting and an optional LTO build. [Measurements and build recipes](research/implemented/transforms-and-kernels.md#0180-cpu-baseline)
+
 ## 0.17.4 — Sensitivity and Uncertainty
 
 - Added local scalar-output sensitivity reports and static symbolic derivative TeX for supported MathIR expressions.

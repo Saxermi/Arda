@@ -3,6 +3,7 @@
 
 #include <fcntl.h>
 #include <float.h>
+#include <pthread.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -568,7 +569,126 @@ static bool accumulate_block(StreamMoments *m, DType dtype, const unsigned char 
     return isfinite(m->mean) && isfinite(m->squares);
 }
 
-Val tensor_stream_stats(VM *v, Val path_value, Val block, bool plan_only) {
+typedef enum { READ_IDLE, READ_PENDING, READ_DONE, READ_STOP } ReadState;
+typedef struct {
+    pthread_mutex_t lock;
+    pthread_cond_t changed;
+    pthread_t thread;
+    int fd;
+    ReadState state;
+    unsigned char *buffer;
+    off_t offset;
+    size_t bytes;
+    bool ok;
+} StreamReader;
+
+static void *stream_worker(void *context) {
+    StreamReader *r = context;
+    pthread_mutex_lock(&r->lock);
+    while (r->state != READ_STOP) {
+        if (r->state != READ_PENDING) {
+            pthread_cond_wait(&r->changed, &r->lock);
+            continue;
+        }
+        unsigned char *buffer = r->buffer;
+        size_t bytes = r->bytes;
+        off_t offset = r->offset;
+        pthread_mutex_unlock(&r->lock);
+        bool ok = read_exact(r->fd, buffer, bytes, offset);
+        pthread_mutex_lock(&r->lock);
+        r->ok = ok;
+        r->state = READ_DONE;
+        pthread_cond_signal(&r->changed);
+    }
+    pthread_mutex_unlock(&r->lock);
+    return NULL;
+}
+
+static int stream_start(StreamReader *r) {
+    int error = pthread_mutex_init(&r->lock, NULL);
+    if (error)
+        return error;
+    error = pthread_cond_init(&r->changed, NULL);
+    if (!error) {
+        error = pthread_create(&r->thread, NULL, stream_worker, r);
+        if (!error)
+            return 0;
+        pthread_cond_destroy(&r->changed);
+    }
+    pthread_mutex_destroy(&r->lock);
+    return error;
+}
+
+static void stream_request(StreamReader *r, unsigned char *buffer, size_t bytes, off_t offset) {
+    pthread_mutex_lock(&r->lock);
+    r->buffer = buffer;
+    r->bytes = bytes;
+    r->offset = offset;
+    r->state = READ_PENDING;
+    pthread_cond_signal(&r->changed);
+    pthread_mutex_unlock(&r->lock);
+}
+
+static bool stream_wait(StreamReader *r) {
+    pthread_mutex_lock(&r->lock);
+    while (r->state == READ_PENDING)
+        pthread_cond_wait(&r->changed, &r->lock);
+    bool ok = r->ok;
+    pthread_mutex_unlock(&r->lock);
+    return ok;
+}
+
+static void stream_stop(StreamReader *r) {
+    stream_wait(r);
+    pthread_mutex_lock(&r->lock);
+    r->state = READ_STOP;
+    pthread_cond_signal(&r->changed);
+    pthread_mutex_unlock(&r->lock);
+    pthread_join(r->thread, NULL);
+    pthread_cond_destroy(&r->changed);
+    pthread_mutex_destroy(&r->lock);
+}
+
+static const char *stream_moments(int fd, const TypedTensor *file, StreamMoments *m,
+                                  unsigned char *scratch, size_t count, bool prefetch) {
+    static const char read_error[] = "tensor stream read failed or data was truncated";
+    static const char moments_error[] =
+        "stream_stats requires finite values and representable moments";
+    size_t width = dtype_info[file->dtype].size;
+    StreamReader reader = {.fd = fd};
+    if (prefetch && stream_start(&reader))
+        return "unable to start stream prefetch worker";
+
+    const char *error = NULL;
+    unsigned char *current = scratch;
+    for (size_t pos = 0; pos < file->n;) {
+        size_t batch = file->n - pos < count ? file->n - pos : count;
+        size_t next = pos + batch, remaining = file->n - next;
+        size_t next_count = remaining < count ? remaining : count;
+        bool ok = prefetch && pos
+                      ? stream_wait(&reader)
+                      : read_exact(fd, current, batch * width, (off_t)(HEADER_SIZE + pos * width));
+        if (!ok) {
+            error = read_error;
+            break;
+        }
+        unsigned char *other = current == scratch ? scratch + count * width : scratch;
+        if (prefetch && next_count)
+            stream_request(&reader, other, next_count * width, (off_t)(HEADER_SIZE + next * width));
+        if (!accumulate_block(m, file->dtype, current, batch)) {
+            error = moments_error;
+            break;
+        }
+        if (prefetch)
+            current = other;
+        pos = next;
+    }
+    if (prefetch)
+        stream_stop(&reader);
+    return error;
+}
+
+Val tensor_stream_stats(VM *v, Val path_value, Val block, bool plan_only, bool prefetch) {
     const char *path = asstr(v, path_value);
     size_t count = block.t == V_NIL ? 65536 : (size_t)block_elements(v, block);
     TypedTensor file;
@@ -580,7 +700,8 @@ Val tensor_stream_stats(VM *v, Val path_value, Val block, bool plan_only) {
     }
     if (count > file.n)
         count = file.n;
-    size_t width = dtype_info[file.dtype].size, bytes = count * width;
+    prefetch &= file.n > count;
+    size_t width = dtype_info[file.dtype].size, bytes = count * width * (prefetch ? 2u : 1u);
     if (plan_only) {
         close(fd);
         size_t available = tensor_memory_available(v);
@@ -591,29 +712,18 @@ Val tensor_stream_stats(VM *v, Val path_value, Val block, bool plan_only) {
         report(v, out, "available_bytes", integer((int64_t)available));
         report(v, out, "output_bytes", integer(0));
         report(v, out, "fits", boolean(bytes <= available));
+        report(v, out, "prefetch", boolean(prefetch));
+        report(v, out, "io_bytes", integer((int64_t)(file.n * width)));
         return objval(out);
     }
     unsigned char *scratch = bytes ? tensor_workspace_acquire(v, bytes) : NULL;
     if (bytes && !scratch) {
         close(fd);
-        vmerror(v, "unable to reserve streaming workspace within the memory budget");
+        vmerror_kind(v, "memory_budget",
+                     "unable to reserve streaming workspace within the memory budget");
     }
     StreamMoments m = {0};
-    const char *error = NULL;
-    for (size_t pos = 0; pos < file.n;) {
-        size_t batch = file.n - pos;
-        if (batch > count)
-            batch = count;
-        if (!read_exact(fd, scratch, batch * width, (off_t)(HEADER_SIZE + pos * width))) {
-            error = "tensor stream read failed or data was truncated";
-            break;
-        }
-        if (!accumulate_block(&m, file.dtype, scratch, batch)) {
-            error = "stream_stats requires finite values and representable moments";
-            break;
-        }
-        pos += batch;
-    }
+    const char *error = stream_moments(fd, &file, &m, scratch, count, prefetch);
     close(fd);
     if (scratch)
         tensor_workspace_release(v, scratch);

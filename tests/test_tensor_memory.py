@@ -135,6 +135,7 @@ class TensorMemoryTests(unittest.TestCase):
         esta patch = t.permute(t.array([70,71,80,81],"int32",[1,2,2]),[0,2,1])
         esta old = t.mmap("values")
         pedo(t.tolist(t.read_tile("values",[1,1,1],[1,2,2])))
+        collect()
         c.memory_budget(16)
         try:
             t.write_tile("values",[1,1,1],patch,224)

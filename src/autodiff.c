@@ -1,5 +1,6 @@
 #include "autodiff.h"
 #include "activation_store.h"
+#include "cpu_kernels.h"
 
 static bool is_tensor(Val x) {
     return isobj(x, O_ARRAY) || isobj(x, O_TYPED_TENSOR);
@@ -208,6 +209,10 @@ Val ad_unary(VM *v, ADOperation op, Val input, Val exponent) {
         result = number(y);
     } else {
         Obj *out = typed_new(v, DT_F64, t.rank, t.shape);
+        if (!tracked && v->vector_math && op >= AD_SIN && op <= AD_EXP && typed_contiguous(&t) &&
+            cpu_vector_unary(v, (VectorMath)(op - AD_SIN), t.n,
+                             (const double *)typed_element(&t, (ptrdiff_t)t.offset), data(out)))
+            return objval(out);
         for (size_t i = 0; i < t.n; i++) {
             double x = item(&t, i), y = unary(v, op, x, power, tracked);
             if (tracked)

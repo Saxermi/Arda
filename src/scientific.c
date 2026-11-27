@@ -1,11 +1,6 @@
 #include "arda.h"
 #include <float.h>
-#if defined(__SSE2__)
-#include <emmintrin.h>
-#endif
-#ifdef ARDA_BLAS
-#include <cblas.h>
-#endif
+#include "cpu_kernels.h"
 /* Dense float64 arrays, row-major. All allocations belong to the GC; native
  * calls do not run the collector until the instruction has returned. */
 #define MAX_ELEMENTS 16000000u
@@ -90,79 +85,6 @@ static double dot(Obj *a, Obj *b) {
         s0 += (long double)p[i] * q[i];
     return (double)((s0 + s1) + (s2 + s3));
 }
-#if !defined(ARDA_BLAS) && defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
-#include <immintrin.h>
-__attribute__((target("avx2"))) static void matmul_avx2(int m, int n, int k, const double *x,
-                                                        const double *y, double *z) {
-    const int block = 64;
-    for (int ii = 0; ii < m; ii += block)
-        for (int kk = 0; kk < k; kk += block)
-            for (int jj = 0; jj < n; jj += block)
-                for (int i = ii; i < m && i < ii + block; i++)
-                    for (int t = kk; t < k && t < kk + block; t++) {
-                        double at = x[(size_t)i * k + t];
-                        __m256d aa = _mm256_set1_pd(at);
-                        double *dst = z + (size_t)i * n;
-                        const double *src = y + (size_t)t * n;
-                        int j = jj, end = n < jj + block ? n : jj + block;
-                        for (; j + 15 < end; j += 16)
-                            for (int u = 0; u < 16; u += 4)
-                                _mm256_storeu_pd(
-                                    dst + j + u,
-                                    _mm256_add_pd(_mm256_loadu_pd(dst + j + u),
-                                                  _mm256_mul_pd(aa, _mm256_loadu_pd(src + j + u))));
-                        for (; j + 3 < end; j += 4)
-                            _mm256_storeu_pd(
-                                dst + j,
-                                _mm256_add_pd(_mm256_loadu_pd(dst + j),
-                                              _mm256_mul_pd(aa, _mm256_loadu_pd(src + j))));
-                        for (; j < end; j++)
-                            dst[j] += at * src[j];
-                    }
-}
-#endif
-void dense_matmul_into(int m, int k, int n, const double *x, const double *y, double *z) {
-    if (!m || !k || !n)
-        return;
-#ifdef ARDA_BLAS
-    cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, m, n, k, 1, x, k, y, n, 0, z, n);
-#else
-    /* Blocked row-major multiplication; innermost loop is contiguous. */
-    const int block = 32;
-#if defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
-    if (__builtin_cpu_supports("avx2")) {
-        matmul_avx2(m, n, k, x, y, z);
-        return;
-    }
-#endif
-    for (int ii = 0; ii < m; ii += block)
-        for (int kk = 0; kk < k; kk += block)
-            for (int jj = 0; jj < n; jj += block)
-                for (int i = ii; i < m && i < ii + block; i++)
-                    for (int t = kk; t < k && t < kk + block; t++) {
-                        double at = x[(size_t)i * k + t];
-                        double *dst = z + (size_t)i * n;
-                        const double *src = y + (size_t)t * n;
-                        int j = jj, end = n < jj + block ? n : jj + block;
-#if defined(__SSE2__)
-                        __m128d aa = _mm_set1_pd(at);
-                        for (; j + 7 < end; j += 8) {
-                            for (int u = 0; u < 8; u += 2)
-                                _mm_storeu_pd(
-                                    dst + j + u,
-                                    _mm_add_pd(_mm_loadu_pd(dst + j + u),
-                                               _mm_mul_pd(aa, _mm_loadu_pd(src + j + u))));
-                        }
-                        for (; j + 1 < end; j += 2)
-                            _mm_storeu_pd(dst + j,
-                                          _mm_add_pd(_mm_loadu_pd(dst + j),
-                                                     _mm_mul_pd(aa, _mm_loadu_pd(src + j))));
-#endif
-                        for (; j < end; j++)
-                            dst[j] += at * src[j];
-                    }
-#endif
-}
 Obj *dense_matmul(VM *v, Obj *a, Obj *b) {
     matrix(v, a);
     matrix(v, b);
@@ -170,7 +92,7 @@ Obj *dense_matmul(VM *v, Obj *a, Obj *b) {
     if (k != A(b).rows)
         vmerror(v, "matmul shape mismatch");
     Obj *o = array_new(v, 2, m, n);
-    dense_matmul_into(m, k, n, A(a).data, A(b).data, A(o).data);
+    dense_matmul_into(v, m, k, n, A(a).data, A(b).data, A(o).data);
     return o;
 }
 
@@ -355,6 +277,9 @@ Val scientific_call(VM *v, int id, int argc, Val *a) {
         return number(k == S_STD ? sqrt(r) : r);
     }
     Obj *o = like(v, x);
+    if (v->vector_math && k >= S_SIN && k <= S_EXP &&
+        cpu_vector_unary(v, (VectorMath)(k - S_SIN), n, p, A(o).data))
+        return objval(o);
     for (size_t i = 0; i < n; i++) {
         double z = p[i];
         switch (k) {

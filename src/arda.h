@@ -282,7 +282,9 @@ typedef enum {
     O_LOWRANK,
     O_QUANTITY,
     O_RANGE,
-    O_OFFLOAD_PLAN
+    O_OFFLOAD_PLAN,
+    O_QUANTIZED,
+    O_COMPUTE_PLAN
 } OType;
 
 typedef struct {
@@ -331,6 +333,13 @@ typedef struct {
     int shape[8], rank;
     LowRankKind kind;
 } LowRankTensor;
+
+typedef struct {
+    Obj *buffer;
+    int rows, columns;
+    size_t blocks_per_row;
+    bool q4;
+} QuantizedMatrix;
 
 typedef struct {
     double scale, offset;
@@ -437,6 +446,7 @@ struct Obj {
         Buffer buffer;
         TypedTensor tensor;
         LowRankTensor lowrank;
+        QuantizedMatrix quantized;
         Quantity quantity;
         struct TensorAD *ad;
         struct ADOffloadPlan *offload_plan;
@@ -487,8 +497,14 @@ typedef struct VM {
     Obj **gray;
     size_t ng, gcap, live, bytes, next_gc, cycles;
     int marking, stress;
+    unsigned cpu_features;
+    int matmul_kernel, native_threads, last_matmul_threads;
+    bool vector_math;
     size_t sparse_bytes, sparse_limit;
     TensorMemory tensor_memory;
+    struct ComputeState *compute_state;
+    struct ComputeAffinity *compute_affinity;
+    int compute_thread_cap;
     Obj *sensitivity_entry;
     struct ADReadCache *ad_read_cache;
     unsigned char *ad_read_memory;
@@ -580,7 +596,7 @@ void array_set_index(VM *v, Val a, Val b, Val x);
 void array_print(Obj *o);
 Obj *array_new(VM *v, int rank, int rows, int cols);
 Obj *dense_matmul(VM *v, Obj *a, Obj *b);
-void dense_matmul_into(int m, int k, int n, const double *x, const double *y, double *z);
+void dense_matmul_into(VM *v, int m, int k, int n, const double *x, const double *y, double *z);
 #define ARDA_MAX_ELEMENTS 16000000u
 Obj *buffer_new(VM *v, size_t bytes);
 void tensor_bump_version(VM *v, Obj *buffer);
@@ -627,6 +643,7 @@ void install_tensor(VM *v, Obj *module);
 #define UNITS_BASE 1700
 #define OPTIMIZER_BASE 1800
 #define UNCERTAINTY_BASE 1900
+#define QUANT_BASE 2000
 #define UNCERTAINTY_APPLY_ID UNCERTAINTY_BASE
 #define MATHDOC_SENSITIVITY_ID (MATHDOC_BASE + 6)
 Obj *optimizer_module(VM *v);
@@ -663,6 +680,8 @@ Obj *linop_module(VM *v);
 Val linop_call(VM *v, int id, int argc, Val *a);
 Obj *mathdoc_module(VM *v);
 Val mathdoc_call(VM *v, int id, int argc, Val *a);
+Obj *quant_module(VM *v);
+Val quant_call(VM *v, int id, int argc, Val *args);
 Obj *uncertainty_module(VM *v);
 Val uncertainty_call(VM *v, int id, int argc, Val *args);
 Val special_call(VM *v, int id, int argc, Val *a);

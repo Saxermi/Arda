@@ -6,6 +6,7 @@ This directory records the mathematics behind Arda's scientific features and com
 | --- | --- |
 | [Dense linear algebra and reductions](implemented/linear-algebra.md) | [Factorizations, statistics, quadrature and special functions](planned/numerical-libraries.md) |
 | [Typed tensors, shared buffers and file storage](implemented/typed-tensors.md) | |
+| [Block quantization and mixed-precision products](implemented/quantization.md) | |
 | [Low-rank tensors](implemented/low-rank-tensors.md) | |
 | [Scientific quantities and shape contracts](implemented/scientific-types.md) | |
 | [Random generation and statistics](implemented/random-and-statistics.md) | |
@@ -16,6 +17,7 @@ This directory records the mathematics behind Arda's scientific features and com
 | [Integration and differential equations](implemented/integration-and-odes.md) | [Simulation, discretization and adjoints](planned/simulation.md) |
 | [Optimization and automatic differentiation](implemented/optimization-and-ad.md) | [Tensor compression, tensor AD and mathematical introspection](planned/tensors-and-symbolics.md) |
 | [Fourier transforms, tensors and numerical kernels](implemented/transforms-and-kernels.md) | [Memory, I/O, ACE, CPU, GPU and distributed execution](planned/computing-systems.md) |
+| [Tiled kernels, fusion, ACE plans and CPU controls](implemented/cpu-compute.md) | [Automatic scheduling and accelerators](planned/computing-systems.md) |
 | | [Scientific ML, quantization and memory-efficient training](planned/machine-learning.md) |
 
 ## Read and update an entry

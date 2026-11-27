@@ -3,9 +3,14 @@ PYTHON ?= python3
 BLAS ?= 0
 LAPACK ?= 0
 SANITIZE ?= 0
+LTO ?= 0
+VECMATH ?= 0
+OPENMP ?= 0
+HWLOC ?= 0
 override CPPFLAGS += -D_XOPEN_SOURCE=700
 CFLAGS ?= -std=c11 -O2 -g -Wall -Wextra -Wpedantic
-override LDLIBS += -lm
+override CFLAGS += -pthread
+override LDLIBS += -lm -pthread
 ifeq ($(BLAS),1)
 override CPPFLAGS += -DARDA_BLAS
 override LDLIBS += -lblas
@@ -14,12 +19,28 @@ ifeq ($(LAPACK),1)
 override CPPFLAGS += -DARDA_LAPACK
 override LDLIBS += -llapack -lblas
 endif
+ifeq ($(OPENMP),1)
+override CFLAGS += -fopenmp
+override LDFLAGS += -fopenmp
+endif
+ifeq ($(HWLOC),1)
+override CPPFLAGS += -DARDA_HWLOC
+override LDLIBS += -lhwloc
+endif
+ifeq ($(VECMATH),1)
+override CPPFLAGS += -DARDA_VECMATH
+override LDLIBS += -lmvec
+endif
+ifeq ($(LTO),1)
+override CFLAGS += -flto
+override LDFLAGS += -flto
+endif
 ifeq ($(SANITIZE),1)
 override CFLAGS += -O1 -fsanitize=address,undefined -fno-omit-frame-pointer -fno-pie
 override LDFLAGS += -fsanitize=address,undefined -no-pie
 endif
 
-BUILD := build/blas$(BLAS)-lapack$(LAPACK)-sanitize$(SANITIZE)
+BUILD := build/blas$(BLAS)-lapack$(LAPACK)-sanitize$(SANITIZE)$(if $(filter 1,$(LTO)),-lto)$(if $(filter 1,$(VECMATH)),-vecmath)$(if $(filter 1,$(OPENMP)),-openmp)$(if $(filter 1,$(HWLOC)),-hwloc)
 SRC := $(wildcard src/*.c)
 OBJ := $(patsubst src/%.c,$(BUILD)/%.o,$(SRC))
 BIN := $(BUILD)/arda

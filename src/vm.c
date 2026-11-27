@@ -1,5 +1,7 @@
+#include "compute_topology.h"
 #include "autodiff.h"
 #include "activation_store.h"
+#include "cpu_kernels.h"
 #include "numerics_source.h"
 #include "ode_source.h"
 #include "opt_source.h"
@@ -35,7 +37,7 @@ int truth(VM *v, Val x) {
     if (isobj(x, O_AD) && ad_disabled(v))
         x = ad_primal(x);
     if (isobj(x, O_ARRAY) || isobj(x, O_TYPED_TENSOR) || isobj(x, O_LOWRANK) ||
-        isobj(x, O_SPARSE) || isobj(x, O_AD) || isobj(x, O_QUANTITY))
+        isobj(x, O_SPARSE) || isobj(x, O_AD) || isobj(x, O_QUANTITY) || isobj(x, O_QUANTIZED))
         vmerror_kind(v, "ambiguous_truth",
                      "tensor, quantity or differentiated value needs an explicit scalar condition");
     if (x.t == V_NIL || x.t == V_MISSING)
@@ -465,6 +467,8 @@ void remember_proto(VM *v, Proto *p) {
 
 void vm_init(VM *v, int stress) {
     v->stress = stress;
+    v->cpu_features = cpu_detect();
+    v->native_threads = v->last_matmul_threads = 1;
     v->next_gc = 65536;
     v->sparse_limit = SIZE_MAX;
     v->tensor_memory.limit = tensor_memory_unlimited();
@@ -476,6 +480,8 @@ void vm_init(VM *v, int stress) {
 void vm_destroy(VM *v) {
     destroy_objects(v);
     tensor_pool_trim(v);
+    free(v->compute_state);
+    compute_release_affinity(v);
     for (int i = 0; i < v->np; i++)
         freeproto(v->programs[i]);
     free(v->programs);
