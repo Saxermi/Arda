@@ -461,6 +461,7 @@ struct Obj {
             Obj *first, *second;
             int kind, rows, cols, lower, upper;
             int grid_rank, extent[8];
+            unsigned char boundary[3];
             double weights[8];
         } linop;
         Sparse sparse;
@@ -642,6 +643,9 @@ void install_tensor(VM *v, Obj *module);
 #define UNCERTAINTY_BASE 1900
 #define QUANT_BASE 2000
 #define SOLVER_BASE 2100
+#define PDE_BASE 2200
+Obj *pde_module(VM *v);
+Val pde_call(VM *v, int id, int argc, Val *args);
 Obj *solver_module(VM *v);
 Val solver_call(VM *v, int id, int argc, Val *args);
 void solver_unwind(VM *v);

@@ -1,5 +1,6 @@
 #include "solver.h"
 #include "poisson.h"
+#include "pde.h"
 #include "typed_tensor.h"
 
 #define A(o) ((o)->as.array)
@@ -129,6 +130,12 @@ void solver_check_symmetric(VM *v, Obj *input, const LinopContext *context,
                 if (linop_dense_at(input, i, j) != linop_dense_at(input, j, i))
                     vmerror_kind(v, "domain", "solver requires symmetric coefficients");
         }
+        return;
+    } else if (input->as.linop.kind == LINOP_CARTESIAN) {
+        if (positive && !pde_has_dirichlet(input) && !options->positive_definite)
+            vmerror_kind(
+                v, "domain",
+                "singular grid needs pde.poisson or a positive-definite subspace assumption");
         return;
     } else if (input->as.linop.kind == LINOP_POISSON || input->as.linop.kind == LINOP_DIAGONAL) {
         if (positive && input->as.linop.kind == LINOP_DIAGONAL)
@@ -315,6 +322,10 @@ static Val solve(VM *v, SolverMethod method, Val input, Val rhs, Val settings) {
     linop_close(v, &context);
     solver_workspace_done(v, buffer);
     return result;
+}
+
+Val solver_solve_cg(VM *v, Val input, Val rhs, Val settings) {
+    return solve(v, SOLVER_CG, input, rhs, settings);
 }
 
 enum { SOLVE, MULTIGRID, REFINE, LANCZOS, VERIFY, VERIFY_EIGEN, VERIFY_SVD, REQUIREMENTS, ARNOLDI };

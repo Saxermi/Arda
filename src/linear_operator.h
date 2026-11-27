@@ -3,7 +3,15 @@
 
 #include <stddef.h>
 
-enum { LINOP_LOWRANK, LINOP_DIAGONAL, LINOP_BANDED, LINOP_TOEPLITZ, LINOP_KRON, LINOP_POISSON };
+enum {
+    LINOP_LOWRANK,
+    LINOP_DIAGONAL,
+    LINOP_BANDED,
+    LINOP_TOEPLITZ,
+    LINOP_KRON,
+    LINOP_POISSON,
+    LINOP_CARTESIAN
+};
 
 /* Callers supply disjoint vectors of the specified logical sizes. */
 typedef void (*LinearApply)(const void *context, const double *x, size_t xs, double *y, size_t ys);

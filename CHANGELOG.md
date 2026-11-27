@@ -2,6 +2,20 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
+## 0.20.2 — Structured-Grid PDEs
+
+- Added matrix-free Poisson, heat, wave and conservative advection–diffusion on Cartesian grids with homogeneous Dirichlet, Neumann and periodic boundaries.
+- Added explicit stability checks, bounded workspace and an analytical heat example. [Simulation methods](research/implemented/ulmo-simulation.md#0202-cartesian-grid-pdes)
+
+## 0.20.1 — Implicit ODEs
+
+- Added implicit Euler, BDF2 and order-three Radau IIA with Newton iteration, Jacobian or JVP callbacks and reuse of the existing LU and GMRES paths.
+
+## 0.20.0 — ODE Trajectories and Events
+
+- Added fourth-order dense output for RK45, scheduled and streamed state output, crossing events and in-memory checkpoint restart.
+- Added velocity Verlet in kick–drift–kick leapfrog form. [ODE contracts](research/implemented/ulmo-simulation.md#0200-rk45-output-events-and-restart)
+
 ## 0.19.4 — Verified Numerical Solvers
 
 - Added independent residual reports for linear solutions, real and complex eigenpairs, and singular triplets. Added optional dense condition estimation, bounded solver traces and method requirements.

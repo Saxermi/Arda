@@ -234,3 +234,27 @@ the existing specialized stencil for up to three axes and a general matrix-free 
 for higher ranks. This keeps the four- and eight-dimensional examples runnable. Generalizing
 the Multigrid hierarchy would add variable-rank transfer kernels and needs separate validation.
 [API migration](research/implemented/aule-solvers.md#solver-api-migration)
+
+## 2026-11-27 — Initial Ulmo output, implicit stepping and grid contracts
+
+**Status** — Implemented for 0.20.0–0.20.2 and open to owner revision
+
+Treat RK45 sampling and trajectory retention as separate options. Fixed output times
+preserve the integration steps, while retained dense output trades memory for later
+queries. A synchronous stream avoids keeping all snapshots. A forced-step approach
+would simplify interpolation at fixed outputs but could add many steps and make the
+integration depend on the sampling schedule. Checkpoints are in-memory snapshots at
+segment boundaries. A persistent format needs versioning and I/O failure handling.
+
+Start implicit integration with fixed-step Euler, BDF2 and Radau IIA order three.
+Newton uses a dense residual Jacobian and existing LU or GMRES. This makes the first
+implementations easier to verify and supports small stiff systems. Adaptive
+higher-order methods or matrix-free Newton–Krylov would reduce work or storage for
+some problems, with changes to step selection, preconditioning and failure recovery.
+
+Use uniform Cartesian stencils with explicit homogeneous boundary conventions and
+stability checks. Upwind fluxes conserve mass on closed or periodic grids but add
+numerical diffusion. Higher-order limiters could sharpen transport and would require
+additional stability and monotonicity tests. The Poisson wrapper applies an explicit
+zero-mean gauge on the compatible constant-nullspace cases.
+[Contracts and measurements](research/implemented/ulmo-simulation.md)

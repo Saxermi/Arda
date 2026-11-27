@@ -1,6 +1,6 @@
 # Simulation, discretization and scientific domains
 
-**Status** — Candidates for Ulmo 0.20. Begin with the [existing ODE and stencil routines](../README.md).
+**Status** — Extensions and future candidates for Ulmo. The ODE trajectory, fixed-step stiff solvers and Cartesian-grid methods are implemented. [Ulmo contracts and validation](../implemented/ulmo-simulation.md)
 
 | Capability | Baseline, alternatives and cost | Reliability, implementation and tests |
 | --- | --- | --- |

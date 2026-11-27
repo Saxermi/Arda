@@ -12,7 +12,7 @@ Its long-term goal is to combine scientifically validated numerical algorithms w
 
 *Development codename: Mithril*
 
-**Development version** — Arda 0.19.4 — Advanced Numerical Solvers
+**Development version** — Arda 0.20.2 — Scientific Simulation
 
 Use `compute.cpu()` to inspect CPU features. An `OPENMP=1` build can use `compute.threads(2)` for large native Float64 matrix products and AXPY. The normal build and default runtime setting run these kernels serially. [Kernel controls, benchmark results, and build options](research/implemented/transforms-and-kernels.md#0182-controlled-cpu-parallelism)
 
@@ -25,6 +25,9 @@ comparisons are also available. [CPU compute contracts and benchmarks](research/
 The `solver` module applies a common Krylov solver contract to dense, sparse, structured and
 matrix-free Float64 operators. It also exposes a geometric Poisson solver, explicit mixed
 precision refinement and residual verification. [Solver contracts](research/implemented/aule-solvers.md)
+
+Ulmo adds RK45 trajectories and events, implicit time stepping, and structured-grid PDE
+solvers for heat, waves, advection–diffusion and Poisson. [Simulation contracts](research/implemented/ulmo-simulation.md) · [Runnable example](examples/ulmo.arda)
 
 **Wiki** — [Quickstart, language and module guides, and AMDE examples](https://github.com/Saxermi/Arda/wiki)
 

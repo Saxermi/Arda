@@ -1,5 +1,6 @@
 #include "solver.h"
 #include "poisson.h"
+#include "pde.h"
 
 #define A(o) ((o)->as.array)
 
@@ -32,6 +33,8 @@ static long double infinity_norm(Obj *op, const LinopContext *context, size_t m,
         }
     } else if (op->as.linop.kind == LINOP_DIAGONAL) {
         largest = max_abs(n, A(op->as.linop.first).data);
+    } else if (op->as.linop.kind == LINOP_CARTESIAN) {
+        largest = pde_operator_norm(op);
     } else if (op->as.linop.kind == LINOP_POISSON) {
         largest = poisson_diagonal(op);
         for (int i = 0; i < op->as.linop.grid_rank; i++) {
