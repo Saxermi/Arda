@@ -89,13 +89,14 @@ static void dense_apply(const void *context, const double *x, size_t xs, double 
     const Obj *matrix = context;
     size_t rows = A(matrix).rows, cols = A(matrix).cols;
     for (size_t i = 0; i < rows; i++) {
-        const double *row = A(matrix).data + i * cols;
-        if (xs == 1)
+        const double *row = A(matrix).data + i * A(matrix).stride[0];
+        size_t column_stride = A(matrix).stride[1];
+        if (xs == 1 && column_stride == 1)
             y[i * ys] = (double)linear_dot(cols, row, x);
         else {
             long double sum = 0;
             for (size_t j = 0; j < cols; j++)
-                sum += (long double)row[j] * x[j * xs];
+                sum += (long double)row[j * column_stride] * x[j * xs];
             y[i * ys] = (double)sum;
         }
     }
@@ -109,7 +110,8 @@ static void dense_apply_transpose(const void *context, const double *x, size_t x
         y[j * ys] = 0;
     for (size_t i = 0; i < rows; i++)
         for (size_t j = 0; j < cols; j++)
-            y[j * ys] += A(matrix).data[i * cols + j] * x[i * xs];
+            y[j * ys] +=
+                A(matrix).data[i * A(matrix).stride[0] + j * A(matrix).stride[1]] * x[i * xs];
 }
 
 /* Negative discrete Laplacian with homogeneous Dirichlet boundaries on a

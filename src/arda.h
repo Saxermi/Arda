@@ -461,6 +461,8 @@ struct Obj {
         struct {
             Obj *first, *second;
             int kind, rows, cols, lower, upper;
+            int extent[3];
+            double weights[3];
         } linop;
         Sparse sparse;
         SparseBuilder sparse_builder;
@@ -509,7 +511,7 @@ typedef struct VM {
     struct ADReadCache *ad_read_cache;
     unsigned char *ad_read_memory;
     uint64_t ad_replay_operations;
-    Obj *sparse_checkpoint;
+    Obj *sparse_checkpoint, *solver_checkpoint;
     FILE *sparse_file;
     int sparse_active;
     Proto **programs;
@@ -644,6 +646,10 @@ void install_tensor(VM *v, Obj *module);
 #define OPTIMIZER_BASE 1800
 #define UNCERTAINTY_BASE 1900
 #define QUANT_BASE 2000
+#define SOLVER_BASE 2100
+Obj *solver_module(VM *v);
+Val solver_call(VM *v, int id, int argc, Val *args);
+void solver_unwind(VM *v);
 #define UNCERTAINTY_APPLY_ID UNCERTAINTY_BASE
 #define MATHDOC_SENSITIVITY_ID (MATHDOC_BASE + 6)
 Obj *optimizer_module(VM *v);
@@ -661,6 +667,7 @@ Val typed_tensor_binary(VM *v, Op op, Val a, Val b);
 int64_t checked_arith(VM *v, Op op, int64_t x, int64_t y);
 Val linalg_call(VM *v, int id, int argc, Val *a);
 #ifdef ARDA_LAPACK
+Val linalg_projected_eigen(VM *v, Obj *matrix);
 void linalg_reduced_svd(VM *v, Obj *input, Obj **u, Obj **s, Obj **vt);
 #endif
 const char *linalg_name(int id);
@@ -690,6 +697,8 @@ int vm_uses_builtin(VM *v, Obj *env, const char *name);
 Val mathdoc_attribute(VM *v, Val target, const char *name);
 int mathir_derivative_tex(VM *v, Obj *function, const char *parameter, char *out, size_t size);
 Obj *dense_lu_solve(VM *v, Obj *a, Obj *b);
+Obj *dense_lu_try_solve(VM *v, Obj *a, Obj *b);
+double dense_condition_inf(VM *v, Obj *a, long double matrix_norm);
 Val sparse_call(VM *v, int id, int argc, Val *a);
 const char *sparse_name(int id);
 Obj *sparse_module(VM *v);

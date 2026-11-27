@@ -1,13 +1,15 @@
 #include "sparse_internal.h"
+#include "poisson.h"
+#include "typed_tensor.h"
 #include <float.h>
 
 #define A(o) ((o)->as.array)
 #define L(o) ((o)->as.linop)
 
-enum { LOWRANK, DIAGONAL, BANDED, TOEPLITZ, KRON, SHAPE, APPLY, ADJOINT };
-static const char *const names[] = {"lowrank", "diagonal", "banded", "toeplitz",
-                                    "kron",    "shape",    "apply",  "apply_transpose"};
-static const int arities[] = {2, 1, 3, 2, 2, 1, 2, 2};
+enum { SHAPE = LINOP_KRON + 1, APPLY, ADJOINT, POISSON, INFO };
+static const char *const names[] = {"lowrank", "diagonal", "banded",          "toeplitz", "kron",
+                                    "shape",   "apply",    "apply_transpose", "poisson",  "info"};
+static const int arities[] = {2, 1, 3, 2, 2, 1, 2, 2, 1, 1};
 _Static_assert(sizeof names / sizeof *names == sizeof arities / sizeof *arities,
                "linop arity table");
 
@@ -41,11 +43,11 @@ static Obj *construct(VM *v, int kind, Val *args) {
     Obj *a, *b = NULL;
     int rows, cols, lower = 0, upper = 0;
     switch (kind) {
-    case DIAGONAL:
+    case LINOP_DIAGONAL:
         a = array_of_rank(v, args[0], 1);
         rows = cols = A(a).rows;
         break;
-    case BANDED:
+    case LINOP_BANDED:
         a = array_of_rank(v, args[2], 2);
         rows = cols = A(a).cols;
         lower = bandwidth(v, args[0], cols);
@@ -53,7 +55,7 @@ static Obj *construct(VM *v, int kind, Val *args) {
         if (A(a).rows != lower + upper + 1)
             vmerror(v, "band storage must have lower + upper + 1 rows");
         break;
-    case TOEPLITZ:
+    case LINOP_TOEPLITZ:
         a = array_of_rank(v, args[0], 1);
         b = array_of_rank(v, args[1], 1);
         rows = A(a).rows;
@@ -64,7 +66,7 @@ static Obj *construct(VM *v, int kind, Val *args) {
     default:
         a = array_of_rank(v, args[0], 2);
         b = array_of_rank(v, args[1], 2);
-        if (kind == LOWRANK) {
+        if (kind == LINOP_LOWRANK) {
             if (A(a).cols != A(b).cols)
                 vmerror(v, "low-rank factors must have equal column counts");
             rows = A(a).rows;
@@ -176,17 +178,17 @@ static void structured_apply(const LinopContext *ctx, const double *x, size_t xs
                              size_t ys, int transposed) {
     const Obj *o = ctx->op, *a = L(o).first, *b = L(o).second;
     switch (L(o).kind) {
-    case LOWRANK:
+    case LINOP_LOWRANK:
         lowrank(transposed ? b : a, transposed ? a : b, x, xs, y, ys, ctx->scratch);
         break;
-    case DIAGONAL:
+    case LINOP_DIAGONAL:
         for (int i = 0; i < L(o).rows; i++)
             y[i * ys] = A(a).data[i] * x[i * xs];
         break;
-    case BANDED:
+    case LINOP_BANDED:
         banded(o, x, xs, y, ys, transposed);
         break;
-    case TOEPLITZ: {
+    case LINOP_TOEPLITZ: {
         const Obj *col = transposed ? b : a, *row = transposed ? a : b;
         for (int i = 0; i < A(col).rows; i++) {
             long double sum = 0;
@@ -198,7 +200,7 @@ static void structured_apply(const LinopContext *ctx, const double *x, size_t xs
         }
         break;
     }
-    case KRON:
+    case LINOP_KRON:
         kron(a, b, x, xs, y, ys, ctx->scratch, transposed);
         break;
     }
@@ -212,7 +214,7 @@ static void transpose(const void *ctx, const double *x, size_t xs, double *y, si
     structured_apply(ctx, x, xs, y, ys, 1);
 }
 
-static void shape(VM *v, Obj *input, size_t *rows, size_t *cols) {
+void linop_shape(VM *v, Obj *input, size_t *rows, size_t *cols) {
     if (input->type == O_LINOP) {
         *rows = L(input).rows;
         *cols = L(input).cols;
@@ -222,29 +224,30 @@ static void shape(VM *v, Obj *input, size_t *rows, size_t *cols) {
     } else if (input->type == O_ARRAY && A(input).rank == 2) {
         *rows = A(input).rows;
         *cols = A(input).cols;
+    } else if (input->type == O_TYPED_TENSOR && input->as.tensor.rank == 2 &&
+               input->as.tensor.dtype == DT_F64) {
+        *rows = (size_t)input->as.tensor.shape[0];
+        *cols = (size_t)input->as.tensor.shape[1];
     } else {
-        vmerror(v, "expected a matrix or linear operator");
+        vmerror(v, "expected a Float64 matrix or linear operator");
     }
 }
 
-LinearOperator linop_open(VM *v, Obj *input, LinopContext *ctx) {
-    size_t rows, cols;
-    shape(v, input, &rows, &cols);
-    *ctx = (LinopContext){.op = input};
-    if (input->type == O_ARRAY) {
-        finite_array(v, input);
-        return dense_operator(tensor_contiguous(input) ? input : tensor_copy(v, input));
-    }
-    if (input->type == O_SPARSE) {
-        if (!input->as.sparse.csr)
-            sparse_begin(v);
-        ctx->csr = sparse_as_csr(v, input);
-        return sparse_operator(&ctx->csr->as.sparse);
-    }
+double linop_dense_at(const Obj *input, size_t i, size_t j) {
+    if (input->type == O_ARRAY)
+        return A(input).data[i * A(input).stride[0] + j * A(input).stride[1]];
+    const TypedTensor *t = &input->as.tensor;
+    ptrdiff_t at = (ptrdiff_t)t->offset + (ptrdiff_t)i * t->stride[0] + (ptrdiff_t)j * t->stride[1];
+    return *(const double *)typed_element(t, at);
+}
+
+size_t linop_workspace(VM *v, Obj *input) {
+    if (input->type != O_LINOP)
+        return 0;
     uint64_t scratch = 0;
-    if (L(input).kind == LOWRANK) {
+    if (L(input).kind == LINOP_LOWRANK)
         scratch = A(L(input).first).cols;
-    } else if (L(input).kind == KRON && rows && cols) {
+    else if (L(input).kind == LINOP_KRON && L(input).rows && L(input).cols) {
         const Obj *a = L(input).first, *b = L(input).second;
         uint64_t right_first = (uint64_t)A(a).cols * A(b).rows;
         uint64_t left_first = (uint64_t)A(a).rows * A(b).cols;
@@ -252,17 +255,80 @@ LinearOperator linop_open(VM *v, Obj *input, LinopContext *ctx) {
     }
     if (scratch > ARDA_MAX_ELEMENTS)
         vmerror(v, "linear operator workspace exceeds the array limit");
-    if (scratch)
-        ctx->scratch = A(array_new(v, 1, (int)scratch, 1)).data;
+    return (size_t)scratch * sizeof(double);
+}
+
+static void typed_product(const void *context, const double *x, size_t xs, double *y, size_t ys,
+                          bool transpose) {
+    const TypedTensor *t = context;
+    int axis = transpose ? 1 : 0;
+    for (int i = 0; i < t->shape[axis]; i++) {
+        long double sum = 0;
+        ptrdiff_t base = (ptrdiff_t)t->offset + (ptrdiff_t)i * t->stride[axis];
+        for (int j = 0; j < t->shape[1 - axis]; j++) {
+            const double *at =
+                (const double *)typed_element(t, base + (ptrdiff_t)j * t->stride[1 - axis]);
+            sum += (long double)*at * x[(size_t)j * xs];
+        }
+        y[(size_t)i * ys] = (double)sum;
+    }
+}
+
+static void typed_forward(const void *context, const double *x, size_t xs, double *y, size_t ys) {
+    typed_product(context, x, xs, y, ys, false);
+}
+
+static void typed_adjoint(const void *context, const double *x, size_t xs, double *y, size_t ys) {
+    typed_product(context, x, xs, y, ys, true);
+}
+
+LinearOperator linop_open(VM *v, Obj *input, LinopContext *ctx) {
+    size_t rows, cols;
+    linop_shape(v, input, &rows, &cols);
+    *ctx = (LinopContext){.op = input};
+    if (input->type == O_ARRAY) {
+        finite_array(v, input);
+        return dense_operator(input);
+    }
+    if (input->type == O_TYPED_TENSOR) {
+        TypedTensor *t = &input->as.tensor;
+        for (size_t i = 0; i < t->n; i++)
+            if (!isfinite(*(const double *)typed_element(t, typed_offset(t, i))))
+                vmerror(v, "nonfinite linear operator input or product");
+        return (LinearOperator){.rows = rows,
+                                .cols = cols,
+                                .context = t,
+                                .apply = typed_forward,
+                                .apply_transpose = typed_adjoint};
+    }
+    if (input->type == O_SPARSE) {
+        if (!input->as.sparse.csr)
+            sparse_begin(v);
+        ctx->csr = sparse_as_csr(v, input);
+        return sparse_operator(&ctx->csr->as.sparse);
+    }
+    if (L(input).kind == LINOP_POISSON)
+        return (LinearOperator){.rows = rows,
+                                .cols = cols,
+                                .context = input,
+                                .apply = poisson_operator_apply,
+                                .apply_transpose = poisson_operator_apply};
+    size_t scratch = linop_workspace(v, input);
+    if (scratch) {
+        ctx->scratch_array = array_new(v, 1, (int)(scratch / sizeof(double)), 1);
+        ctx->scratch = A(ctx->scratch_array).data;
+    }
     return (LinearOperator){.rows = rows,
                             .cols = cols,
                             .context = ctx,
-                            .workspace_bytes = (size_t)scratch * sizeof(double),
+                            .workspace_bytes = scratch,
                             .apply = forward,
                             .apply_transpose = transpose};
 }
 
 void linop_close(VM *v, LinopContext *ctx) {
+    if (ctx->scratch_array)
+        tensor_buffer_discard(v, A(ctx->scratch_array).buffer);
     if (ctx->csr && ctx->csr != ctx->op) {
         sparse_drop_temporary(v, ctx->csr, (Obj *)ctx->op);
         sparse_finish(v);
@@ -291,14 +357,30 @@ Val linop_call(VM *v, int id, int argc, Val *args) {
     int op = id - LINOP_BASE;
     if (op < 0 || (size_t)op >= sizeof names / sizeof *names)
         vmerror(v, "unknown linear operator operation");
-    if (argc != arities[op])
+    if (argc != arities[op] && !(op == POISSON && argc == 2))
         vmerror(v, "invalid linop.%s arity", names[op]);
+    if (op == POISSON)
+        return poisson_new(v, args[0], argc == 2 ? args[1] : nil());
     if (op < SHAPE)
         return objval(construct(v, op, args));
     if (args[0].t != V_OBJ)
         vmerror(v, "expected a matrix or linear operator");
     size_t rows, cols;
-    shape(v, args[0].o, &rows, &cols);
+    linop_shape(v, args[0].o, &rows, &cols);
+    if (op == INFO) {
+        Obj *info = newobj(v, O_MAP);
+        sparse_result_field(v, info, "rows", integer((int64_t)rows));
+        sparse_result_field(v, info, "cols", integer((int64_t)cols));
+        sparse_result_field(v, info, "dtype", objval(string(v, "float64")));
+        sparse_result_field(v, info, "workspace_bytes",
+                            integer((int64_t)linop_workspace(v, args[0].o)));
+        sparse_result_field(v, info, "apply_transpose", boolean(1));
+        size_t conversion = isobj(args[0], O_SPARSE) && !args[0].o->as.sparse.csr
+                                ? sparse_csr_estimate(v, &args[0].o->as.sparse)
+                                : 0;
+        sparse_result_field(v, info, "coo_conversion_bytes", integer((int64_t)conversion));
+        return objval(info);
+    }
     if (op == SHAPE) {
         Obj *out = list(v);
         append(v, out, integer((int64_t)rows));

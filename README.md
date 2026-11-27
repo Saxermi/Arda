@@ -12,7 +12,7 @@ Its long-term goal is to combine scientifically validated numerical algorithms w
 
 *Development codename: Mithril*
 
-**Development version** — Arda 0.18.6 — High-Performance CPU Execution and Adaptive Planning
+**Development version** — Arda 0.19.4 — Advanced Numerical Solvers
 
 Use `compute.cpu()` to inspect CPU features. An `OPENMP=1` build can use `compute.threads(2)` for large native Float64 matrix products and AXPY. The normal build and default runtime setting run these kernels serially. [Kernel controls, benchmark results, and build options](research/implemented/transforms-and-kernels.md#0182-controlled-cpu-parallelism)
 
@@ -21,6 +21,10 @@ Use `quant.quantize(weights, "q4")` or `"q8"` for explicit block quantization. `
 Use `compute.plan("matmul", A, B)` and `compute.explain(plan)` to inspect the kernel and workspace
 for a Float64 product. Opt-in buffered file reductions, fused tensor expressions and backend
 comparisons are also available. [CPU compute contracts and benchmarks](research/implemented/cpu-compute.md)
+
+The `solver` module applies a common Krylov solver contract to dense, sparse, structured and
+matrix-free Float64 operators. It also exposes a geometric Poisson solver, explicit mixed
+precision refinement and residual verification. [Solver contracts](research/implemented/aule-solvers.md)
 
 **Wiki** — [Quickstart, language and module guides, and AMDE examples](https://github.com/Saxermi/Arda/wiki)
 

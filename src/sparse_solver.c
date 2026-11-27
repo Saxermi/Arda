@@ -29,7 +29,7 @@ static Obj *solver_vector(VM *v, Val value, size_t n) {
 
 /* Scale the sum of squares so that very large or small finite rhs and residual
  * vectors do not overflow or underflow merely due to squaring. */
-static long double vector_norm(size_t n, const double *x, size_t stride) {
+long double linear_norm(size_t n, const double *x, size_t stride) {
     long double scale = 0, squares = 1;
     for (size_t i = 0; i < n; i++) {
         long double value = fabsl(x[i * stride]);
@@ -59,7 +59,7 @@ static long double true_residual(const LinearOperator *op, Obj *rhs, const doubl
     op->apply(op->context, x, xs, work, 1);
     for (size_t i = 0; i < op->rows; i++)
         residual[i] = A(rhs).data[i * A(rhs).stride[0]] - work[i];
-    return vector_norm(op->rows, residual, 1);
+    return linear_norm(op->rows, residual, 1);
 }
 
 static Val solve_result(VM *v, Obj *solution, int iterations, double residual, const char *reason,
@@ -108,7 +108,7 @@ Val sparse_solve(VM *v, Obj *matrix, Val rhs, Val tol, Val maxiter, Val workspac
         if (sparse_csr_at(s, i, (uint32_t)i) <= 0)
             vmerror(v, "sparse CG requires a positive diagonal");
 
-    long double bn = vector_norm(n, A(b).data, A(b).stride[0]);
+    long double bn = linear_norm(n, A(b).data, A(b).stride[0]);
     if (!isfinite(bn))
         vmerror(v, "sparse CG rhs norm overflow");
     size_t vectors = 1 + (internal && bn != 0 ? CG_WORK_VECTORS : 0);
@@ -160,7 +160,7 @@ Val sparse_solve(VM *v, Obj *matrix, Val rhs, Val tol, Val maxiter, Val workspac
         iterations++;
         restart = 0;
         previous = rho;
-        if (vector_norm(n, r, 1) <= tolerance * bn) {
+        if (linear_norm(n, r, 1) <= tolerance * bn) {
             if (true_residual(&op, b, x, 1, ap, r) <= tolerance * bn)
                 break;
             restart = 1;
@@ -183,7 +183,7 @@ Val sparse_solve(VM *v, Obj *matrix, Val rhs, Val tol, Val maxiter, Val workspac
 Val sparse_verify(VM *v, Obj *matrix, Val rhs, Val solution) {
     size_t rows = S(matrix).rows, cols = S(matrix).cols;
     Obj *b = solver_vector(v, rhs, rows), *x = solver_vector(v, solution, cols);
-    long double bn = vector_norm(rows, A(b).data, A(b).stride[0]);
+    long double bn = linear_norm(rows, A(b).data, A(b).stride[0]);
     if (!isfinite(bn))
         vmerror(v, "sparse rhs norm overflow");
     Obj *csr = sparse_as_csr(v, matrix);

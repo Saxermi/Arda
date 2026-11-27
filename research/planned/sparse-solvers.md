@@ -1,6 +1,9 @@
 # Advanced sparse and operator solvers
 
-**Status** — Candidates for Aulë 0.19 and its links to Mithril and distributed execution. The existing baseline is [Moria CG/PCG and CGLS](../implemented/sparse-matrices.md). Let $n$ be the dimension, $z$ stored entries, and $k$ the restart or block basis size.
+**Status** — Research candidates and follow-ups for Aulë and distributed execution. The implemented
+solver, preconditioner, verification and Poisson contracts are in [Aulë numerical solvers](../implemented/aule-solvers.md).
+The earlier baseline is [Moria CG/PCG and CGLS](../implemented/sparse-matrices.md).
+Let $n$ be the dimension, $z$ stored entries, and $k$ the restart or block basis size.
 
 | Capability | Candidate and alternative | Cost and numerical trade-off | Implementation and validation |
 | --- | --- | --- | --- |

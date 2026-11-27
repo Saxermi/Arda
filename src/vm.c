@@ -10,6 +10,7 @@ static _Noreturn void jump_error(VM *v) {
     offload_read_finish(v);
     if (v->sparse_active)
         sparse_abort(v);
+    solver_unwind(v);
     longjmp(v->trap, 1);
 }
 

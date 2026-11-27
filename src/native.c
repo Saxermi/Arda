@@ -207,6 +207,8 @@ int64_t range_element(const Obj *range, uint64_t index) {
 }
 
 Val native_call(VM *v, int id, int argc, Val *a) {
+    if (id >= SOLVER_BASE)
+        return solver_call(v, id, argc, a);
     if (id >= QUANT_BASE)
         return quant_call(v, id, argc, a);
     if (id >= UNCERTAINTY_BASE)
@@ -545,6 +547,8 @@ Obj *named_native_module(VM *v, const char *name, const char *const *names, size
 }
 
 Obj *native_module(VM *v, const char *name) {
+    if (!strcmp(name, "solver"))
+        return solver_module(v);
     if (!strcmp(name, "quant"))
         return quant_module(v);
     if (!strcmp(name, "_uncertainty"))

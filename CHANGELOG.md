@@ -2,6 +2,26 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
+## 0.19.4 — Verified Numerical Solvers
+
+- Added independent residual reports for linear solutions, real and complex eigenpairs, and singular triplets. Added optional dense condition estimation, bounded solver traces and method requirements.
+
+## 0.19.3 — Mixed-Precision Refinement
+
+- Added explicit Float32 LU corrections with a higher-precision residual and budgeted Float64 fallback. Reused structured low-rank and Kronecker operators through the solver contract.
+
+## 0.19.2 — Geometric Multigrid
+
+- Added matrix-free Dirichlet Poisson operators and a geometric V-cycle with semicoarsening for anisotropic weights.
+
+## 0.19.1 — Krylov Methods and Partial Spectra
+
+- Added CG/PCG, MINRES, restarted GMRES, BiCGSTAB, LSQR, LSMR and bounded reorthogonalized Lanczos and Arnoldi projections. Added Jacobi, block Jacobi, ILU(0) and IC(0).
+
+## 0.19.0 — Common Operator and Solve Contract
+
+- Extended Float64 operator apply and transpose to typed dense, sparse, structured and matrix-free inputs. Added a common solver result and workspace contract. [Contracts and measurements](research/implemented/aule-solvers.md)
+
 ## 0.18.6 — CPU Topology, Placement and Backend Comparison
 
 - Added optional hwloc discovery, Linux caller affinity and explicit first-touch tensor initialization.
