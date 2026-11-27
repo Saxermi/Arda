@@ -1,5 +1,6 @@
 #include "activation_store.h"
 #include "moments.h"
+#include "record_io.h"
 #include "simulation_checkpoint.h"
 #include "tensor_file.h"
 
@@ -28,18 +29,6 @@ static TensorOutput *active_output(VM *v, Val value) {
     if (output->fd < 0)
         vmerror_kind(v, "io", "tensor output is closed");
     return output;
-}
-
-static uint64_t get_u64(const unsigned char *p) {
-    uint64_t value = 0;
-    for (unsigned i = 0; i < 8; i++)
-        value |= (uint64_t)p[i] << (8 * i);
-    return value;
-}
-
-static void put_u64(unsigned char *p, uint64_t value) {
-    for (unsigned i = 0; i < 8; i++)
-        p[i] = (unsigned char)(value >> (8 * i));
 }
 
 void tensor_file_require_little_endian(VM *v) {
@@ -101,7 +90,7 @@ static bool write_at(int fd, const unsigned char *data, size_t bytes, off_t offs
 static bool decode_header(const unsigned char *header, off_t size, TypedTensor *tensor) {
     if (memcmp(header, magic, sizeof magic - 1) || size < HEADER_SIZE ||
         (uintmax_t)size > PTRDIFF_MAX || header[8] < 1 || header[8] > DT_COUNT || header[9] < 1 ||
-        header[9] > 8 || header[10] != 1 || get_u64(header + 16) != HEADER_SIZE)
+        header[9] > 8 || header[10] != 1 || record_u64(header + 16) != HEADER_SIZE)
         return false;
     for (int i = 11; i < 16; i++)
         if (header[i])
@@ -112,14 +101,14 @@ static bool decode_header(const unsigned char *header, off_t size, TypedTensor *
     DType dtype = (DType)(header[8] - 1);
     int rank = header[9], shape[8];
     for (int i = 0; i < 8; i++) {
-        uint64_t dim = get_u64(header + 32 + 8 * i);
+        uint64_t dim = record_u64(header + 32 + 8 * i);
         if (dim > INT_MAX || (i >= rank && dim))
             return false;
         shape[i] = (int)dim;
     }
     if (!typed_layout_checked(dtype, rank, shape, tensor))
         return false;
-    uint64_t stored_bytes = get_u64(header + 24);
+    uint64_t stored_bytes = record_u64(header + 24);
     return stored_bytes == tensor->n * dtype_info[dtype].size &&
            stored_bytes == (uintmax_t)size - HEADER_SIZE;
 }
@@ -346,7 +335,7 @@ Val tensor_read_tile(VM *v, Val path_value, Val origin_value, Val shape_value) {
     return objval(out);
 }
 
-static bool write_payload(int fd, const TypedTensor *t) {
+static bool write_payload(int fd, const TypedTensor *t, Sha256 *hash) {
     unsigned char chunk[IO_BLOCK];
     size_t width = dtype_info[t->dtype].size, per_chunk = sizeof chunk / width;
     bool contiguous = typed_contiguous(t);
@@ -362,6 +351,8 @@ static bool write_payload(int fd, const TypedTensor *t) {
                 memcpy(chunk + i * width, typed_element(t, typed_offset(t, start + i)), width);
             data = chunk;
         }
+        if (hash)
+            sha256_add(hash, data, count * width);
         if (!tensor_file_write(fd, data, count * width))
             return false;
         start += count;
@@ -375,15 +366,15 @@ static bool write_header(int fd, const TypedTensor *t) {
     header[8] = (unsigned char)t->dtype + 1;
     header[9] = (unsigned char)t->rank;
     header[10] = 1;
-    put_u64(header + 16, HEADER_SIZE);
-    put_u64(header + 24, t->n * dtype_info[t->dtype].size);
+    record_put_u64(header + 16, HEADER_SIZE);
+    record_put_u64(header + 24, t->n * dtype_info[t->dtype].size);
     for (int i = 0; i < t->rank; i++)
-        put_u64(header + 32 + 8 * i, (uint64_t)t->shape[i]);
+        record_put_u64(header + 32 + 8 * i, (uint64_t)t->shape[i]);
     return tensor_file_write(fd, header, sizeof header);
 }
 
 static bool write_tensor(int fd, const void *context) {
-    return write_header(fd, context) && write_payload(fd, context);
+    return write_header(fd, context) && write_payload(fd, context, NULL);
 }
 
 bool offload_read_chunk(const Buffer *buffer, size_t byte_offset, unsigned char *dst,
@@ -623,7 +614,8 @@ Val tensor_truncate_output(VM *v, Val value, Val count) {
 }
 
 enum { CHECKPOINT_DIMS = 8, CHECKPOINT_HEADER = 96 + 8 * CHECKPOINT_WORDS, CHECKPOINT_INT64 = 9 };
-static const unsigned char checkpoint_magic[] = "ARDACKP1";
+static const unsigned char legacy_checkpoint_magic[] = "ARDACKP1";
+static const unsigned char checkpoint_magic[] = "ARDACKP2";
 
 typedef struct {
     unsigned char header[CHECKPOINT_HEADER];
@@ -645,9 +637,21 @@ static bool checkpoint_finite(const TypedTensor *tensor) {
 
 static bool write_checkpoint(int fd, const void *context) {
     const CheckpointWrite *record = context;
-    return tensor_file_write(fd, record->header, sizeof record->header) &&
-           (record->tensor.rank ? write_payload(fd, &record->tensor)
-                                : tensor_file_write(fd, record->scalar, sizeof record->scalar));
+    Sha256 hash = sha256_begin();
+    unsigned char digest[SHA256_BYTES];
+    sha256_add(&hash, record->header, sizeof record->header);
+    if (!tensor_file_write(fd, record->header, sizeof record->header))
+        return false;
+    if (record->tensor.rank) {
+        if (!write_payload(fd, &record->tensor, &hash))
+            return false;
+    } else {
+        sha256_add(&hash, record->scalar, sizeof record->scalar);
+        if (!tensor_file_write(fd, record->scalar, sizeof record->scalar))
+            return false;
+    }
+    sha256_finish(&hash, digest);
+    return tensor_file_write(fd, digest, sizeof digest);
 }
 
 Val checkpoint_save_state(VM *v, Val path, CheckpointKind kind, Val state,
@@ -664,25 +668,25 @@ Val checkpoint_save_state(VM *v, Val path, CheckpointKind kind, Val state,
         bytes = record.tensor.n * sizeof(double);
         format = record.tensor.rank;
         for (int i = 0; i < format; i++)
-            put_u64(record.header + 32 + 8 * i, (uint64_t)record.tensor.shape[i]);
+            record_put_u64(record.header + 32 + 8 * i, (uint64_t)record.tensor.shape[i]);
     } else if (state.t == V_INT) {
         format = CHECKPOINT_INT64;
-        put_u64(record.scalar, (uint64_t)state.i);
+        record_put_u64(record.scalar, (uint64_t)state.i);
     } else if (state.t == V_NUM) {
-        put_u64(record.scalar, checkpoint_real(v, state));
+        record_put_u64(record.scalar, checkpoint_real(v, state));
     } else {
         vmerror_kind(v, "checkpoint_format", "checkpoint state must be a scalar or numc array");
     }
-    if (!tensor_file_fits_budget(budget, CHECKPOINT_HEADER + bytes))
+    if (!tensor_file_fits_budget(budget, CHECKPOINT_HEADER + bytes + SHA256_BYTES))
         vmerror_kind(v, "disk_budget", "checkpoint exceeds the disk budget or budget is invalid");
     if (record.tensor.rank && !checkpoint_finite(&record.tensor))
         vmerror_kind(v, "checkpoint_format", "checkpoint state must be finite");
     memcpy(record.header, checkpoint_magic, sizeof checkpoint_magic - 1);
-    put_u64(record.header + 8, kind);
-    put_u64(record.header + 16, (uint64_t)format);
-    put_u64(record.header + 24, bytes);
+    record_put_u64(record.header + 8, kind);
+    record_put_u64(record.header + 16, (uint64_t)format);
+    record_put_u64(record.header + 24, bytes);
     for (int i = 0; i < CHECKPOINT_WORDS; i++)
-        put_u64(record.header + 96 + 8 * i, words[i]);
+        record_put_u64(record.header + 96 + 8 * i, words[i]);
     int cause = tensor_publish_file(filename, write_checkpoint, &record);
     if (cause)
         vmerror_kind(v, "io", "cannot publish checkpoint: %s", strerror(cause));
@@ -690,17 +694,19 @@ Val checkpoint_save_state(VM *v, Val path, CheckpointKind kind, Val state,
 }
 
 static bool decode_checkpoint(const unsigned char *header, off_t size, CheckpointKind kind,
-                              int *format, TypedTensor *layout) {
-    uint64_t type = get_u64(header + 16);
-    if (memcmp(header, checkpoint_magic, sizeof checkpoint_magic - 1) ||
-        get_u64(header + 8) != (uint64_t)kind || type > CHECKPOINT_INT64 ||
+                              int *format, TypedTensor *layout, bool *checksummed) {
+    uint64_t type = record_u64(header + 16);
+    *checksummed = !memcmp(header, checkpoint_magic, sizeof checkpoint_magic - 1);
+    if ((!*checksummed &&
+         memcmp(header, legacy_checkpoint_magic, sizeof legacy_checkpoint_magic - 1)) ||
+        record_u64(header + 8) != (uint64_t)kind || type > CHECKPOINT_INT64 ||
         size < CHECKPOINT_HEADER)
         return false;
     *format = (int)type;
     int rank = type <= CHECKPOINT_DIMS ? *format : 0;
     int shape[CHECKPOINT_DIMS];
     for (int i = 0; i < CHECKPOINT_DIMS; i++) {
-        uint64_t extent = get_u64(header + 32 + 8 * i);
+        uint64_t extent = record_u64(header + 32 + 8 * i);
         if (extent > ARDA_MAX_ELEMENTS || (i >= rank && extent))
             return false;
         shape[i] = (int)extent;
@@ -709,7 +715,9 @@ static bool decode_checkpoint(const unsigned char *header, off_t size, Checkpoin
         (!typed_layout_checked(DT_F64, rank, shape, layout) || !typed_materializable(layout)))
         return false;
     size_t payload = (rank ? layout->n : 1) * sizeof(double);
-    return get_u64(header + 24) == payload && (uintmax_t)size == CHECKPOINT_HEADER + payload;
+    size_t trailer = *checksummed ? SHA256_BYTES : 0;
+    return record_u64(header + 24) == payload &&
+           (uintmax_t)size == CHECKPOINT_HEADER + payload + trailer;
 }
 
 Val checkpoint_load_state(VM *v, Val path, CheckpointKind kind, uint64_t words[CHECKPOINT_WORDS]) {
@@ -721,14 +729,15 @@ Val checkpoint_load_state(VM *v, Val path, CheckpointKind kind, uint64_t words[C
     struct stat file;
     unsigned char header[CHECKPOINT_HEADER];
     int format;
+    bool checksummed;
     TypedTensor layout = {0};
     if (fstat(fd, &file) || !S_ISREG(file.st_mode) || !read_exact(fd, header, sizeof header, 0) ||
-        !decode_checkpoint(header, file.st_size, kind, &format, &layout)) {
+        !decode_checkpoint(header, file.st_size, kind, &format, &layout, &checksummed)) {
         close(fd);
         vmerror_kind(v, "checkpoint_format", "invalid checkpoint type, layout or length");
     }
     for (int i = 0; i < CHECKPOINT_WORDS; i++)
-        words[i] = get_u64(header + 96 + 8 * i);
+        words[i] = record_u64(header + 96 + 8 * i);
     size_t bytes = (layout.rank ? layout.n : 1) * sizeof(double);
     if (layout.rank && bytes > tensor_memory_available(v)) {
         close(fd);
@@ -738,6 +747,15 @@ Val checkpoint_load_state(VM *v, Val path, CheckpointKind kind, uint64_t words[C
     Obj *out = layout.rank ? tensor_new(v, layout.rank, layout.shape) : NULL;
     void *data = out ? (void *)out->as.array.data : scalar;
     bool ok = read_exact(fd, data, bytes, CHECKPOINT_HEADER);
+    if (ok && checksummed) {
+        unsigned char stored[SHA256_BYTES], digest[SHA256_BYTES];
+        Sha256 hash = sha256_begin();
+        sha256_add(&hash, header, sizeof header);
+        sha256_add(&hash, data, bytes);
+        sha256_finish(&hash, digest);
+        ok = read_exact(fd, stored, sizeof stored, (off_t)(CHECKPOINT_HEADER + bytes)) &&
+             !memcmp(stored, digest, sizeof stored);
+    }
     close(fd);
     if (out) {
         TypedTensor tensor = typed_tensor(v, objval(out));
@@ -745,7 +763,7 @@ Val checkpoint_load_state(VM *v, Val path, CheckpointKind kind, uint64_t words[C
             return objval(out);
         tensor_buffer_discard(v, out->as.array.buffer);
     } else if (ok) {
-        uint64_t bits = get_u64(scalar);
+        uint64_t bits = record_u64(scalar);
         if (format == CHECKPOINT_INT64)
             return integer(bits <= INT64_MAX ? (int64_t)bits
                                              : INT64_MIN + (int64_t)(bits - (UINT64_C(1) << 63)));
@@ -753,7 +771,8 @@ Val checkpoint_load_state(VM *v, Val path, CheckpointKind kind, uint64_t words[C
         if (isfinite(value))
             return number(value);
     }
-    vmerror_kind(v, "checkpoint_format", "checkpoint state is truncated or nonfinite");
+    vmerror_kind(v, "checkpoint_format",
+                 "checkpoint state is truncated, nonfinite or has an invalid checksum");
 }
 
 Val tensor_save(VM *v, Val path_value, Val input, Val budget) {

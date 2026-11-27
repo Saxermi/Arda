@@ -1,0 +1,27 @@
+# Run in a scratch directory. The three output files are published there.
+tol experiment as run
+tol mathdoc as doc
+tol numc as n
+tol pde as p
+
+esta interval = 0.5
+esta grid = p.grid([5],1,"periodic")
+esta initial = n.array([1,3,5,2,6])
+esta first = p.heat(grid,initial,0.1,interval,0.125,{"checkpoint":true})
+p.heat_save("heat.ckpt",first["checkpoint"],4096)
+run.save("heat.amf",{"checkpoint":"heat.ckpt","sha256":run.fingerprint("heat.ckpt",4096),
+                    "next_interval":interval},1024)
+
+esta change = abs(n.sum(initial)-n.sum(first["solution"]))
+doc.export(p.heat,"heat.md","markdown",{"title":"Periodic heat equation",
+    "units":{"time":"s","state":"K"},
+    "verification":{"quantity":"change in state sum","absolute_error":change,
+                    "passed":change < 1e-12},
+    "trace":[{"time":first["time"]}],"max_bytes":4096})
+
+esta manifest = run.load("heat.amf")
+esta path = manifest["checkpoint"]
+if run.fingerprint(path,4096) != manifest["sha256"]:
+    throw {"code":"fingerprint","message":"checkpoint changed"}
+esta continued = p.heat_resume(path,manifest["next_interval"])
+pedo(continued["time"],n.sum(continued["solution"]))

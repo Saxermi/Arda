@@ -2,7 +2,10 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
-## Unreleased — Beyond-RAM I/O
+## 0.21.4 — Beyond-RAM Data Processing and Visualization (development)
+
+- Added versioned experiment manifests with input fingerprints, output quotas and atomic publication. Added integrity checks for persistent RK45 and heat checkpoints.
+- Added bounded AMDE reports in Markdown, JSON, HTML and LaTeX, with separate static documentation and observed verification or trace. [Experiment and report contracts](research/implemented/beyond-ram.md#0214--experiment-manifests-and-amde-reports)
 
 - Added blockwise file map, filter and reduce, tiled Float64 matrix multiplication, file CSR matrix–vector multiplication, tall-matrix QR, and full and randomized right SVD. [Computation contracts](research/implemented/beyond-ram.md#0212--file-computation)
 - Added streamed SVG line, scatter, histogram, heatmap, contour and vector plots, and legacy binary VTK scalar-grid export. [Export contracts](research/implemented/beyond-ram.md#0213--svg-and-vtk-exports)

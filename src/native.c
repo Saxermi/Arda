@@ -1,3 +1,4 @@
+#include "experiment.h"
 #include "autodiff.h"
 #include "simulation_checkpoint.h"
 #include <time.h>
@@ -207,6 +208,8 @@ int64_t range_element(const Obj *range, uint64_t index) {
 }
 
 Val native_call(VM *v, int id, int argc, Val *a) {
+    if (id >= EXPERIMENT_BASE)
+        return experiment_call(v, id, argc, a);
     if (id >= PLOT_BASE)
         return plot_call(v, id, argc, a);
     if (id >= CHECKPOINT_BASE)
@@ -555,6 +558,8 @@ Obj *named_native_module(VM *v, const char *name, const char *const *names, size
 }
 
 Obj *native_module(VM *v, const char *name) {
+    if (!strcmp(name, "experiment"))
+        return experiment_module(v);
     if (!strcmp(name, "plot"))
         return plot_module(v);
     if (!strcmp(name, "_checkpoint"))

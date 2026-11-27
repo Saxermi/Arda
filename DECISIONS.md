@@ -387,4 +387,26 @@ Run the implementation gate on the cloud machine for 0.20.5.
 Complete 0.20.6 with a clean source archive, cloud validation and measured
 comparisons. Record Ulmo's physical 8 GB laptop check in the 0.28.2 hardware
 matrix and run it on the final 1.0 release candidate alongside the full test
-matrix. This ties the measurements to the actual 1.0 source. [Roadmap](ROADMAP.md#physischer-ulmo-laptop-test)
+matrix. This ties the measurements to the actual 1.0 source. [Roadmap](ROADMAP.md#physische-laptop-tests-vor-10)
+
+## 2026-11-27 — Bounded experiment records and scientific reports
+
+Use a typed, versioned manifest with a one-mebibyte maximum record size,
+atomic publication and a SHA-256 digest. This preserves Int64 and Float64
+values through a reload and lets one check an input or checkpoint separately.
+Binary records require an Arda reader. A text manifest would be easier to edit
+and inspect with other tools, with additional rules needed for numeric
+round-trips and which exact bytes the digest covers. Keep reading legacy solver
+checkpoints. Writing only the checksummed layout makes new checkpoint corruption
+detectable at the cost of hashing every state byte. A separate digest file would
+leave older readers usable but require coordination of two publications.
+
+Use the same static AMDE description in four report renderers. Keep declared
+units, verification and optional trace separate. Passing already collected
+measurements keeps export independent of execution. An execution wrapper could
+automate collection and bind measurements to one invocation, with new contracts
+for callbacks, failures, trace memory and result lifetime.
+
+Run feasible cloud validation for every milestone. Collect owner-dependent
+hardware and manual tests in the final pre-1.0 acceptance matrix.
+[Contracts and cloud acceptance](research/implemented/beyond-ram.md#0214--experiment-manifests-and-amde-reports)

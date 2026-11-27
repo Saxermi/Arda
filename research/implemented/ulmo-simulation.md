@@ -511,7 +511,10 @@ budget.
 Both APIs use a single versioned little-endian file. Writers sync a temporary
 file and atomically rename it on success. The optional disk limit is in bytes
 and covers the whole record. Readers validate the solver kind, dimensions,
-payload size, finite values and solver metadata. Checkpoint creation and reading
+payload size, finite values and solver metadata. From 0.21.4, new files also
+carry a SHA-256 digest. [Checkpoint integrity and compatibility](beyond-ram.md#0214--experiment-manifests-and-amde-reports)
+
+Checkpoint creation and reading
 take O(N) time for N state elements. [POSIX rename](https://pubs.opengroup.org/onlinepubs/9799919799/functions/rename.html)
 
 ### Cartesian slabs and ghost faces
@@ -572,7 +575,7 @@ runs per revision after warm-up gave median solver times of 51.89 ms
 (51.19–83.55) for 0.20.4 and 51.71 ms (50.69–56.26) for 0.20.5. The
 relative errors were identical. The runs alternated the order of the
 versions on one pinned CPU. Physical 8 GB laptop validation is scheduled with
-the pre-1.0 hardware tests. [Roadmap](../../ROADMAP.md#physischer-ulmo-laptop-test)
+the pre-1.0 hardware tests. [Roadmap](../../ROADMAP.md#physische-laptop-tests-vor-10)
 
 ## 0.20.6 Release validation
 
@@ -649,4 +652,4 @@ The 0.28.2 hardware matrix tracks the Arda 0.20 heat, FEM, RK45 and heat restart
 cases. Run those cases on a physical 8 GB CPU laptop for the final 1.0
 candidate, together with the complete test matrix from the release archive.
 The physical measurements remain open. [Ulmo release benchmark](../../benchmarks/ulmo_release.py) ·
-[Pre-1.0 roadmap gate](../../ROADMAP.md#physischer-ulmo-laptop-test)
+[Pre-1.0 roadmap gate](../../ROADMAP.md#physische-laptop-tests-vor-10)

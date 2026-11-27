@@ -81,6 +81,13 @@ Apply this policy when adding, replacing or substantially optimizing scientific 
 
 **Do not add GitHub Actions, hosted CI workflows or remote test jobs. Do not trigger hosted runners.** The project owner explicitly wants to preserve GitHub runner minutes. Tests, sanitizers, reference comparisons and benchmarks run locally on available machines; cluster testing requires explicitly available resources.
 
+Run all feasible checks on the available cloud machine for each milestone.
+Schedule every check that requires the owner's physical laptop or hands-on
+local work for the final pre-1.0 acceptance. Record these checks once in the
+[hardware matrix](ROADMAP.md#physische-laptop-tests-vor-10). Intermediate
+milestones and pull requests use the available cloud results. Document cloud
+resource limits and every benchmark still pending.
+
 Build and test on Linux (Ubuntu is the primary target):
 
 ```sh
