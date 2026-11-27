@@ -1,0 +1,19 @@
+caro squares(limit: Int64):
+    an i in range(limit):
+        yield i*i
+
+nost Run:
+    def __enter__(self):
+        return []
+    def __exit__(self, error):
+        pedo(error == mun)
+
+with Run() as results:
+    esta cursor = iter(squares(limit: 4))
+    push(results, next(cursor))
+    an value in cursor:
+        push(results, value)
+    esta endpoints = (results[0], results[-1])
+    esta seen = set(results)
+    pedo(f"range of squares = {endpoints[0]} to {endpoints[1]}")
+    pedo(4 in seen, len(seen))

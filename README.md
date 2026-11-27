@@ -12,7 +12,11 @@ Its long-term goal is to combine scientifically validated numerical algorithms w
 
 *Development codename: Mithril*
 
-**Development version** — Arda 0.21.4 — Beyond-RAM Data Processing and Visualization
+**Development version** — Arda 0.22.1 — Language and Runtime Foundations
+
+Arda supports tuples, sets, lazy generators, named arguments, annotations,
+formatted strings and context managers. The VM exposes opt-in resource limits
+and GC sweep profiling. [Language and runtime contracts](docs/PALANTIR_RUNTIME.md)
 
 Use `experiment.save` to persist a small, checksummed run manifest, and
 `mathdoc.export` to attach mathematical documentation and supplied verification

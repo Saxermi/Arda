@@ -14,6 +14,7 @@
 #include <inttypes.h>
 #include <errno.h>
 #include <stddef.h>
+#include <signal.h>
 #include "sparse.h"
 _Noreturn void die(const char *fmt, ...);
 void *mem(size_t n);
@@ -75,7 +76,13 @@ typedef enum {
     T_THROW,
     T_PASS,
     T_ELIF,
-    T_LAMBDA
+    T_LAMBDA,
+    T_ARROW,
+    T_FSTART,
+    T_FFIELD,
+    T_FEND,
+    T_WITH,
+    T_YIELD
 } TokenType;
 typedef struct {
     TokenType t;
@@ -124,7 +131,13 @@ typedef enum {
     N_PASS,
     N_SLICE,
     N_LAMBDA,
-    N_LISTCOMP
+    N_LISTCOMP,
+    N_TUPLE,
+    N_SET,
+    N_NAMED_ARG,
+    N_FORMAT,
+    N_WITH,
+    N_YIELD
 } NodeType;
 typedef struct Node Node;
 struct Node {
@@ -137,7 +150,8 @@ struct Node {
     Node *a, *b, *c;
     Node **items;
     int count, cap;
-    char **names;
+    char **names, **annotations;
+    char *return_annotation;
     Node **defaults;
     int n_names;
 };
@@ -200,7 +214,17 @@ typedef enum {
     OP_ADD_INT_CONST,
     OP_SUB_INT_CONST,
     OP_MUL_INT_CONST,
-    OP_JFALSE_LT_CONST
+    OP_JFALSE_LT_CONST,
+    OP_CLEAR_LOCALS,
+    OP_TUPLE,
+    OP_SET_LITERAL,
+    OP_IN,
+    OP_ATTR_CALL,
+    OP_CALL_ATTR,
+    OP_CALL_NAMED,
+    OP_FORMAT,
+    OP_YIELD,
+    OP_JFALSE_LT
 } Op;
 typedef struct {
     Op op;
@@ -223,9 +247,11 @@ struct Proto {
     Proto *root;
     unsigned char marked;
     char *name, *path;
-    char **params;
+    char **params, **annotations;
+    char *return_annotation;
     MathIR *mathir;
-    int arity, required;
+    int arity, required, slots;
+    bool stack_locals, generator;
     Instr *code;
     int count, cap;
     Constant *k;
@@ -285,7 +311,10 @@ typedef enum {
     O_QUANTIZED,
     O_COMPUTE_PLAN,
     O_FEM_MESH,
-    O_TENSOR_OUTPUT
+    O_TENSOR_OUTPUT,
+    O_TUPLE,
+    O_SET,
+    O_GENERATOR
 } OType;
 
 typedef struct {
@@ -385,6 +414,7 @@ struct Obj {
         struct {
             Val *a;
             int n, cap;
+            int *buckets, bucket_cap; /* Only used by sets. */
         } list;
         struct {
             Table tab;
@@ -450,6 +480,7 @@ struct Obj {
         LowRankTensor lowrank;
         QuantizedMatrix quantized;
         Quantity quantity;
+        struct Generator *generator;
         struct TensorAD *ad;
         struct ADOffloadPlan *offload_plan;
         struct {
@@ -478,15 +509,32 @@ struct Obj {
 typedef struct {
     Proto *p;
     int ip, base;
-    Obj *env, *module, *locals;
+    Obj *env, *module, *locals, *generator;
+    int handler_base;
     Val constructed;
     bool no_grad;
 } Frame;
 typedef struct {
-    int frame, ip, sp;
+    int frame, ip, sp, slots;
     Obj *env;
     bool no_grad;
 } Handler;
+typedef struct Generator {
+    Frame frame;
+    Val *stack;
+    Handler *handlers;
+    int nstack, stack_cap, nhandlers, handler_cap;
+    int stop_ip;
+    Val fallback;
+    enum { GENERATOR_READY, GENERATOR_RUNNING, GENERATOR_DONE } state;
+} Generator;
+enum { ARDA_MAX_STACK = 1000000, ARDA_MAX_FRAMES = 512 };
+
+typedef struct {
+    size_t sweeps, max_objects, peak_bytes;
+    uint64_t total_ns, max_ns;
+} GCProfile;
+
 typedef struct VM {
     Obj *objects, *global, *builtins;
     Obj **intern;
@@ -494,8 +542,13 @@ typedef struct VM {
     Table modules;
     uint64_t next_table_stamp;
     Val *stack;
-    int sp, scap;
-    Frame frames[512];
+    int sp, scap, stack_limit, frame_limit;
+    uint64_t instruction_limit, instructions_left;
+    bool instructions_active, no_file_io;
+    size_t vm_byte_limit;
+    const volatile sig_atomic_t *interrupted;
+    GCProfile *gc_profile;
+    Frame frames[ARDA_MAX_FRAMES];
     int nf;
     Handler *handlers;
     int nh, hcap;
@@ -572,8 +625,21 @@ Obj *environment(VM *v, Obj *parent);
 Obj *string(VM *v, const char *s);
 Obj *list(VM *v);
 void append(VM *v, Obj *o, Val x);
+#define BUILTIN_ITER 29
+#define BUILTIN_NEXT 30
+#define BUILTIN_SET 31
+#define BUILTIN_SIGNATURE 32
+#define BUILTIN_CLOSE_ITERATOR 33
+Obj *iterator(VM *v, Val source);
+bool iterator_next(VM *v, Obj *it, Val *value);
+void iterator_close(VM *v, Val cursor);
+void set_insert(VM *v, Obj *set, Val item);
 _Noreturn void vmerror(VM *v, const char *fmt, ...);
 _Noreturn void vmerror_kind(VM *v, const char *code, const char *fmt, ...);
+static inline void vm_require_file_access(VM *v) {
+    if (v->no_file_io)
+        vmerror_kind(v, "host_io", "file access is disabled by the host");
+}
 void vm_init(VM *v, int stress);
 void vm_destroy(VM *v);
 int vm_run(VM *v, Proto *p);

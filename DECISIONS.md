@@ -410,3 +410,47 @@ for callbacks, failures, trace memory and result lifetime.
 Run feasible cloud validation for every milestone. Collect owner-dependent
 hardware and manual tests in the final pre-1.0 acceptance matrix.
 [Contracts and cloud acceptance](research/implemented/beyond-ram.md#0214--experiment-manifests-and-amde-reports)
+
+## 2026-11-27 — Palantír syntax and iterator lifetime
+
+Use immutable tuples and sets. The set keeps first-insertion order for
+iteration and hashes the same values that Arda compares equal. This makes
+iteration reproducible and lets tuples and sets serve as stable set elements.
+Mutable sets would enable in-place updates and would need mutation and
+iterator invalidation rules.
+
+Use `f(parameter: expression)` for named arguments. Arda already accepts
+assignment expressions in calls. The colon syntax leaves those expressions
+usable and differs from the more familiar equals-sign spelling. Adopting the
+latter would need a migration rule. Type names describe public signatures.
+A type checker or enforced argument contract would need separate rules for
+conversion, shape and interoperability.
+
+Generators keep one suspended continuation. Closing it frees its state.
+Context managers run their user-defined exit on language-level scope exits.
+The first implementation rejects yielding inside a held context. Supporting
+that case would require an explicit unwinding protocol for close and
+abandonment, especially where a suspended context owns a native resource.
+[Language contracts](docs/PALANTIR_RUNTIME.md#0220-language-contracts)
+
+## 2026-11-27 — Palantír VM slots, method dispatch and limits
+
+Keep ordinary local bindings in compiler-assigned operand-stack slots when
+the function cannot create a capturing closure. Functions that can capture
+keep the heap environment. This removes repeated allocation and name
+resolution in common cases. Per-binding capture analysis could extend
+slot allocation to more functions at the cost of additional closure and
+unwind state.
+
+Resolve direct methods before argument evaluation and carry the receiver
+alongside the callee. Table layout stamps validate the cached lookup while
+the current field value remains authoritative. A class-only method cache
+would be simpler and would need additional checks for instance overrides.
+
+Measure the atomic sweep before changing its scheduling. Incremental
+reclamation could reduce the longest pause on larger heaps and would need
+a separate reclamation phase with explicit rules for resource release.
+Execution budgets apply at VM instruction boundaries. Finer-grained
+cancellation in numerical kernels would require cooperative checks in
+each implementation and its external backend contracts.
+[VM profiling and validation](docs/PALANTIR_RUNTIME.md#profiling-and-validation)

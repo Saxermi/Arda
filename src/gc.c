@@ -1,5 +1,6 @@
 #include "autodiff.h"
 #include "activation_store.h"
+#include <time.h>
 void account(VM *v, Obj *o, size_t old, size_t now) {
     if (!o)
         return;
@@ -266,6 +267,8 @@ static void trace(VM *v, Obj *o) {
         ad_trace_checkpoint(v, o->as.ad);
         break;
     case O_LIST:
+    case O_TUPLE:
+    case O_SET:
         for (int i = 0; i < o->as.list.n; i++)
             markval(v, o->as.list.a[i]);
         break;
@@ -280,6 +283,18 @@ static void trace(VM *v, Obj *o) {
             for (int i = 0; i < o->as.env.params->arity; i++)
                 markval(v, o->as.env.slots[i]);
         break;
+    case O_GENERATOR: {
+        const Generator *g = o->as.generator;
+        markproto(g->frame.p);
+        markobj(v, g->frame.env);
+        markobj(v, g->frame.locals);
+        markval(v, g->fallback);
+        for (int i = 0; i < g->nstack; i++)
+            markval(v, g->stack[i]);
+        for (int i = 0; i < g->nhandlers; i++)
+            markobj(v, g->handlers[i].env);
+        break;
+    }
     case O_FUNC:
         markproto(o->as.func.p);
         markobj(v, o->as.func.env);
@@ -319,6 +334,7 @@ static void roots(VM *v) {
         markobj(v, f->env);
         markobj(v, f->locals);
         markobj(v, f->module);
+        markobj(v, f->generator);
         markval(v, f->constructed);
     }
     for (int i = 0; i < v->nh; i++)
@@ -351,10 +367,18 @@ static void release(VM *v, Obj *o) {
         tensor_output_abort(o);
         break;
     case O_LIST:
+    case O_TUPLE:
+    case O_SET:
         free(o->as.list.a);
+        if (o->type == O_SET)
+            free(o->as.list.buckets);
         break;
     case O_MAP:
         tablefree(&o->as.map.tab);
+        break;
+    case O_GENERATOR:
+        free(o->as.generator->stack);
+        free(o->as.generator->handlers);
         break;
     case O_ENV:
         tablefree(&o->as.env.tab);
@@ -374,6 +398,13 @@ static void release(VM *v, Obj *o) {
     }
     free(o);
 }
+static uint64_t monotonic_ns(void) {
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts))
+        return 0;
+    return (uint64_t)ts.tv_sec * UINT64_C(1000000000) + (uint64_t)ts.tv_nsec;
+}
+
 // Incremental tracing; sweep is atomic. GC runs only between complete instructions.
 // All mutating operations use an insertion barrier and new objects enter gray.
 void gcstep(VM *v, int force) {
@@ -390,6 +421,9 @@ void gcstep(VM *v, int force) {
     }
     if (v->ng)
         return;
+    GCProfile *profile = v->gc_profile;
+    uint64_t begin = profile ? monotonic_ns() : 0;
+    size_t objects = v->live;
     intern_prune(v);
     Obj **p = &v->objects;
     while (*p) {
@@ -418,6 +452,16 @@ void gcstep(VM *v, int force) {
             freeproto(code);
     }
     v->np = keep;
+    if (profile) {
+        uint64_t end = monotonic_ns();
+        uint64_t elapsed = begin && end >= begin ? end - begin : 0;
+        profile->sweeps++;
+        profile->total_ns += elapsed;
+        if (elapsed > profile->max_ns)
+            profile->max_ns = elapsed;
+        if (objects > profile->max_objects)
+            profile->max_objects = objects;
+    }
     v->marking = 0;
     v->cycles++;
     v->next_gc = v->bytes > 32768 ? v->bytes * 2 : 65536;

@@ -2,12 +2,12 @@
 #include "autodiff.h"
 #include "simulation_checkpoint.h"
 #include <time.h>
-static const char *names[] = {"len",        "push",      "pop",        "str",        "num",
-                              "sqrt",       "heap",      "clock_gc",   "heap_bytes", "collect",
-                              "range",      "read_text", "write_text", "keys",       "type",
-                              "int",        "float",     "abs",        "sin",        "cos",
-                              "floor",      "ceil",      "monotonic",  "split",      "join",
-                              "startswith", "endswith",  "isinstance", "list"};
+static const char *names[] = {
+    "len",      "push",       "pop",     "str",   "num",        "sqrt",          "heap",
+    "clock_gc", "heap_bytes", "collect", "range", "read_text",  "write_text",    "keys",
+    "type",     "int",        "float",   "abs",   "sin",        "cos",           "floor",
+    "ceil",     "monotonic",  "split",   "join",  "startswith", "endswith",      "isinstance",
+    "list",     "iter",       "next",    "set",   "signature",  "close_iterator"};
 
 const char *native_builtin_name(int id) {
     return id >= 0 && (size_t)id < sizeof names / sizeof *names ? names[id] : NULL;
@@ -63,8 +63,11 @@ static const char *typename(Val v) {
                                   "quantized_matrix",
                                   "compute_plan",
                                   "fem_mesh",
-                                  "tensor_output"};
-        _Static_assert(sizeof n / sizeof *n == O_TENSOR_OUTPUT + 1, "object type names");
+                                  "tensor_output",
+                                  "tuple",
+                                  "set",
+                                  "iterator"};
+        _Static_assert(sizeof n / sizeof *n == O_GENERATOR + 1, "object type names");
         return n[v.o->type];
     }
     }
@@ -130,18 +133,25 @@ static void print_rec(Val v, int depth) {
         array_print(v.o);
         return;
     }
-    if (depth >= 8 && (isobj(v, O_LIST) || isobj(v, O_MAP))) {
+    bool tuple = isobj(v, O_TUPLE), set = isobj(v, O_SET);
+    if (depth >= 8 && (isobj(v, O_LIST) || isobj(v, O_MAP) || tuple || set)) {
         fputs("...", stdout);
         return;
     }
-    if (isobj(v, O_LIST)) {
-        putchar('[');
+    if (isobj(v, O_LIST) || tuple || set) {
+        if (set && !v.o->as.list.n) {
+            fputs("set()", stdout);
+            return;
+        }
+        putchar(tuple ? '(' : set ? '{' : '[');
         for (int i = 0; i < v.o->as.list.n; i++) {
             if (i)
                 fputs(", ", stdout);
             print_rec(v.o->as.list.a[i], depth + 1);
         }
-        putchar(']');
+        if (tuple && v.o->as.list.n == 1)
+            putchar(',');
+        putchar(tuple ? ')' : set ? '}' : ']');
     } else if (isobj(v, O_MAP)) {
         putchar('{');
         int first = 1;
@@ -267,13 +277,13 @@ Val native_call(VM *v, int id, int argc, Val *a) {
             return integer(a[0].o->as.array.rows);
         if (isobj(a[0], O_RANGE))
             return integer((int64_t)a[0].o->as.range.count);
-        if (isobj(a[0], O_LIST))
+        if (isobj(a[0], O_LIST) || isobj(a[0], O_TUPLE) || isobj(a[0], O_SET))
             return integer(a[0].o->as.list.n);
         if (isobj(a[0], O_STRING))
             return integer(utf8len(a[0].o->as.str.s));
         if (isobj(a[0], O_MAP))
             return integer(a[0].o->as.map.tab.n);
-        vmerror(v, "len expects array, list, string, map or range");
+        vmerror(v, "len expects a sized collection");
         break;
     case 1:
         arity(v, id, argc, 2);
@@ -355,6 +365,7 @@ Val native_call(VM *v, int id, int argc, Val *a) {
         return objval(o);
     }
     case 11: {
+        vm_require_file_access(v);
         arity(v, id, argc, 1);
         const char *path = asstr(v, a[0]);
         char *s = readfile(path);
@@ -369,6 +380,7 @@ Val native_call(VM *v, int id, int argc, Val *a) {
         return objval(o);
     }
     case 12: {
+        vm_require_file_access(v);
         arity(v, id, argc, 2);
         const char *path = asstr(v, a[0]), *s = asstr(v, a[1]);
         FILE *f = fopen(path, "wb");
@@ -518,6 +530,66 @@ Val native_call(VM *v, int id, int argc, Val *a) {
                 if (c == a[1].o)
                     return boolean(1);
         return boolean(0);
+    }
+    case BUILTIN_ITER:
+        if (argc != 1)
+            vmerror_kind(v, "arity", "iter expects one iterable");
+        return objval(iterator(v, a[0]));
+    case BUILTIN_NEXT: {
+        if ((argc != 1 && argc != 2) || !isobj(a[0], O_ITER))
+            vmerror_kind(v, "type", "next expects an iterator and an optional default");
+        Val value;
+        if (iterator_next(v, a[0].o, &value))
+            return value;
+        if (argc == 2)
+            return a[1];
+        vmerror_kind(v, "stop_iteration", "iterator is exhausted");
+    }
+    case BUILTIN_CLOSE_ITERATOR:
+        if (argc != 1)
+            vmerror_kind(v, "arity", "close_iterator expects one iterator");
+        iterator_close(v, a[0]);
+        return nil();
+    case BUILTIN_SIGNATURE: {
+        if (argc != 1 || (!isobj(a[0], O_FUNC) && !isobj(a[0], O_BOUND)))
+            vmerror_kind(v, "type", "signature expects an Arda function or method");
+        bool bound = isobj(a[0], O_BOUND);
+        Obj *function = bound ? a[0].o->as.bound.fn : a[0].o;
+        if (function->type != O_FUNC)
+            vmerror_kind(v, "type", "signature metadata is available for Arda functions");
+        Proto *proto = function->as.func.p;
+        Obj *params = newobj(v, O_LIST), *out = newobj(v, O_MAP);
+        for (int i = bound; i < proto->arity; i++) {
+            Obj *param = newobj(v, O_MAP);
+            tableset(v, param, &param->as.map.tab, "name", objval(string(v, proto->params[i])));
+            const char *annotation = proto->annotations ? proto->annotations[i] : NULL;
+            tableset(v, param, &param->as.map.tab, "annotation",
+                     annotation ? objval(string(v, annotation)) : nil());
+            tableset(v, param, &param->as.map.tab, "required", boolean(i < proto->required));
+            append(v, params, objval(param));
+        }
+        tableset(v, out, &out->as.map.tab, "parameters", objval(params));
+        tableset(v, out, &out->as.map.tab, "return",
+                 proto->return_annotation ? objval(string(v, proto->return_annotation)) : nil());
+        return objval(out);
+    }
+    case BUILTIN_SET: {
+        if (argc > 1)
+            vmerror_kind(v, "arity", "set expects at most one iterable");
+        Obj *out = newobj(v, O_SET);
+        if (!argc)
+            return objval(out);
+        Obj *it = iterator(v, a[0]);
+        if (it->type == O_GENERATOR)
+            vmerror_kind(v, "type", "materialize a generator in a comprehension before set()");
+        Val value;
+        size_t count = 0;
+        while (iterator_next(v, it, &value)) {
+            if (count++ == ARDA_MAX_ELEMENTS)
+                vmerror_kind(v, "range", "set materialization limit exceeded");
+            set_insert(v, out, value);
+        }
+        return objval(out);
     }
     case 28: {
         arity(v, id, argc, 1);

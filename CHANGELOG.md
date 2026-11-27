@@ -2,6 +2,15 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
+## 0.22.1 — VM performance and execution controls (development)
+
+- Added stack slots for functions without capturing closures, guarded attribute lookups, an allocation-free immediate method-call path, and a fused integer comparison branch.
+- Added execution budgets, optional cooperative interruption, script file-access control and GC sweep diagnostics. [Runtime and profiling](docs/PALANTIR_RUNTIME.md#0221-vm-controls)
+
+## 0.22.0 — Language foundations (development)
+
+- Added immutable tuples and sets, shared iteration and generators, named arguments and descriptive annotations, formatted strings and context managers. [Language contracts](docs/PALANTIR_RUNTIME.md#0220-language-contracts)
+
 ## 0.21.4 — Beyond-RAM Data Processing and Visualization (development)
 
 - Added versioned experiment manifests with input fingerprints, output quotas and atomic publication. Added integrity checks for persistent RK45 and heat checkpoints.
