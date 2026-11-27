@@ -46,7 +46,6 @@ static const char *typename(Val v) {
                                   "ad",
                                   "sparse",
                                   "sparse_builder",
-                                  "sparse_workspace",
                                   "factor",
                                   "generator",
                                   "moments",
@@ -103,8 +102,6 @@ char *value_string(Val v) {
         } else if (isobj(v, O_LINOP)) {
             snprintf(b, sizeof b, "<linear operator shape=%dx%d>", v.o->as.linop.rows,
                      v.o->as.linop.cols);
-        } else if (isobj(v, O_SPARSE_WORKSPACE)) {
-            snprintf(b, sizeof b, "<sparse solver workspace>");
         } else if (isobj(v, O_SPARSE_BUILDER)) {
             snprintf(b, sizeof b, "<sparse builder>");
         } else if (isobj(v, O_SPARSE)) {
@@ -207,6 +204,8 @@ int64_t range_element(const Obj *range, uint64_t index) {
 }
 
 Val native_call(VM *v, int id, int argc, Val *a) {
+    if (id >= SOLVER_BASE)
+        return solver_call(v, id, argc, a);
     if (id >= QUANT_BASE)
         return quant_call(v, id, argc, a);
     if (id >= UNCERTAINTY_BASE)
@@ -545,6 +544,8 @@ Obj *named_native_module(VM *v, const char *name, const char *const *names, size
 }
 
 Obj *native_module(VM *v, const char *name) {
+    if (!strcmp(name, "solver"))
+        return solver_module(v);
     if (!strcmp(name, "quant"))
         return quant_module(v);
     if (!strcmp(name, "_uncertainty"))

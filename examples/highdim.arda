@@ -1,17 +1,21 @@
 tol numc as nc
 tol high
+tol linop as l
+tol solver as s
 tol ode
 
 # 3D Poisson equation, zero Dirichlet boundary, unit grid spacing.
-esta rhs = nc.ones(32,32,32)
-esta result = high.poisson(rhs, 0.00000001, 500)
+esta op = l.poisson([32,32,32])
+esta rhs = nc.ones(32768)
+esta result = s.solve("cg",op,rhs,{"tol":1e-8,"maxiter":500})
 pedo("3D unknowns:", nc.bytes(rhs)/8)
 pedo("CG iterations:", result["iterations"], "relative residual:", result["residual"], "converged:", result["converged"])
-pedo("Independent residual:", nc.norm(high.laplace(result["solution"])-rhs)/nc.norm(rhs))
+pedo("Recomputed residual:", s.verify(op,rhs,result["solution"])["residual"])
 
 # Four-dimensional tensor problem, manufactured solution.
-esta exact = nc.ones(8,8,8,8)
-esta r4 = high.poisson(high.laplace(exact), 0.000000001, 200)
+esta op4 = l.poisson([8,8,8,8])
+esta exact = nc.ones(4096)
+esta r4 = s.solve("cg",op4,l.apply(op4,exact),{"tol":1e-9,"maxiter":200})
 pedo("4D unknowns:", nc.bytes(exact)/8, "relative solution error:", nc.norm(r4["solution"]-exact)/nc.norm(exact))
 
 # 1000 simultaneous decay equations, with different decay rates.
@@ -34,8 +38,10 @@ pedo("Optimization unknowns:", 10000, "iterations:", best["iterations"], "gradie
 pedo("Optimization error:", nc.norm(best["solution"]-target))
 
 # Actual eight-dimensional tensor: 4^8 = 65,536 unknowns.
-esta u8=nc.ones(4,4,4,4,4,4,4,4)
-esta rhs8=high.laplace(u8)
-esta r8=high.poisson(rhs8,1e-9,200)
+esta shape8 = [4,4,4,4,4,4,4,4]
+esta u8 = nc.reshape(nc.ones(65536),shape8)
+esta op8 = l.poisson(shape8)
+esta rhs8 = l.apply(op8,nc.reshape(u8,[65536]))
+esta r8 = s.solve("cg",op8,rhs8,{"tol":1e-9,"maxiter":200})
 pedo("8D unknowns:",nc.bytes(u8)/8,"iterations:",r8["iterations"],"relative residual:",r8["residual"],"converged:",r8["converged"])
-pedo("8D relative solution error:",nc.norm(r8["solution"]-u8)/nc.norm(u8))
+pedo("8D relative solution error:",nc.norm(nc.reshape(r8["solution"],shape8)-u8)/nc.norm(u8))

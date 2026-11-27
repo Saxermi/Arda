@@ -12,7 +12,7 @@ Its long-term goal is to combine scientifically validated numerical algorithms w
 
 *Development codename: Mithril*
 
-**Development version** — Arda 0.18.6 — High-Performance CPU Execution and Adaptive Planning
+**Development version** — Arda 0.19.4 — Advanced Numerical Solvers
 
 Use `compute.cpu()` to inspect CPU features. An `OPENMP=1` build can use `compute.threads(2)` for large native Float64 matrix products and AXPY. The normal build and default runtime setting run these kernels serially. [Kernel controls, benchmark results, and build options](research/implemented/transforms-and-kernels.md#0182-controlled-cpu-parallelism)
 
@@ -21,6 +21,10 @@ Use `quant.quantize(weights, "q4")` or `"q8"` for explicit block quantization. `
 Use `compute.plan("matmul", A, B)` and `compute.explain(plan)` to inspect the kernel and workspace
 for a Float64 product. Opt-in buffered file reductions, fused tensor expressions and backend
 comparisons are also available. [CPU compute contracts and benchmarks](research/implemented/cpu-compute.md)
+
+The `solver` module applies a common Krylov solver contract to dense, sparse, structured and
+matrix-free Float64 operators. It also exposes a geometric Poisson solver, explicit mixed
+precision refinement and residual verification. [Solver contracts](research/implemented/aule-solvers.md)
 
 **Wiki** — [Quickstart, language and module guides, and AMDE examples](https://github.com/Saxermi/Arda/wiki)
 
@@ -213,7 +217,7 @@ The 0.17 development examples use both keyword styles. For lazy ranges, import p
 | CPU kernels | Portable C, SSE2 elementwise arithmetic, blocked matrix multiplication with runtime-dispatched AVX2 on supported x86 CPUs; optional CBLAS and LAPACK |
 | Numerical methods | Composite quadrature, radix-2 FFT/IFFT, RK4, adaptive Dormand–Prince RK45, L-BFGS |
 | Differentiation | Scalar reverse-mode AD, SGD and Adam vector updates |
-| Large structured problems | Dense and sparse Jacobi-PCG, sparse CG, CGLS, specialized matrix-free 1–8D Cartesian Poisson solver |
+| Large structured problems | Krylov solvers for dense, sparse, structured and matrix-free operators, including 1–8D Poisson and geometric Multigrid |
 | Sparse matrices | Immutable COO/CSR, typed assembly, CSR algebra, Matrix Market I/O, sparse memory budget |
 
 Tensor AD, general multithreading, GPU execution, MPI, disk-backed tensors and general mathematical introspection remain roadmap goals.
@@ -228,9 +232,10 @@ pedo(sp.components(B))
 pedo(sp.components(sp.to_coo(B)))
 
 tol numc as nc
+tol solver as s
 esta K = sp.tridiag(5,-1,4,-1)
 esta rhs = sp.matvec(K,nc.array([1,2,3,4,5]))
-esta result = sp.pcg(K,rhs,1e-10,100)
+esta result = s.solve("cg",K,rhs,{"tol":1e-10,"maxiter":100,"preconditioner":"jacobi"})
 pedo(result["reason"],result["residual"],nc.tolist(result["solution"]))
 ```
 
@@ -330,18 +335,15 @@ For training loops, an optional backward mode releases temporary adjoints after 
 
 Use `f.getSensitivity([arg1,arg2])` for signed absolute and relative sensitivities of a scalar model at a supplied point. `f.getDerivativeTex("arg1")` shows a formal derivative for supported scalar MathIR expressions. The `uncertainty` module propagates diagonal and factored covariances and supports seeded Gaussian Monte Carlo. Use `ad.hvp(loss,x,direction)` for a Hessian-vector product on the recorded tape. [Runtime contracts](docs/VILYA_RUNTIME.md#sensitivity-and-uncertainty) · [Runnable example](examples/sensitivity_uncertainty.arda)
 
-### `high`: structured and high-dimensional numerical methods
+### `solver` and `linop`: iterative methods
 
-| API | Purpose |
-| --- | --- |
-| `cg(A,b,tolerance,maxiter)` | Dense Jacobi-preconditioned conjugate gradient; symmetric SPD matrix required |
-| `poisson(b,tolerance,maxiter)` | Matrix-free negative discrete Laplacian with homogeneous exterior Dirichlet conditions and unit spacing |
-| `laplace(x)` | Apply the same negative discrete Laplacian |
-| `lstsq(A,b,tolerance,maxiter)` | Rectangular CGLS without explicitly forming AᵀA |
-| `axpy(x,y,a)`, `inner(x,y)` | Fused scale/add and tensor inner product |
-| `finite(x)`, `rkerror(y,z,low,rtol,atol)` | Finite checks and weighted RMS error estimator |
+Use `solver.solve(method,A,b[,options])` for Krylov methods and `solver.verify(A,b,x)`
+to check a solution. For matrix-free Poisson problems, build a 1–8D grid operator with
+`linop.poisson(shape)`, apply it to a flattened vector with `linop.apply` and solve with
+`solver.solve("cg",...)`. The geometric `solver.multigrid` path supports up to three grid axes.
+[Solver and migration contracts](research/implemented/aule-solvers.md#solver-api-migration) · [High-dimensional example](examples/highdim.arda)
 
-The iterative solvers return maps with `solution`, `iterations`, `residual`, `converged`, and `reason`. CG/Poisson use the relative data residual; CGLS uses the relative normal-equation residual. SPD is a caller assumption, with symmetry checks and numerical breakdown detection; convergence and accuracy are not universally guaranteed. The matrix-free Poisson solver does not allocate an N×N matrix: its per-iteration work is O(dN) for d axes and N grid points, and its working storage is O(N). See [high-dimensional examples](examples/highdim.arda).
+The `high` module provides `axpy`, `inner`, `finite` and the RK45 error estimator `rkerror`.
 
 ## Language identity
 

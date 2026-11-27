@@ -157,18 +157,18 @@ class MoriaTests(unittest.TestCase):
         output = self.run_code('''
         tol sparse as sp
         tol numc as nc
+        tol solver as s
         esta a = sp.tridiag(5,-1,[4,5,6,7,8],-1)
         esta x = nc.array([1,2,3,4,5])
         esta b = sp.matvec(a,x)
-        esta w = sp.workspace(5)
-        esta r = sp.pcg(a,b,1e-12,25,w)
-        pedo(r["converged"],r["reason"],r["residual"] == sp.verify(a,b,r["solution"]))
+        esta r = s.solve("cg",a,b,{"tol":1e-12,"maxiter":25,"preconditioner":"jacobi"})
+        pedo(r["converged"],r["reason"],r["residual"] == s.verify(a,b,r["solution"])["residual"])
         pedo(nc.tolist(r["solution"]))
-        esta maxed = sp.cg(a,b,1e-12,1,w)
+        esta maxed = s.solve("cg",a,b,{"tol":1e-12,"maxiter":1})
         pedo(maxed["converged"],maxed["iterations"],maxed["reason"])
-        esta zero = sp.cg(a,nc.zeros(5),1e-12,25,w)
-        pedo(zero["iterations"],zero["residual"],sp.verify(sp.eye(2),nc.zeros(2),nc.array([3,4])))
-        esta breakdown = sp.cg(sp.tridiag(2,2,1,2),nc.array([1,-1]),1e-12,10)
+        esta zero = s.solve("cg",a,nc.zeros(5),{"tol":1e-12,"maxiter":25})
+        pedo(zero["iterations"],zero["residual"],s.verify(sp.eye(2),nc.zeros(2),nc.array([3,4]))["residual"])
+        esta breakdown = s.solve("cg",sp.tridiag(2,2,1,2),nc.array([1,-1]))
         pedo(breakdown["converged"],breakdown["reason"])
         ''', stress=True).splitlines()
         self.assertEqual(output[0], "nae converged nae")
@@ -176,35 +176,42 @@ class MoriaTests(unittest.TestCase):
             self.assertAlmostEqual(value, expected, places=12)
         self.assertEqual(output[2:], ["law 1 max_iterations", "0 0 5", "law nonpositive_curvature"])
 
-    def test_solver_budget_and_workspace_reuse(self):
+    def test_solver_budget_and_coo_conversion(self):
         self.run_code('''
         tol sparse as sp
         tol numc as nc
-        esta a = sp.tridiag(6,-1,4,-1)
+        tol solver as s
+        tol compute as c
+        esta a = sp.to_coo(sp.tridiag(6,-1,4,-1))
         esta b = nc.ones(6)
-        esta live = sp.memory()["used"]
-        sp.set_budget(live + 6*8*6 - 1)
-        try:
-            sp.pcg(a,b,1e-10,20)
-        catch e:
-            pedo("solver rejected",sp.memory()["used"] == live)
-        esta w = sp.workspace(6)
-        try:
-            sp.pcg(a,b,1e-10,20,w)
-        catch e:
-            pedo("solution rejected")
-        sp.set_budget(live + 6*8*6)
-        esta r = sp.pcg(a,b,1e-10,20,w)
-        pedo(r["reason"],sp.memory()["used"] == live + 6*8*5)
-        w = mun
         collect()
-        pedo(sp.memory()["used"] == live)
-        ''', 'solver rejected nae\nsolution rejected\nconverged nae\nnae', stress=True)
+        esta sparse_live = sp.memory()["used"]
+        esta tensor_live = c.memory_stats()["tensor_heap_bytes"]
+        sp.set_budget(sparse_live)
+        try:
+            s.solve("cg",a,b,{"preconditioner":"jacobi"})
+        catch e:
+            pedo("conversion rejected",sp.memory()["used"]==sparse_live,c.memory_stats()["tensor_heap_bytes"]==tensor_live)
+        sp.set_budget(mun)
+        esta r = s.solve("cg",a,b,{"preconditioner":"jacobi"})
+        esta work = r["workspace_bytes"]
+        r = mun
+        collect()
+        c.memory_budget(tensor_live+work+6*8-1)
+        try:
+            s.solve("cg",a,b,{"preconditioner":"jacobi","workspace_bytes":work})
+        catch e:
+            pedo(e["code"],c.memory_stats()["tensor_heap_bytes"]==tensor_live)
+        c.memory_budget(tensor_live+work+6*8)
+        esta r = s.solve("cg",a,b,{"preconditioner":"jacobi","workspace_bytes":work})
+        pedo(r["reason"],sp.memory()["used"]==sparse_live,c.memory_stats()["tensor_heap_bytes"]==tensor_live+6*8)
+        ''', 'conversion rejected nae nae\nmemory_budget nae\nconverged nae nae', stress=True)
         for expression, error in [
-            ('sp.cg(sp.tridiag(2,1,4,0),nc.ones(2),1e-9,10)', 'symmetric'),
-            ('sp.pcg(sp.tridiag(2,-1,0,-1),nc.ones(2),1e-9,10)', 'positive diagonal'),
-            ('sp.cg(sp.eye(2),nc.ones(2),1e-9,10,sp.workspace(1))', 'workspace'),
-            ('sp.cg(sp.eye(2),nc.ones(3),1e-9,10)', 'shape'),
+            ('s.solve("cg",sp.tridiag(2,1,4,0),nc.ones(2))', 'symmetric'),
+            ('s.solve("cg",sp.tridiag(2,-1,0,-1),nc.ones(2),{"preconditioner":"jacobi"})', 'positive diagonal'),
+            ('s.solve("cg",sp.eye(2),nc.ones(2),{"workspace_bytes":1})', 'workspace'),
+            ('s.solve("cg",sp.eye(2),nc.ones(3))', 'required length'),
         ]:
             with self.subTest(expression=expression):
-                self.run_code('tol sparse as sp\ntol numc as nc\n' + expression, error=error, stress=True)
+                imports = 'tol sparse as sp\ntol numc as nc\ntol solver as s\n'
+                self.run_code(imports + expression, error=error, stress=True)

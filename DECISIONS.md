@@ -192,3 +192,45 @@ and queue-management costs. Keep caller affinity and OpenMP worker affinity expl
 Arda-managed NUMA scheduler could put work and pages on chosen nodes directly, with added
 worker lifecycle and memory-placement complexity. Cold SSD and multi-node NUMA data are
 needed before revisiting these defaults. [Contracts and measurements](research/implemented/cpu-compute.md)
+
+## 2026-11-27 — Aulë solver contracts, transfers and verification
+
+**Status** — Implemented for 0.19.0–0.19.4 and open to owner revision
+
+Use one additive `solver` interface over the existing native operator representations
+and recompute the final residual. This keeps old calling conventions and makes stop
+reasons comparable. It adds a second entry point and an extra operator pass. A direct
+migration could reduce API surface, but would require changing existing programs.
+Synchronous user-defined operators would extend coverage, with extra rooting, error
+unwinding and VM-call costs. They remain an optional extension.
+
+Start with bounded Krylov bases and caller-selected methods and preconditioners. This
+keeps storage and assumptions visible. Automatic method selection can save choices when
+operators have verified properties, while an incorrect classification can invalidate
+a recurrence or waste work. Scope adaptive precision to explicit `solver.refine`.
+Float32 factors can make corrections cheap, but the method may stagnate or require a
+full Float64 factorization. An always-Float64 path avoids fallback handling and gives
+up the lower-precision factorization.
+
+Use rediscretized geometric V-cycles with linear transfer and semicoarsen strong
+directions. The matrix-free stencil keeps storage bounded on regular grids. General
+Galerkin or algebraic multigrid could serve more operators and variable coefficients,
+with higher setup, storage and testing costs. Keep the known CG and SciPy paths as baseline
+comparators. [Algorithms and local validation](research/implemented/aule-solvers.md)
+
+## 2026-11-27 — Retire the parallel iterative-solver API
+
+**Status** — API migration approved by the owner
+
+Use `solver` for iterative solves and solution verification, and `linop` for operator
+construction and application. Remove the duplicate entries and their private sparse workspace
+type. The old reusable workspace avoided allocations across solves. The common solver instead
+budgets transient scratch per call and uses tensor memory accounting. A compatibility layer
+would preserve the old signatures and accounting contract alongside the new one.
+
+Route least-squares examples through LSQR. CGLS was a separate recurrence for the same
+least-squares problem. The current result preserves both data and normal residuals. Use
+the existing specialized stencil for up to three axes and a general matrix-free stencil
+for higher ranks. This keeps the four- and eight-dimensional examples runnable. Generalizing
+the Multigrid hierarchy would add variable-rank transfer kernels and needs separate validation.
+[API migration](research/implemented/aule-solvers.md#solver-api-migration)

@@ -323,6 +323,12 @@ Obj *dense_lu_solve(VM *v, Obj *a, Obj *b) {
     return solve_factor(v, factorize(v, a, LU, "solve requires finite inputs", NULL), b);
 }
 
+Obj *dense_lu_try_solve(VM *v, Obj *a, Obj *b) {
+    int sign;
+    Obj *factor = factorize(v, a, LU, "solve requires finite inputs", &sign);
+    return sign ? solve_factor(v, factor, b) : NULL;
+}
+
 static void qr_basis(VM *v, const Obj *f, Obj *q) {
     const Obj *a = F(f).packed;
     int k = A(q).cols;
@@ -423,8 +429,7 @@ static Val diagonal(VM *v, const Obj *a, int trace) {
     return trace ? number(checked(v, sum)) : objval(result);
 }
 
-static Obj *inverse(VM *v, Obj *input) {
-    Obj *f = factorize(v, input, LU, "inverse requires finite inputs", NULL);
+static Obj *invert_lu_factor(VM *v, Obj *f) {
     const Obj *a = F(f).packed;
     int n = A(a).rows;
     Obj *out = array_new(v, 2, n, n);
@@ -435,6 +440,10 @@ static Obj *inverse(VM *v, Obj *input) {
     lu_forward(a, out);
     back_substitute(v, a, out, n, 0);
     return out;
+}
+
+static Obj *inverse(VM *v, Obj *input) {
+    return invert_lu_factor(v, factorize(v, input, LU, "inverse requires finite inputs", NULL));
 }
 
 static Obj *structured_rhs(VM *v, Val rhs, int n) {
@@ -702,17 +711,21 @@ static Val symmetric_eigen(VM *v, Obj *vectors) {
     return objval(out);
 }
 
-static Val general_eigen(VM *v, Obj *matrix) {
+static Val general_eigen(VM *v, Obj *matrix, bool optimal_workspace) {
     int n = A(matrix).rows;
     transpose_square(matrix);
     Obj *wr = array_new(v, 1, n, 1);
     Obj *wi = array_new(v, 1, n, 1);
     Obj *vr = array_new(v, 2, n, n);
-    int lw = -1, info = 0, one = 1;
-    double optimum = 0, unused = 0;
+    int lw = 4 * n, info = 0, one = 1;
+    double unused = 0;
     double *a = A(matrix).data, *re = A(wr).data, *im = A(wi).data, *right = A(vr).data;
-    dgeev_("N", "V", &n, a, &n, re, im, &unused, &one, right, &n, &optimum, &lw, &info);
-    lw = eigen_workspace(v, optimum, info);
+    if (optimal_workspace) {
+        double optimum = 0;
+        lw = -1;
+        dgeev_("N", "V", &n, a, &n, re, im, &unused, &one, right, &n, &optimum, &lw, &info);
+        lw = eigen_workspace(v, optimum, info);
+    }
     Obj *work = array_new(v, 1, lw, 1);
     dgeev_("N", "V", &n, a, &n, re, im, &unused, &one, right, &n, A(work).data, &lw, &info);
     if (info)
@@ -744,6 +757,11 @@ static Val general_eigen(VM *v, Obj *matrix) {
     append(v, out, objval(vr));
     append(v, out, objval(matrix));
     return objval(out);
+}
+
+Val linalg_projected_eigen(VM *v, Obj *matrix) {
+    // Arnoldi constructs a small, private matrix and budgets the fixed DGEEV workspace.
+    return general_eigen(v, matrix, false);
 }
 
 static void gaussian(Obj *out, RandomState *rng) {
@@ -871,8 +889,25 @@ static Val linalg_eigen(VM *v, Val a, int symmetric) {
         vmerror(v, "expected nonempty square matrix");
     Obj *packed = tensor_copy(v, a.o);
     finite_packed(v, packed, "expected finite array");
-    return symmetric ? symmetric_eigen(v, packed) : general_eigen(v, packed);
+    return symmetric ? symmetric_eigen(v, packed) : general_eigen(v, packed, true);
 #endif
+}
+
+double dense_condition_inf(VM *v, Obj *a, long double matrix_norm) {
+    int sign;
+    Obj *factor = factorize(v, a, LU, "condition estimate requires finite inputs", &sign);
+    if (!sign)
+        return INFINITY;
+    Obj *inv = invert_lu_factor(v, factor);
+    long double inverse_norm = 0;
+    for (int i = 0; i < A(inv).rows; i++) {
+        long double row = 0;
+        for (int j = 0; j < A(inv).cols; j++)
+            row += fabs(at(inv, i, j));
+        inverse_norm = fmaxl(inverse_norm, row);
+    }
+    tensor_buffer_discard(v, A(inv).buffer);
+    return (double)(matrix_norm * inverse_norm);
 }
 
 static Val linalg_eigh(VM *v, Val a) {

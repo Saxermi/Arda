@@ -35,6 +35,8 @@ The serial matvec kernel accumulates each CSR row in extended precision and stor
 
 ## Solvers and budget
 
+This section describes the 0.14.3 interface. See the [current solver migration table](../research/implemented/aule-solvers.md#solver-api-migration) for runnable calls in Aulë.
+
 `sp.cg(A, b, tolerance, maxiter[, workspace])` starts at zero and uses unpreconditioned CG. `sp.pcg` takes the same arguments and uses Jacobi preconditioning. The matrix must be square, symmetric, and positive definite. Symmetry and a positive diagonal are checked explicitly. Positive definiteness is a caller precondition, with nonpositive curvature detected during iteration. Tolerance is in (0, 1) and `maxiter` is in 1–1,000,000.
 
 The result map has `solution`, `iterations`, `residual`, `converged`, and `reason`. Reasons include `converged`, `max_iterations`, `nonpositive_curvature`, and `numerical_breakdown`. Convergence uses the recomputed Euclidean norm of `b - A*x` divided by the norm of `b`. `sp.verify(A, b, x)` computes the same quantity, or the absolute residual norm when `b` is zero. For a valid zero right-hand side, the solver returns zero in zero iterations.

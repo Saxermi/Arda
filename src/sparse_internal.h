@@ -43,8 +43,4 @@ Val sparse_estimate(VM *v, Obj *matrix);
 Obj *sparse_read_mm(VM *v, const char *path);
 void sparse_write_mm(VM *v, const char *path, Obj *matrix, int symmetric);
 
-Obj *sparse_workspace_new(VM *v, size_t n);
-Val sparse_solve(VM *v, Obj *matrix, Val rhs, Val tol, Val maxiter, Val workspace, int jacobi);
-Val sparse_verify(VM *v, Obj *matrix, Val rhs, Val solution);
-
 #endif

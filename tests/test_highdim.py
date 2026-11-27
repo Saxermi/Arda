@@ -5,46 +5,57 @@ class HighDimTests(unittest.TestCase):
     run_code = test_arda.ArdaTests.run_code
     def check(self, code, expected=None, **kw):
         import textwrap
-        return self.run_code('tol numc as nc\ntol high\ntol tensor as t\ntol ode\ntol opt\n'+textwrap.dedent(code).lstrip('\n'), expected, **kw)
+        return self.run_code('tol numc as nc\ntol high\ntol linop as l\ntol solver as s\ntol tensor as t\ntol ode\ntol opt\n'+textwrap.dedent(code).lstrip('\n'), expected, **kw)
     def test_dense_cg(self):
         self.check('''
         esta A = nc.array([[4,1],[1,3]])
-        esta r = high.cg(A,nc.array([1,2]),0.000000000001,20)
+        esta r = s.solve("cg",A,nc.array([1,2]),{"tol":1e-12,"maxiter":20,"preconditioner":"jacobi"})
         pedo(nc.norm(r["solution"]-nc.array([1/11,7/11]))<1e-12,r["iterations"],r["converged"])
         ''','nae 2 nae',stress=True)
     def test_cg_invalid(self):
-        for a,err in [('[[1,2],[0,1]]','symmetric'),('[[1,2],[2,1]]','nonpositive curvature'),('[[0,0],[0,1]]','positive diagonal')]:
+        for a,err in [('[[1,2],[0,1]]','symmetric'),('[[0,0],[0,1]]','positive diagonal')]:
             with self.subTest(a=a):
-                self.check(f'high.cg(nc.array({a}),nc.array([1,-1]),1e-8,10)',error=err,stress=True)
+                self.check(f's.solve("cg",nc.array({a}),nc.array([1,-1]))',error=err,stress=True)
+        self.check('''
+        esta r = s.solve("cg",nc.array([[1,2],[2,1]]),nc.array([1,-1]))
+        pedo(r["reason"],r["breakdown"])
+        ''','nonpositive_curvature nae',stress=True)
     def test_cg_zero_and_limit(self):
         self.check('''
         esta A=nc.array([[4,1],[1,3]])
-        esta z=high.cg(A,nc.zeros(2),1e-9,5)
-        esta r=high.cg(A,nc.array([1,2]),1e-12,1)
+        esta z=s.solve("cg",A,nc.zeros(2),{"tol":1e-9,"maxiter":5})
+        esta r=s.solve("cg",A,nc.array([1,2]),{"tol":1e-12,"maxiter":1})
         pedo(z["iterations"],z["residual"],z["converged"],r["iterations"],r["converged"])
         ''','0 0 nae 1 law',stress=True)
     def test_stencil(self):
         self.check('''
-        pedo(high.laplace(nc.ones(3)))
-        pedo(high.laplace(nc.ones(2,3)))
-        pedo(high.laplace(nc.ones(1,1,1)))
+        pedo(l.apply(l.poisson([3]),nc.ones(3)))
+        pedo(nc.reshape(l.apply(l.poisson([2,3]),nc.ones(6)),[2,3]))
+        pedo(nc.reshape(l.apply(l.poisson([1,1,1]),nc.ones(1)),[1,1,1]))
         ''','[1, 0, 1]\n[[2, 1, 2], [2, 1, 2]]\n[[[6]]]',stress=True)
     def test_poisson_nd(self):
         self.check('''
-        esta exact=nc.reshape(nc.linspace(-1,1,120),[2,3,4,5])
-        esta b=high.laplace(exact)
-        esta r=high.poisson(b,1e-11,200)
-        pedo(r["converged"],nc.shape(r["solution"]),nc.norm(r["solution"]-exact)<1e-9,nc.norm(high.laplace(r["solution"])-b)/nc.norm(b)<1e-11)
-        esta x=nc.ones(1,2,1,2,1,2,1,2)
-        esta r=high.poisson(high.laplace(x),1e-11,100)
+        esta shape=[2,3,4,5]
+        esta exact=nc.linspace(-1,1,120)
+        esta op=l.poisson(shape,[1,2,3,4])
+        esta b=l.apply(op,exact)
+        esta r=s.solve("cg",op,b,{"tol":1e-11,"maxiter":200,"preconditioner":"block_jacobi"})
+        pedo(r["converged"],nc.shape(nc.reshape(r["solution"],shape)),nc.norm(r["solution"]-exact)<1e-9,s.verify(op,b,r["solution"])["residual"]<1e-11)
+        esta op8=l.poisson([1,2,1,2,1,2,2,1])
+        esta x=nc.ones(16)
+        esta r=s.solve("cg",op8,l.apply(op8,x),{"tol":1e-11,"maxiter":100,"preconditioner":"block_jacobi"})
         pedo(r["converged"],nc.norm(r["solution"]-x)<1e-10)
-        ''','nae [2, 3, 4, 5] nae nae\nnae nae',stress=True)
-    def test_cgls(self):
+        try:
+            s.multigrid(op8,x)
+        catch e:
+            pedo(e["code"])
+        ''','nae [2, 3, 4, 5] nae nae\nnae nae\nshape',stress=True)
+    def test_least_squares(self):
         self.check('''
         esta A=nc.array([[1,0],[1,1],[1,2]])
-        esta r=high.lstsq(A,nc.array([1,4,4]),1e-11,30)
+        esta r=s.solve("lsqr",A,nc.array([1,4,4]),{"tol":1e-11,"maxiter":30})
         pedo(r["converged"],nc.norm(r["solution"]-nc.array([1.5,1.5]))<1e-9)
-        esta u=high.lstsq(nc.array([[1,1]]),nc.array([2]),1e-10,20)
+        esta u=s.solve("lsqr",nc.array([[1,1]]),nc.array([2]),{"tol":1e-10,"maxiter":20})
         pedo(u["converged"],nc.norm(u["solution"]-nc.ones(2))<1e-10)
         ''','nae nae\nnae nae',stress=True)
     def test_fused_and_axis(self):

@@ -64,7 +64,8 @@ def arda_source(n, workload, method):
     ])
     if method == "direct":
         code.extend([
-            "esta t = time.monotonic()", "esta result = sp.pcg(a,first,1e-9,100)",
+            "tol solver as s", "esta t = time.monotonic()",
+            'esta result = s.solve("cg",a,first,{"tol":1e-9,"maxiter":100,"preconditioner":"jacobi"})',
             "esta elapsed = time.monotonic()-t",
             'esta err = nc.norm(result["solution"]-x)/nc.norm(x)',
             'pedo(elapsed,result["iterations"],result["residual"],err,result["reason"])',

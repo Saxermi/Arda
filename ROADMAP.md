@@ -162,7 +162,9 @@ Baseline reproduzieren. `O_SPARSE` oder zwei explizite Objekttypen, `src/sparse.
 
 **Status** — Implementiert.
 
-`sp.cg` und `sp.pcg` lösen SPD-Systeme mit optional wiederverwendbarem Workspace und berechnen das wahre Schlussresiduum. `sp.verify` prüft Lösungen separat. `sp.set_budget` und `sp.memory` begrenzen und erfassen verwaltete Sparse- und Solver-Puffer. Ergebnisse und Grenzen sind in der [0.14.3-Spezifikation für Sparse-Solver und Speicherbudgets](docs/MORIA_0.14.3.md) dokumentiert. Der direkte tridiagonale Solver gehört zu [0.15.0](#arda-015--numerical-methods-and-mathematical-documentation).
+Seit 0.19 löst `solver.solve("cg",A,b)` SPD-Systeme und `solver.verify` prüft Lösungen separat.
+`sp.set_budget` und `sp.memory` erfassen Sparse-Speicher. Das Solver-Workspace nutzt das Tensorbudget.
+Historische Moria-Messungen und der damalige Vertrag stehen in der [0.14.3-Spezifikation](docs/MORIA_0.14.3.md). Der direkte tridiagonale Solver gehört zu [0.15.0](#arda-015--numerical-methods-and-mathematical-documentation).
 
 **Querschnitt:** Versionierte statische mathematische Deskriptoren decken Konvertierung, Sparse-Algebra und Solver ab. Mathematische Verträge und Komplexitätsangaben werden mit der abschließenden 0.14.4-Validierung konsolidiert. Globale und lokale Indizes bleiben getrennte Konzepte.
 
@@ -259,11 +261,17 @@ Matrix Market, Dokumentation, ASan/UBSan/LSan, GC-Stress, automatisierte SciPy-R
 *Development codename: Aulë*
 
 - **0.19.0:** Einheitlicher Operator- und Solververtrag für dense/sparse/structured/matrix-free; `apply`, `apply_transpose`, dimensions, dtype, workspace. Standardisierte SolverResult inklusive normiertem Residuum, iterations, converged, breakdown, reason. Optional Callback-Operator mit synchroner VM-Ausführung und klaren Kosten.
+  - **Status** — Gemeinsame Float64-Operator- und Solver-Schnittstelle mit Residuum und Abbruchgrund. Optionale VM-Callbacks bleiben offen. [Verträge und Validierung](research/implemented/aule-solvers.md)
 - **0.19.1:** CG/PCG, MINRES, restarted GMRES (restart begrenzt), BiCGSTAB, LSQR/LSMR, Krylov-workspace-Budgets. Jacobi/Block-Jacobi, ILU(0), incomplete Cholesky nur unter passenden Voraussetzungen. Sparse LU optional (Fill-in- und Speicherprüfung). Eigenwerte mit Lanczos/Arnoldi, Reorthogonalisierung wo nötig.
+  - **Status** — CG/PCG, MINRES, GMRES, BiCGSTAB, LSQR/LSMR, Lanczos und Arnoldi (LAPACK) sowie vier Vorkonditionierer mit Speicherbudget. Optionale direkte Sparse-LU bleibt offen. [Verträge und Validierung](research/implemented/aule-solvers.md)
 - **0.19.2:** Geometrisches Multigrid für ausgewählte elliptische Gitteroperatoren: smoother, restriction, prolongation, coarse solve, V-cycle; anisotrope/schwierige Fälle testen. AMG optional über PETSc/andere Bibliotheken später. Matrixfreie Stencils und spezialisierte Randbedingungen.
+  - **Status** — Matrixfreier Dirichlet-Poisson-Operator mit geometrischem V-Zyklus und Semi-Coarsening. Anisotroper Referenzfall geprüft. [Verträge und Validierung](research/implemented/aule-solvers.md)
 - **0.19.3:** Mixed-precision iterative refinement mit höherpräzisem Residuum und Fallback, low-rank/Kronecker-Operatoren; experimentelle TT-Solver, Hierarchical Matrices und Sparse Grids separat, falls nachweisbarer Anwendungsnutzen. Kein automatischer approximativer Ersatz ohne Nutzererlaubnis.
+  - **Status** — Explizite Float32-LU-Verfeinerung mit höherpräziser Residuenrechnung und Float64-Fallback. Low-Rank- und Kronecker-Operatoren über die gemeinsame Schnittstelle. [Verträge und Validierung](research/implemented/aule-solvers.md)
 - **0.19.4 — Verified & communication-aware solvers:** `verify` für Linear Solve/Eigen/SVD, Fehlermaße und Konditionsschätzung; Solver-Trace mit Iteration, Residuum, Breakdown, Vorkonditionierung, toleranzbezogenen Stops. Adaptive Precision nur wenn explizit erlaubt, prüft geeignetes Fehlerkriterium. Vorbereitung von globaler Reduktion und Halo-Apply; pipelined/communication-avoiding Krylov erst nach Stabilitätsvergleich. `require`/`assume` zunächst als API-Metadaten für Operatoren.
+  - **Status** — Relative Residuen, Rückwärtsfehler, Konditionsschätzung, Eigen- und SVD-Prüfung sowie optionale Traces. Halo-Austausch und globale Reduktionen bleiben Erweiterungen. [Verträge und Validierung](research/implemented/aule-solvers.md)
 - **Gate:** 128³ Poisson (2.097.152 Punkte), unabhängige Manufactured Solution, relatives Residuum ≤1e-8, Fehler gegenüber exakter diskreter Lösung; Ziel <512 MiB Peak RSS, Laufzeit und Iterationszahl gegen bisheriges CG und externe Referenz. Mehrere Testgrößen zur Skalierung, keine ausschließliche Eigenvektor-Testrechte Seite. Beispiel sechs Float64-Vektoren belegen 96 MiB, weitere Puffer extra. Nichtkonvergenz sauber melden.
+  - **Abnahme lokal erfüllt** — 128³ mit 16 V-Zyklen, unabhängig geprüftem relativem Residuum 4,37e-9 und 72,1 MiB medianem Peak-RSS. [Messungen](research/implemented/aule-solvers.md#poisson-acceptance-test)
 
 ### Arda 0.20 — Scientific Simulation
 
@@ -559,7 +567,7 @@ Verbindlicher Kern: sichere Runtime, native Sparse/Dense, portabler optimierter 
 ## 13. Gemeinsame Ziel-API (Illustration, nicht implementiert)
 
 ```python
-tol sparse as sp
+tol solver as s
 tol compute
 tol mathdoc
 
@@ -568,7 +576,7 @@ compute.configure({"device": "cpu", "threads": 4,
                    "allow_approximation": law})
 
 caro system(A, b):
-    nan sp.cg(A, b)
+    nan s.solve("cg", A, b)
 
 # Statisch: keine Berechnung starten
 pedo(system.getTex(3))
