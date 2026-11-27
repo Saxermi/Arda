@@ -571,5 +571,82 @@ On the 256×256, 200-step heat example with GCC C11 and -O2, seven measured
 runs per revision after warm-up gave median solver times of 51.89 ms
 (51.19–83.55) for 0.20.4 and 51.71 ms (50.69–56.26) for 0.20.5. The
 relative errors were identical. The runs alternated the order of the
-versions on one pinned CPU. Physical 8 GB laptop validation belongs to
-the final 0.20.6 test branch. [Roadmap](../../ROADMAP.md#arda-020--scientific-simulation)
+versions on one pinned CPU. Physical 8 GB laptop validation is scheduled with
+the pre-1.0 hardware tests. [Roadmap](../../ROADMAP.md#physischer-ulmo-laptop-test)
+
+## 0.20.6 Release validation
+
+The final Ulmo branch was built and tested locally on a Linux x86-64 Cloud VM
+with an AMD EPYC 9V74, three visible CPUs, a two-CPU quota and an 8 GiB memory
+limit. The runtime suite passed with GCC 14.2 and Clang 19.1. Optional checks
+used OpenBLAS 0.3.29, LAPACK, GNU libgomp and LLVM libomp. Reference packages
+were NumPy 2.3.5, SciPy 1.17.0 and CPU JAX 0.5.3.
+
+| Configuration | Runtime tests passed | Reference tests passed | Reference skips |
+| --- | ---: | ---: | ---: |
+| Portable GCC and Clang, each | 305 | 75 | 17 |
+| GCC and Clang with OpenMP, each | 305 | 75 | 17 |
+| GCC ASan/UBSan with leak detection | 305 | 75 | 17 |
+| GCC OpenBLAS/LAPACK | 305 | 85 | 7 |
+| GCC OpenBLAS/LAPACK with ASan/UBSan and leak detection | 305 | 85 | 7 |
+| GCC OpenBLAS/LAPACK with CPU JAX references enabled | 305 | 92 | 0 |
+
+Ten reference skips in the portable builds require LAPACK. The other seven
+require optional JAX. Generated headers and clang-format checks passed.
+The reference suite covers analytical ODE solutions, implicit method orders,
+heat grid and wave time refinement, FEM nodal convergence, conservation,
+sensitivities and the independent NumPy slab stencil. These measurements
+cover the x86-64 Cloud environment.
+
+### Benchmarks and accuracy
+
+The release harness used GCC C11 with -O2 and one pinned CPU. It alternated
+the 0.20.5 and 0.20.6 executables for seven measured runs per version after
+one warm-up. FEM used 4,096 nodes and 7,938 triangles. The heat case used
+256×256 points and 200 steps. Restart ran separate writer and reader
+processes and compared the resumed heat solution with the uninterrupted
+solution at a nominal step boundary. RSS covers the whole process, and
+restart RSS is the larger of the two process peaks. The restart time column
+includes the two processes and the reference calculation.
+
+| Measurement | 0.20.5 median [range], ms | 0.20.6 median [range], ms | 0.20.6 median RSS, KiB | 0.20.6 numerical check |
+| --- | ---: | ---: | ---: | --- |
+| Heat stepping | 52.49 [51.14, 76.75] | 53.08 [51.57, 72.36] | 7,212 | Relative error 1.484e-8 |
+| FEM conjugate gradients | 3.86 [3.65, 4.26] | 3.75 [3.61, 3.77] | 8,608 | 93 iterations, residual 1.897e-11, nodal error 1.153e-12 |
+| Persistent RK45 and heat restart | 117.79 [114.26, 149.37] | 121.86 [115.38, 166.87] | 7,196 | Heat difference zero, RK45 error 7.523e-12 |
+
+The 0.20.5 and 0.20.6 numerical metrics agree for all three checks. SciPy
+independently reproduced the FEM solution with a residual of 2.481e-11 and
+a relative nodal error of 1.354e-12. SciPy's median assembly and CG times
+were 5.56 and 4.30 ms, with 50,136 KiB peak process RSS including Python
+imports. Five runs of the existing alternatives benchmark also exercised
+midpoint and newest-vertex refinement, P1 and mixed Darcy, and block
+and stage-aware adjoints. Both tested adjoint schedules agreed within the
+benchmark's 1e-13 tolerance.
+
+Under GC stress and a 1 GiB virtual-memory cap the heat, FEM and persistent
+restart checks passed. Peak process RSS for the measured cases was at most
+7,224 KiB. The 1 GiB run was a Cloud check.
+
+### Reproduce the checks and pre-1.0 hardware replay
+
+Use a clean source archive and a portable build for the benchmark executable.
+The optional baseline argument accepts a build of 0.20.5 for the equivalent
+workload comparison. The `--scipy` option runs the independent FEM benchmark.
+GNU time supplies peak RSS.
+
+```sh
+export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
+make test test-reference check-generated
+make sanitize
+make
+python3 benchmarks/ulmo_release.py --arda ./arda --scipy --runs 7
+python3 benchmarks/ulmo_release.py --arda ./arda --gc-stress --runs 1
+```
+
+Use `--cpu` with a CPU available to the local process for pinned measurements.
+The 0.28.2 hardware matrix tracks the Arda 0.20 heat, FEM, RK45 and heat restart
+cases. Run those cases on a physical 8 GB CPU laptop for the final 1.0
+candidate, together with the complete test matrix from the release archive.
+The physical measurements remain open. [Ulmo release benchmark](../../benchmarks/ulmo_release.py) ·
+[Pre-1.0 roadmap gate](../../ROADMAP.md#physischer-ulmo-laptop-test)

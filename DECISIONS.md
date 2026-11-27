@@ -361,6 +361,12 @@ stencil. This adds a local contract for testing future exchanges while keeping
 the boundary discretization identical. Multi-axis blocks and MPI transport can
 build on the same face ordering once a workload warrants their complexity.
 
-Run the implementation gate on the cloud machine for 0.20.5. The physical
-8 GB laptop gate belongs to the final 0.20.6 test branch alongside the clean
-release artifact. [Experiment contracts](research/implemented/ulmo-simulation.md#0205-experiments-and-domains)
+Run the implementation gate on the cloud machine for 0.20.5.
+[Experiment contracts](research/implemented/ulmo-simulation.md#0205-experiments-and-domains)
+
+## 2026-11-27 — Ulmo hardware validation before Arda 1.0
+
+Complete 0.20.6 with a clean source archive, cloud validation and measured
+comparisons. Record Ulmo's physical 8 GB laptop check in the 0.28.2 hardware
+matrix and run it on the final 1.0 release candidate alongside the full test
+matrix. This ties the measurements to the actual 1.0 source. [Roadmap](ROADMAP.md#physischer-ulmo-laptop-test)

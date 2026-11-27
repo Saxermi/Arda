@@ -2,6 +2,10 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
+## 0.20.6 — Scientific Simulation Release Validation
+
+- Completed clean-source Ulmo validation with local builds, independent references, sanitizers, and measured comparisons. The physical Ulmo replay is scheduled in the pre-1.0 laptop validation. [Validation report](research/implemented/ulmo-simulation.md#0206-release-validation)
+
 ## 0.20.5 — Experiments and Domains
 
 - Added bounded `compute.sweep` with ordered streaming, case errors and explicit reuse of a supplied linear algebra factor.

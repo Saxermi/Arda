@@ -290,8 +290,8 @@ Matrix Market, Dokumentation, ASan/UBSan/LSan, GC-Stress, automatisierte SciPy-R
 - **0.20.5 — Experiments and Domains:** `compute.sweep` für unabhängige Parameterstudien mit einem Fall gleichzeitig, begrenztem Fall- und Fehlerumfang, Streaming und optional wiederverwendbarem Faktor. Persistentes Save/Resume für RK45 und Wärmeleitung. AMDE-Deskriptoren für ausgewählte ODE-, PDE- und FEM-Operationen. Kartesische Slabs mit expliziten Ghost-Flächen und lokalem Stencil als MPI-Vorbereitung.
   - **Status** — Implementiert. Abnahme auf dem Linux-Cloud-Rechner mit analytischen Referenzen, Raster- und Zeitschrittverfeinerung, Erhaltungssätzen sowie reproduzierbaren Wärmeleitungs-, FEM- und Experimentbeispielen. [Verträge und Validierung](research/implemented/ulmo-simulation.md#0205-experiments-and-domains)
   - **Optional** — Signalverarbeitung (Faltung, Filter, Wavelets), Geometrie/Rotationen, Regelungstechnik und Sparse-Graphalgorithmen bleiben eigenständige Erweiterungspakete.
-- **0.20.6 — Scientific Simulation Release Validation:** Abschliessender Test-Branch für Ulmo. Finalen Quellstand frisch bauen, numerische Referenzen und Sanitizer wiederholen, Beispiele und Benchmarks mit identischen Genauigkeitskriterien prüfen und die verbleibenden Einschränkungen dokumentieren. Den physischen Test auf einem 8-GB-Laptop am Ende dieses Branches durchführen. Wärmeleitung, FEM und persistentes Resume messen und Gerät, Build, Laufzeit, Peak RSS und Lösungsfehler festhalten. Danach versioniertes Quellarchiv oder Git-Tag für den abgenommenen Stand erstellen.
-- **Gate:** Analytische Lösungen, erwartete Konvergenzordnung bei Gitter- und Zeitschrittverfeinerung, Erhaltungssätze und dokumentierte Randbedingungen. Cloud-Abnahme in 0.20.5, physische Laptop-Abnahme im abschliessenden 0.20.6-Test-Branch.
+- **0.20.6 — Scientific Simulation Release Validation:** Abschliessender Ulmo-Test-Branch mit frischem Build aus einem versionierten Quellarchiv, numerischen Referenzen, Sanitizern und vergleichbaren Benchmarks. Reproduzierbare Beispiele und geprüfte Plattformen dokumentieren. Der physische Nachtest für Arda 0.20 auf dem 8-GB-Referenzlaptop gehört zur [Abnahme vor 1.0](#physischer-ulmo-laptop-test).
+- **Gate:** Analytische Lösungen, erwartete Konvergenzordnung bei Gitter- und Zeitschrittverfeinerung, Erhaltungssätze, dokumentierte Randbedingungen und reproduzierbare Cloud-Abnahme für 0.20.6. [Physischer Ulmo-Nachtest vor 1.0](#physischer-ulmo-laptop-test).
 
 ### Arda 0.21 — Beyond-RAM Data Processing and Visualization (AME v2)
 
@@ -385,6 +385,21 @@ Matrix Market, Dokumentation, ASan/UBSan/LSan, GC-Stress, automatisierte SciPy-R
 - **0.28.4:** unabhängige AMDE-Validierung: golden LaTeX/MathML, mathematische Vergleichstests, Nichtausführung statischer Abfragen (Seiteneffekt-/Zufalls-/I/O-Sentinels), falsche Annahmen, dynamische Dispatch-Provenance, Trace-Abbruch/Limit und GC. Unit-/Uncertainty-/Interval-Referenzen, Reproduktion und Manifestprüfung. Overhead bei deaktivierten Zusatzfunktionen messen: Ziel <1 % große Kernels/Solver, <3 % kleine Calls/VM-Loops, Messrauschen und Startup/RSS separat; keine neuen Trace-Allokationen ohne Trace.
 - **0.28.5:** reale MPI-Cluster-Validierung (mind. 2 physische Knoten für Mehrknotenaussage), 1/2/4/8 Ranks soweit verfügbar, strong/weak scaling, lokale RAM-/Kommunikationsstatistik, globales Residuum, gleiche Problemdefinition und Toleranz. Kein Cluster-Erfolg allein aus localhost ableiten. MPI-lokale Validierung kleine Jobs; auf Cluster optional größere Tests, Fehler-/Restart-Szenarien und dokumentierte Ausnahmen.
 - **Gate:** Keine offenen kritischen Fehler in stabilen Kernkomponenten; dokumentierte Performance-Regressionsausnahmen; unabhängige reproduzierbare Ergebnisse. Experimentelle Features klar getrennt.
+
+#### Physischer Ulmo-Laptop-Test
+
+**Offen bis zur Abnahme vor 1.0.** In der Hardware-Matrix von 0.28.2 vorgemerkt
+und mit dem finalen 1.0-Release-Candidate (0.29.x) ausführen. Die Referenzfälle
+von [Arda 0.20 (Ulmo)](#arda-020--scientific-simulation) auf einem physischen
+8-GB-CPU-Laptop nach Hardwareprofil A aus §5 wiederholen. Dazu gehören
+Wärmeleitung, P1-FEM und persistentes Checkpoint-Resume von RK45 und
+Wärmeleitung über zwei Prozesse. Gerät, OS, Compiler, Threadzahl, Laufzeit,
+Peak RSS und numerische Fehler festhalten.
+[Ulmo-Referenzfälle und Ausführung](research/implemented/ulmo-simulation.md#0206-release-validation)
+
+Für die 1.0-Abnahme aus dem finalen Quellarchiv die vollständige Testmatrix aus
+0.28.0 wiederholen. Darin auch die auf dem Laptop unterstützten Builds,
+Laufzeit- und Referenztests sowie passenden Sanitizer prüfen.
 
 ### Arda 0.29 — Release Candidate
 
