@@ -135,8 +135,10 @@ for coefficient matrices, diagonal operators and Poisson stencils. The
 `{"condition":true}` option reports `cond∞(A)` for a diagonal operator by its
 largest-to-smallest absolute coefficient ratio. For square dense `numc` matrices
 up to size 128 it computes an estimate from scaled LU and one-column solves,
-without forming an explicit inverse. The dense path needs `O(n³)` work and the
-estimate can be sensitive to roundoff.
+without forming an explicit inverse. Power-of-two scaling keeps the largest
+absolute coefficient in `[1, 2)` so that a representable condition number does
+not overflow solely from the normalization of an inverse column. The dense
+path needs `O(n³)` work and the estimate can be sensitive to roundoff.
 
 `solver.verify_eigen(A, lambda, x[,options])` accepts real and complex eigenpairs. Supply
 complex vector parts as `{"real": real_vector, "imag": imag_vector}`. The residual scales

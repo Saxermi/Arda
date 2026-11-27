@@ -225,6 +225,15 @@ let singular = s.verify(l.diagonal(diag),diag,n.ones(257),{"condition":true})
 print(singular["verified"],singular["condition_inf"])
 """, "law 2 inf 1\nnae 2\nnae nae\nnae inf", stress=True)
 
+    def test_dense_condition_keeps_a_representable_near_limit_result(self):
+        self.run_code(IMPORTS + """
+let tiny = 6e-309
+let matrix = n.array([[1,0],[0,tiny]])
+let rhs = n.array([1,tiny])
+let report = s.verify(matrix,rhs,n.ones(2),{"condition":true})
+print(report["verified"],abs(report["condition_inf"]*tiny-1)<1e-14)
+""", "nae nae", stress=True)
+
     def test_cg_borrows_packed_rhs_and_accounts_for_a_signed_stride_copy(self):
         self.run_code(IMPORTS + """
 import tensor as t

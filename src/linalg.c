@@ -902,10 +902,9 @@ double dense_condition_inf(VM *v, Obj *a) {
         largest = fmax(largest, fabs(A(packed).data[i]));
     if (!largest)
         return INFINITY;
-    // Power-of-two scaling preserves the condition number and avoids overflow
-    // of the inverse entries for well-conditioned matrices at extreme scales.
-    int exponent;
-    frexp(largest, &exponent);
+    // Scale the largest entry into [1, 2). The resulting norm is at least one,
+    // so an overflowing inverse entry also implies an unrepresentable condition.
+    int exponent = ilogb(largest);
     long double matrix_norm = 0;
     for (int i = 0; i < n; i++) {
         long double row = 0;

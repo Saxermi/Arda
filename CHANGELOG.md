@@ -4,6 +4,7 @@ All notable changes to Arda are recorded here. Planned features are documented i
 
 ## 0.20.4 — Differentiable Simulation
 
+- Fixed dense condition estimates returning infinity for representable results near the Float64 limit.
 - Added resource-aware ACE tuning cache keys and budget filtering, bounded GMRES recovery after near-invariance, and lower-workspace CG. Fixed failed tensor-read buffer cleanup and empty-pattern ILU setup. [ACE and solver audit](research/implemented/ace-aule-audit.md)
 - Added opt-in newest-vertex bisection with a mesh hierarchy, conservative triangular RT0/P0 Darcy flow and RK4 stage-tape checkpointing. [Comparison against the original methods](research/implemented/ulmo-simulation.md#alternative-ulmo-methods)
 - Added fixed-step RK4 and Cartesian heat JVPs and discrete adjoints for initial state and parameters.
