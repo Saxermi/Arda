@@ -45,10 +45,15 @@ evaluation without running user callbacks. Stack-limit errors can be caught.
 The controls operate inside the interpreter. Process limits and isolation are
 the system boundary for workloads that require them.
 
-The compiler emits operand-stack slots for parameters and lexically visible
-bindings in functions without nested closure creation. Calls with escaping
-environments keep heap-backed bindings. A slot is cleared when its scope is
-left or when a handler unwinds a scope. Attribute lookup uses table layout
+The compiler assigns parameters and locals to storage per lexical binding.
+A binding that can be reached from a nested function lives in the shared
+heap environment for its scope. The other bindings use operand-stack
+slots, including when the same function creates a closure. Closure reads
+can pass through several nested functions and can see a later declaration
+in an enclosing scope. The compiler preserves each reachable binding when
+the answer depends on whether that declaration has run. A scope allocates
+a heap environment only when its bindings need it. Exception handlers
+restore the enclosing environment and clear discarded operand slots. Attribute lookup uses table layout
 stamps and fresh values, so a method overridden on the instance is found on
 the following lookup. An immediate instance method call carries the resolved
 function and receiver on the operand stack. An attribute evaluated as a
@@ -123,3 +128,31 @@ under QEMU. The native affinity test was rerun with multiple CPUs allowed.
 All 98 independent reference tests passed on the two LAPACK builds.
 Other builds passed 86 and skipped the 12 LAPACK-dependent cases.
 Generated sources and C formatting also passed.
+
+### Per-binding capture analysis
+
+The comparison uses pushed commit `d141c57` as the baseline. Both builds ran
+on the same pinned Xeon Platinum 8573C CPU using GCC 14.2 with `-O2 -g`.
+Each median uses seven executions after two warmups. Outputs were checked
+on every run.
+
+| Workload | Function-wide capture decision, ms | Per-binding capture decision, ms | Peak RSS, KiB before / after |
+| --- | ---: | ---: | ---: |
+| 12 million local-variable iterations with a captured parameter | 1,615.38 [1,592.89, 1,638.16] | 628.13 [620.49, 635.20] | 1,412 / 1,256 |
+| 3.5 million calls to a closure from a loop | 1,020.10 [1,013.85, 1,052.53] | 342.36 [340.29, 349.74] | 1,372 / 1,352 |
+| Local-variable control with no closure | 644.73 [640.18, 692.37] | 632.60 [627.19, 641.07] | 1,420 / 1,288 |
+| Function-call control with no closure | 365.26 [357.56, 376.06] | 371.33 [368.47, 373.32] | 1,400 / 1,256 |
+
+Times are median [minimum, maximum]. A separate run created a 20,000-element
+local list and returned a closure that increments a captured parameter.
+After collection with the closure still live, Arda's accounted heap had
+grown by 525,118 bytes on the baseline and by 383 bytes with per-binding
+storage. Both closures returned 41 and 42 on the first two calls.
+[Timing harness](../benchmarks/palantir_vm.py) · [Capture and lifetime tests](../tests/test_palantir_runtime.py)
+
+The capture change passed 336 regression tests in each of nine cloud build
+configurations, including sanitized builds, OpenBLAS/LAPACK, Clang and
+emulated AArch64. Both LAPACK configurations passed all 98 reference tests.
+Each other configuration passed 86 and skipped the 12 LAPACK-dependent cases.
+A deterministic comparison of 100 mixed-scope closure programs produced
+identical output on both builds under GC stress.

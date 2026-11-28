@@ -5,6 +5,7 @@ All notable changes to Arda are recorded here. Planned features are documented i
 ## 0.22.1 — VM performance and execution controls (development)
 
 - Added stack slots for functions without capturing closures, guarded attribute lookups, an allocation-free immediate method-call path, and a fused integer comparison branch.
+- Refined closure capture to track lexical bindings individually, so unrelated locals can use stack slots and be released while a closure lives.
 - Added execution budgets, optional cooperative interruption, script file-access control and GC sweep diagnostics. [Runtime and profiling](docs/PALANTIR_RUNTIME.md#0221-vm-controls)
 
 ## 0.22.0 — Language foundations (development)

@@ -105,8 +105,8 @@ static Val *envslot(Obj *e, const char *s) {
     Proto *p = e->as.env.params;
     if (p)
         for (int i = 0; i < p->arity; i++)
-            if (!strcmp(p->params[i], s))
-                return &e->as.env.slots[i];
+            if (p->param_slots[i] < 0 && !strcmp(p->params[i], s))
+                return &e->as.env.slots[-1 - p->param_slots[i]];
     return NULL;
 }
 
@@ -804,24 +804,31 @@ static void enter_fn(VM *v, Obj *f, int base, int argc, Val constructed) {
     if (p->generator && constructed.t != V_NIL)
         vmerror_kind(v, "type", "a constructor cannot be a generator");
     Obj *env = f->as.func.env;
-    if (p->stack_locals) {
-        reserve(v, base + p->slots);
+    reserve(v, base + p->slots);
+    if (p->heap_scope) {
+        env = newobj_extra(v, O_ENV, sizeof(Val) * (size_t)p->heap_params);
+        env->as.env.parent = f->as.func.env;
+    }
+    if (p->heap_params) {
+        env->as.env.params = p;
+        env->as.env.slots = (Val *)(env + 1);
+        for (int i = 0; i < p->arity; i++) {
+            Val x = i < argc ? v->stack[base + 1 + i] : (Val){.t = V_MISSING};
+            int slot = p->param_slots[i];
+            if (slot < 0)
+                env->as.env.slots[-1 - slot] = x;
+            else
+                v->stack[base + slot] = x;
+        }
+    } else {
         if (argc)
             memmove(v->stack + base, v->stack + base + 1, sizeof(Val) * (size_t)argc);
         for (int i = argc; i < p->arity; i++)
             v->stack[base + i] = (Val){.t = V_MISSING};
-        for (int i = p->arity; i < p->slots; i++)
-            v->stack[base + i] = nil();
-        v->sp = base + p->slots;
-    } else {
-        env = newobj_extra(v, O_ENV, sizeof(Val) * (size_t)p->arity);
-        env->as.env.parent = f->as.func.env;
-        env->as.env.params = p;
-        env->as.env.slots = (Val *)(env + 1);
-        for (int i = 0; i < p->arity; i++)
-            env->as.env.slots[i] = i < argc ? v->stack[base + 1 + i] : (Val){.t = V_MISSING};
-        v->sp = base;
     }
+    for (int i = p->arity - p->heap_params; i < p->slots; i++)
+        v->stack[base + i] = nil();
+    v->sp = base + p->slots;
     enter(v, p, env, base, NULL, constructed);
     if (p->generator) {
         Obj *object = newobj_extra(v, O_GENERATOR, sizeof(Generator));
@@ -1269,7 +1276,7 @@ static void dispatch(VM *v) {
             push(v, boolean(0));
             break;
         case OP_GET_LOCAL: {
-            Val x = f->p->stack_locals ? v->stack[f->base + a] : f->locals->as.env.slots[a];
+            Val x = in.aux ? f->locals->as.env.slots[a] : v->stack[f->base + a];
             if (x.t == V_MISSING && f->p->code[f->ip].op != OP_JPRESENT)
                 vmerror(v, "parameter not initialized");
             push(v, x);
@@ -1278,7 +1285,7 @@ static void dispatch(VM *v) {
         case OP_SET_LOCAL:
         case OP_SET_LOCAL_DROP: {
             Val x = in.op == OP_SET_LOCAL_DROP ? pop(v) : top(v);
-            if (f->p->stack_locals)
+            if (!in.aux)
                 v->stack[f->base + a] = x;
             else {
                 f->locals->as.env.slots[a] = x;
@@ -1287,6 +1294,9 @@ static void dispatch(VM *v) {
             }
             break;
         }
+        case OP_UNSCOPE:
+            f->env = f->env->as.env.parent;
+            /* fall through */
         case OP_CLEAR_LOCALS:
             for (int slot = a; slot < in.aux; slot++)
                 v->stack[f->base + slot] = nil();
@@ -1315,9 +1325,6 @@ static void dispatch(VM *v) {
             break;
         case OP_SCOPE:
             f->env = environment(v, f->env);
-            break;
-        case OP_UNSCOPE:
-            f->env = f->env->as.env.parent;
             break;
         case OP_LIST:
         case OP_TUPLE:
@@ -1609,9 +1616,8 @@ int vm_run(VM *v, Proto *p) {
             v->nf = h.frame + 1;
             v->sp = h.sp;
             Frame *f = &v->frames[h.frame];
-            if (f->p->stack_locals)
-                for (int i = h.slots; i < f->p->slots; i++)
-                    v->stack[f->base + i] = nil();
+            for (int i = h.slots; i < f->p->slots; i++)
+                v->stack[f->base + i] = nil();
             f->env = h.env;
             v->frames[h.frame].ip = h.ip;
             v->frames[h.frame].no_grad = h.no_grad;

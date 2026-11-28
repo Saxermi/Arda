@@ -454,3 +454,22 @@ Execution budgets apply at VM instruction boundaries. Finer-grained
 cancellation in numerical kernels would require cooperative checks in
 each implementation and its external backend contracts.
 [VM profiling and validation](docs/PALANTIR_RUNTIME.md#profiling-and-validation)
+
+## 2026-11-27 — Store captured bindings independently of other locals
+
+Track capture on each lexical binding. A function can use stack slots and
+retain selected bindings in heap environments at the same time. Nested
+functions still share mutable bindings. A closure can read an outer value
+before a declaration and the newly declared value afterward, so the compiler
+keeps both reachable bindings when necessary. Bytecode lowering resolves
+storage after the declarations and nested functions are known, then
+relocates jumps when unused scope instructions are removed.
+
+This keeps unrelated stack data out of the closure's lifetime and avoids
+allocating environments in scopes that contain no captured bindings. Closures
+sharing the same environment can still retain one another's captured bindings.
+An explicit array of shared cells for each closure could narrow retention
+further and enable indexed capture access. That would also need a representation
+for lookup before a later declaration becomes active and separate lifetime
+handling for those cells.
+[Runtime contract and measurements](docs/PALANTIR_RUNTIME.md#per-binding-capture-analysis)

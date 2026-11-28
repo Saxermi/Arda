@@ -250,8 +250,9 @@ struct Proto {
     char **params, **annotations;
     char *return_annotation;
     MathIR *mathir;
-    int arity, required, slots;
-    bool stack_locals, generator;
+    int arity, required, slots, heap_params;
+    int *param_slots; // Nonnegative stack slot, or -1 minus the heap slot.
+    bool heap_scope, generator;
     Instr *code;
     int count, cap;
     Constant *k;
@@ -262,6 +263,7 @@ void freeproto(Proto *p);
 void mathir_set_enabled(int enabled);
 MathIR *mathir_extract(const Node *function);
 int mathir_has_loop(const Proto *p);
+bool mathir_calls_builtin(const Proto *p, const char *name);
 int mathir_tex(const Proto *p, int level, char *out, size_t size);
 const char *mathir_assumptions(const Proto *p);
 const char *mathir_algorithm(const Proto *p);

@@ -280,7 +280,7 @@ static void trace(VM *v, Obj *o) {
         markobj(v, o->as.env.parent);
         marktable(v, &o->as.env.tab);
         if (o->as.env.params)
-            for (int i = 0; i < o->as.env.params->arity; i++)
+            for (int i = 0; i < o->as.env.params->heap_params; i++)
                 markval(v, o->as.env.slots[i]);
         break;
     case O_GENERATOR: {

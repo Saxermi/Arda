@@ -70,6 +70,31 @@ CASES["numeric-long"] = (
     "49152", CASES["numeric"][1].replace("range(24)", "range(192)")
 )
 
+CASES["captures-mixed"] = ("72000006000000 7", """
+    def solve(n, seed):
+        def read():
+            return seed
+        let i = 0
+        let total = 0
+        while i < n:
+            i = i + 1
+            total = total + i
+        return (total, read)
+    let result = solve(12000000, 7)
+    print(result[0], result[1]())
+""")
+CASES["captures-iterations"] = ("7000000", """
+    def solve(n):
+        let factor = 2
+        def scale(x):
+            return factor*x
+        let total = 0
+        for i in range(n):
+            total = total + scale(1)
+        return total
+    print(solve(3500000))
+""")
+
 
 def run(binary, program, expected, cwd, extra=()):
     result = subprocess.run([str(binary), *extra, str(program)], cwd=cwd,

@@ -654,6 +654,17 @@ static void render_loop(Writer *w, const Proto *p, int level) {
     put(w, "\\end{aligned}");
 }
 
+bool mathir_calls_builtin(const Proto *p, const char *name) {
+    const MathIR *ir = p->mathir;
+    if (ir && ir->has_calls)
+        for (int i = 0; i < ir->count; i++) {
+            const MathNode *node = &ir->nodes[i];
+            if (node->kind == MI_CALL && node->integer && !strcmp(node->name, name))
+                return true;
+        }
+    return false;
+}
+
 int mathir_has_loop(const Proto *p) {
     return p->mathir && p->mathir->loop;
 }

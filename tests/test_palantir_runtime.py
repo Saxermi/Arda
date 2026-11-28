@@ -252,6 +252,99 @@ class PalantirTests(unittest.TestCase):
             print(f[0](),f[1](),f[2]())
         """, "7 10 10\n0\n1\n10\n0 1 2", stress=True)
 
+    def test_capture_tracks_late_shadowing_through_nested_closures(self):
+        self.run_code("""
+            let value = 10
+            def make():
+                def wrap():
+                    return lambda: value
+                let read = wrap()
+                print(read())
+                let value = 20
+                print(read())
+                if true:
+                    let inner = lambda: value
+                    print(inner())
+                    let value = 30
+                    print(inner())
+                    return (read,inner)
+            let readers = make()
+            collect()
+            print(readers[0](),readers[1]())
+        """, "10\n20\n20\n30\n20 30", stress=True)
+
+    def test_mixed_parameters_and_loop_scopes_survive_unwind(self):
+        self.run_code("""
+            def make(start,step=2):
+                let items = []
+                for i in range(4):
+                    let inc = lambda: start + i
+                    try:
+                        let payload = [i,step]
+                        if i == 2:
+                            throw {"code":"test","message":"test"}
+                        push(items,inc)
+                        if i == 0:
+                            continue
+                        if i > 2:
+                            break
+                    catch problem:
+                        push(items, lambda: problem["code"])
+                start = start + step
+                return items
+            let result = make(step: 4,start: 30)
+            collect()
+            print(result[0](),result[1](),result[2](),result[3]())
+            def paused(start,step=3):
+                let get = lambda: start
+                for i in range(2):
+                    yield get()+step+i
+                start = 50
+                yield get()+step
+            let cursor = paused(2)
+            print(next(cursor), next(cursor), next(cursor), next(cursor, "done"))
+            def defaulted(offset, seed=offset+10):
+                def change():
+                    seed = seed+1
+                    return seed
+                return (seed+offset, change)
+            let result = defaulted(offset: 2)
+            print(result[0], result[1](), result[1]())
+        """, "34 35 test 37\n5 6 53 done\n14 13 14", stress=True)
+
+    def test_unrelated_locals_are_released_while_closure_is_alive(self):
+        self.run_code("""
+            def make(seed):
+                let unrelated = [i for i in range(20000)]
+                def bump():
+                    seed = seed + 1
+                    return seed
+                if len(unrelated) != 20000:
+                    return nil
+                return bump
+            collect()
+            let before = heap_bytes()
+            let closure = make(40)
+            collect()
+            print(closure(), closure(), heap_bytes() - before < 32000)
+        """, "41 42 nae")
+
+    def test_shadowing_inside_child_leaves_outer_parameter_on_stack(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "sample.arda"
+            path.write_text(
+                "def outer(state, n=1):\n"
+                "    def inner(n):\n        return state+n\n"
+                "    return state+inner(n)\nprint(outer(4))\n",
+                encoding="utf-8",
+            )
+            commands = [str(test_arda.BIN), "--bytecode", str(path)]
+            run = subprocess.run(commands, capture_output=True, text=True, check=True)
+            outer = run.stdout.split("== outer", 1)[1].split("== inner", 1)[0]
+            self.assertIn("heap parameter", outer)
+            # Default n is placed into stack slot 0 and accessed by the outer function.
+            self.assertRegex(outer, r"GET_LOCAL[^\n]* 0\n")
+
     def test_cli_limits_and_profiling(self):
         self.run_code("""
             try:
