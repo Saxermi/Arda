@@ -1,4 +1,5 @@
 #include "frontend.h"
+#include "analysis.h"
 typedef struct Loop {
     struct Loop *parent;
     int start, scope, tries;
@@ -359,6 +360,8 @@ static void function(C *c, Node *n) {
     if (n->return_annotation)
         p->return_annotation = front_copystr(n->return_annotation);
     p->mathir = mathir_extract(n);
+    if (mathir_is_enabled())
+        p->analysis = function_analyze(n);
     C child = {.p = p, .isfn = true};
     add_scope(&child, -1);
     for (int i = 0; i < p->arity; i++)
@@ -848,6 +851,7 @@ void freeproto(Proto *p) {
     front_free(p->param_slots);
     front_free(p->params);
     front_free(p->mathir);
+    front_free(p->analysis);
     front_free(p->k);
     front_free(p->code);
     front_free(p->name);

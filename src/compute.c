@@ -1,3 +1,5 @@
+#include "lazy_graph.h"
+#include "compute_structured.h"
 #include "compute_plan.h"
 #include "compute_topology.h"
 #include "cpu_kernels.h"
@@ -51,6 +53,17 @@ static Val memory_stats(VM *v, int argc, Val *args) {
         field(v, map, "backing_bytes", integer((int64_t)buffer->bytes));
         field(v, map, "storage", objval(string(v, buffer->mapped ? "mapped" : "heap")));
     }
+    return objval(map);
+}
+
+static Val capabilities(VM *v) {
+    Obj *map = newobj(v, O_MAP);
+    field(v, map, "cpu", boolean(true));
+    field(v, map, "ram", boolean(true));
+    field(v, map, "ssd", boolean(!v->no_file_io));
+    field(v, map, "device", boolean(false));
+    field(v, map, "network", boolean(false));
+    field(v, map, "ram_budget_bytes", budget_value(&v->tensor_memory));
     return objval(map);
 }
 
@@ -140,14 +153,17 @@ enum {
     FILE_SPMV,
     FILE_QR_R,
     FILE_RSVD_RIGHT,
+    RUN,
+    REPORT,
+    CAPABILITIES,
     COMPUTE_COUNT
 };
 static const char *const names[] = {
-    "memory_stats", "memory_budget", "trim_pool",      "plan",       "stream_stats",
-    "cpu",          "matmul_kernel", "vector_math",    "threads",    "tiled_matmul",
-    "axpy",         "mul_add",       "fused_products", "map_reduce", "explain",
-    "execute",      "last_run",      "compare",        "topology",   "affinity",
-    "first_touch",  "file_matmul",   "file_spmv",      "file_qr_r",  "file_rsvd_right"};
+    "memory_stats",    "memory_budget", "trim_pool",   "plan",         "stream_stats", "cpu",
+    "matmul_kernel",   "vector_math",   "threads",     "tiled_matmul", "axpy",         "mul_add",
+    "fused_products",  "map_reduce",    "explain",     "execute",      "last_run",     "compare",
+    "topology",        "affinity",      "first_touch", "file_matmul",  "file_spmv",    "file_qr_r",
+    "file_rsvd_right", "run",           "report",      "capabilities"};
 _Static_assert(sizeof names / sizeof *names == COMPUTE_COUNT, "compute names");
 
 Obj *compute_module(VM *v) {
@@ -221,19 +237,48 @@ Val compute_call(VM *v, int id, int argc, Val *args) {
     case PLAN:
         if (argc >= 2 && argc <= 4) {
             const char *operation = asstr(v, args[0]);
+            if (!strcmp(operation, "graph") && argc <= 3)
+                return graph_plan(v, args[1], argc == 3 ? args[2] : nil());
+            if (!strcmp(operation, "apply") && argc == 3)
+                return structured_plan(v, args[1], args[2]);
             if (!strcmp(operation, "matmul") && argc >= 3)
                 return compute_plan(v, args[1], args[2], argc == 4 ? args[3] : nil());
             if (!strcmp(operation, "stream_stats"))
                 return tensor_stream_stats(v, args[1], argc >= 3 ? args[2] : nil(), true,
                                            prefetch_option(v, argc == 4 ? args[3] : nil()));
-            vmerror(v, "compute.plan supports matmul and stream_stats");
+            vmerror(v, "compute.plan supports matmul, stream_stats, graph and apply");
         }
         break;
     case EXPLAIN:
-        if (argc == 1)
+        if (argc == 1) {
+            if (isobj(args[0], O_STRUCTURED_PLAN))
+                return structured_explain(v, args[0]);
+            if (isobj(args[0], O_LAZY_PLAN))
+                return graph_explain(v, args[0]);
             return compute_explain(v, args[0]);
+        }
+        break;
+    case RUN:
+        if (argc == 1 || argc == 2) {
+            if (argc == 2 && (args[1].t != V_INT || args[1].i < 0 || args[1].i > 256))
+                vmerror_kind(v, "domain", "trace limit must be 0..256");
+            int limit = argc == 2 ? (int)args[1].i : 0;
+            return isobj(args[0], O_STRUCTURED_PLAN) ? structured_execute(v, args[0], limit)
+                                                     : graph_execute(v, args[0], limit);
+        }
+        break;
+    case REPORT:
+        if (argc == 1)
+            return graph_run_info(v, args[0]);
+        break;
+    case CAPABILITIES:
+        if (!argc)
+            return capabilities(v);
         break;
     case EXECUTE:
+        if (argc == 1)
+            return isobj(args[0], O_STRUCTURED_PLAN) ? structured_execute(v, args[0], -1)
+                                                     : graph_execute(v, args[0], -1);
         if (argc == 3)
             return compute_execute(v, args[0], args[1], args[2]);
         break;

@@ -1,4 +1,6 @@
 #include "experiment.h"
+#include "lazy_graph.h"
+#include "analysis.h"
 #include "autodiff.h"
 #include "simulation_checkpoint.h"
 #include <time.h>
@@ -66,8 +68,12 @@ static const char *typename(Val v) {
                                   "tensor_output",
                                   "tuple",
                                   "set",
-                                  "iterator"};
-        _Static_assert(sizeof n / sizeof *n == O_GENERATOR + 1, "object type names");
+                                  "iterator",
+                                  "lazy_node",
+                                  "lazy_plan",
+                                  "lazy_run",
+                                  "structured_plan"};
+        _Static_assert(sizeof n / sizeof *n == O_STRUCTURED_PLAN + 1, "object type names");
         return n[v.o->type];
     }
     }
@@ -218,6 +224,10 @@ int64_t range_element(const Obj *range, uint64_t index) {
 }
 
 Val native_call(VM *v, int id, int argc, Val *a) {
+    if (id >= CONTRACT_BASE)
+        return contract_call(v, id, argc, a);
+    if (id >= LAZY_BASE)
+        return lazy_call(v, id, argc, a);
     if (id >= EXPERIMENT_BASE)
         return experiment_call(v, id, argc, a);
     if (id >= PLOT_BASE)
@@ -630,6 +640,10 @@ Obj *named_native_module(VM *v, const char *name, const char *const *names, size
 }
 
 Obj *native_module(VM *v, const char *name) {
+    if (!strcmp(name, "contract"))
+        return contract_module(v);
+    if (!strcmp(name, "lazy"))
+        return lazy_module(v);
     if (!strcmp(name, "experiment"))
         return experiment_module(v);
     if (!strcmp(name, "plot"))

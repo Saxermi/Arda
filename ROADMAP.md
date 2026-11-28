@@ -321,9 +321,13 @@ Matrix Market, Dokumentation, ASan/UBSan/LSan, GC-Stress, automatisierte SciPy-R
 - **0.22.1:** VM-Optimierungen: lokale Slots, Call/Attribute-Caches, spezialisierte Opcodes, GC-Sweep-Latenz, Bytecode-Lebensdauer und Speicherdiagnostik. Profiling vor Änderung. Ressourcenlimit für Instruktionen/Stack/Memory, kontrollierte Host-Funktionen, Abbruch; keine Behauptung einer Sicherheits-Sandbox ohne Isolation und Audit.
   - **Status** — Stack-Slots pro Bindung mit Closure-Capture-Analyse, gecachte Attributzugriffe, direkte Methodenaufrufe und ein kombinierter Vergleichssprung sind verfügbar. Instruktions-, Stack- und VM-Speicherlimits, kooperativer Abbruch, Dateizugriffskontrolle und GC-Sweep-Diagnostik sind schaltbar. Der Sweep läuft weiterhin atomar. [Profiling und Abnahme](docs/PALANTIR_RUNTIME.md#profiling-and-validation)
 - **0.22.2:** Opt-in Lazy Graphs für reine numerische Regionen. Tensorversionen und Aliasing, Materialisierungspunkte und Seiteneffekte definieren; Eager bleibt Standard. Graph-Liveness und Memory Plan, topologische Scheduler, tile-aware Fusion.
+  - **Status** — Explizite Float64-Graphen mit Heap-, Mapping- und Dateieingaben, Versionsprüfung über Aliase, Wiederverwendung temporärer Puffer und zwei Fusionsmustern sind verfügbar. [Graphvertrag](docs/PALANTIR_ACE.md#0222-lazy-graphs)
 - **0.22.3:** ACE v2: Candidate plans (in-RAM, tiled, mapped, structured, optional approximate), Kostenmodell CPU/RAM/SSD, Peak-Workspace-Schätzung und Planwahl unter Budget. Plan erklären, Schätzfehler erfassen, Budgetreserve vor Ausführung, Laufzeit-Fallback nur wenn semantisch erlaubt und I/O/Output konsistent. Planner Overhead bei kleinen Operationen begrenzen.
+  - **Status** — Exakte Kandidaten für vollständige, gekachelte und fusionierte Ausführung, Mapping und blockweiser Dateizugriff sowie strukturierte Operatoren und CSR. Das Budget wird bei Ausführung erneut geprüft. Ausgewählte Pläne sind wiederverwendbar. Approximation und automatischer Planwechsel bleiben optionaler Ausbau. [Kandidaten und Kosten](docs/PALANTIR_ACE.md#0223-plan-selection)
 - **0.22.4 — Contracts & AMDE v2:** Funktionsanalyse für sichere Bedingungen, erweiterte Schleifen/Recurrences (aufbauend auf der begrenzten statischen Schleifenanalyse aus 0.15.5), rekursive Calls mit Tiefenlimit; `require`/`ensure` und `assume` (Syntax optional nach Sprachreview). Symbolische und numerische Semantik getrennt. Vollständiges `getCost/getPlan(spec)` für unterstützte Graphen, Kostenintervalle, unbekannte Pfade, gecachte Pläne; keine numerische Ausführung durch statische Analyse. CPU/RAM/SSD/Device/Netzwerk-Kostenprofile als vorbereitete Capability-Registry. Ausführungsprofile, begrenzter Trace und getAlgorithm auf Run-Objekten. Statische Verträge dürfen dynamische Seiteneffekte nicht ausführen.
+  - **Status** — Laufzeitverträge, statische Kostenintervalle für unterstützte skalare Funktionen und verschachtelte native Ranges, direkte Rekursion mit angegebener Tiefe, Capability-Abfrage sowie Laufzeitberichte mit begrenzter Blockspur. Rekursionstiefe ist eine Annahme der Analyse. Device und Netzwerk haben reservierte Einträge für spätere Backends. [Analyse und Berichte](docs/PALANTIR_ACE.md#0224-contracts-and-amde)
 - **Gate:** deterministischer Modus, Eager/Lazy-Äquivalenz, absichtliche Mutation und Fehlerreihenfolge, unerreichbare Graphen/Buffer freigeben. Beispiel 100-GB-Datei, sum(sin(x)*exp(-x)): blockweise einlesen, fused compute + reduction, keine vollständigen Zwischentensoren; Fließkomma-Toleranz dokumentieren.
+  - **Abnahme** — Der 2-GiB-Dateitest ist in der Cloud bestanden. Der vollständige Test gehört zur [Abnahme vor 1.0](#15-ausstehende-abnahmetests-vor-10). [Cloud-Validierung](docs/PALANTIR_ACE.md#cloud-validation)
 
 ### Arda 0.23 — Scientific Interoperability and MPI Foundations
 
@@ -412,6 +416,8 @@ Peak RSS und numerische Fehler festhalten.
 Für die 1.0-Abnahme aus dem finalen Quellarchiv die vollständige Testmatrix aus
 0.28.0 wiederholen. Darin auch die auf dem Laptop unterstützten Builds,
 Laufzeit- und Referenztests sowie passenden Sanitizer prüfen.
+Die [große ACE-Dateireduktion](#15-ausstehende-abnahmetests-vor-10) auf einem
+Rechner mit ausreichend freiem Speicherplatz ausführen.
 
 ### Arda 0.29 — Release Candidate
 
@@ -666,3 +672,7 @@ These references are technical starting points from the prior research, not clai
 ### Repository policy — local testing only
 
 No GitHub Actions workflows or hosted CI jobs are enabled or planned under the current project policy. Run the existing Makefile test, reference-test and sanitizer targets locally. Cross-platform and HPC validation may be run on explicitly available local or cluster hardware. This policy supersedes any remaining references to hosted CI in historical documents.
+
+## 15. Ausstehende Abnahmetests vor 1.0
+
+- [ ] **Arda 0.22 — 100-GB-Dateireduktion mit ACE.** Auf dem finalen 1.0-Release-Candidate die fusionierte Reduktion `sum(sin(x)*exp(-x))` mit einer vollständig geschriebenen Float64-Datei von mindestens 100 GB ausführen. Der Benchmark-Parameter `--file-mib 95368` erzeugt diese Größe. Den Lauf mit einem Adressraumlimit von 128 MiB und ohne Swap prüfen. Blockweise Verarbeitung ohne vollständige Zwischentensoren bestätigen. Laufzeit, Spitzen-RSS, Zwischenspeicher, Cache-Zustand und relativen Fehler zur unabhängigen Referenz dokumentieren. Die relative Toleranz beträgt `2e-11`. Der 2-GiB-Cloud-Test liefert die Vergleichsbasis. [Benchmark und bisherige Messung](docs/PALANTIR_ACE.md#performance-and-memory)

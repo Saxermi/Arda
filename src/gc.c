@@ -1,3 +1,5 @@
+#include "lazy_graph.h"
+#include "compute_structured.h"
 #include "autodiff.h"
 #include "activation_store.h"
 #include <time.h>
@@ -283,6 +285,14 @@ static void trace(VM *v, Obj *o) {
             for (int i = 0; i < o->as.env.params->heap_params; i++)
                 markval(v, o->as.env.slots[i]);
         break;
+    case O_STRUCTURED_PLAN:
+        structured_trace(v, o);
+        break;
+    case O_LAZY_NODE:
+    case O_LAZY_PLAN:
+    case O_LAZY_RUN:
+        graph_trace_object(v, o);
+        break;
     case O_GENERATOR: {
         const Generator *g = o->as.generator;
         markproto(g->frame.p);
@@ -343,6 +353,9 @@ static void roots(VM *v) {
 
 static void release(VM *v, Obj *o) {
     switch (o->type) {
+    case O_LAZY_NODE:
+        graph_release_object(o);
+        break;
     case O_STRING:
         free(o->as.str.s);
         break;

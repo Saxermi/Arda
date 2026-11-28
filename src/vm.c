@@ -123,6 +123,13 @@ static Val *lookup(Obj *env, Constant *k) {
     return NULL;
 }
 
+bool vm_resolves_function(Obj *function) {
+    const char *name = function->as.func.p->name;
+    Constant key = {.s = (char *)name, .hash = hashstr(name)};
+    const Val *resolved = lookup(function->as.func.env, &key);
+    return resolved && isobj(*resolved, O_FUNC) && resolved->o == function;
+}
+
 int vm_uses_builtin(VM *v, Obj *env, const char *name) {
     Constant key = {.s = (char *)name, .hash = hashstr(name)};
     Val *current = lookup(env, &key);

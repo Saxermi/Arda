@@ -1,6 +1,6 @@
 #include "arda.h"
 
-#define ARDA_VERSION "0.22.1"
+#define ARDA_VERSION "0.22.4"
 
 static volatile sig_atomic_t interrupted;
 

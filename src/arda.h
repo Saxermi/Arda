@@ -250,6 +250,7 @@ struct Proto {
     char **params, **annotations;
     char *return_annotation;
     MathIR *mathir;
+    struct FunctionAnalysis *analysis;
     int arity, required, slots, heap_params;
     int *param_slots; // Nonnegative stack slot, or -1 minus the heap slot.
     bool heap_scope, generator;
@@ -261,6 +262,7 @@ struct Proto {
 Proto *compile(Node *root, const char *path);
 void freeproto(Proto *p);
 void mathir_set_enabled(int enabled);
+bool mathir_is_enabled(void);
 MathIR *mathir_extract(const Node *function);
 int mathir_has_loop(const Proto *p);
 bool mathir_calls_builtin(const Proto *p, const char *name);
@@ -316,7 +318,11 @@ typedef enum {
     O_TENSOR_OUTPUT,
     O_TUPLE,
     O_SET,
-    O_GENERATOR
+    O_GENERATOR,
+    O_LAZY_NODE,
+    O_LAZY_PLAN,
+    O_LAZY_RUN,
+    O_STRUCTURED_PLAN
 } OType;
 
 typedef struct {
@@ -778,6 +784,7 @@ Val uncertainty_call(VM *v, int id, int argc, Val *args);
 Val special_call(VM *v, int id, int argc, Val *a);
 Obj *special_module(VM *v);
 int vm_uses_builtin(VM *v, Obj *env, const char *name);
+bool vm_resolves_function(Obj *function);
 Val mathdoc_attribute(VM *v, Val target, const char *name);
 int mathir_derivative_tex(VM *v, Obj *function, const char *parameter, char *out, size_t size);
 Obj *dense_lu_solve(VM *v, Obj *a, Obj *b);

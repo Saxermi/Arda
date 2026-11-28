@@ -183,3 +183,26 @@ python3 benchmarks/cpu_compute.py --suite scaling --arda ./arda --cpus 0 2 --thr
 
 Use the appropriate CPU IDs for the test machine. The Python harness needs NumPy, SciPy
 for scaling and GNU `time` for the fusion RSS.
+
+## Palantír ACE v2
+
+The bounded Float64 graph planner in `src/lazy_graph.c` uses topological
+order and tracks the last consumer of each scratch buffer. It visits at
+most 128 nodes and uses linear lookup to identify shared nodes. Execution
+visits each node once per block. With $N$ tensor elements, $B$ elements
+per block and $S$ simultaneously retained scratch slots in this schedule,
+numeric scratch is $8BS$ bytes. The whole-array candidate sets $B=N$.
+Two direct kernels avoid intermediate arithmetic arrays. Data stays in
+source order through the Float64 pointwise expressions and the extended
+precision sum. [Execution contract](../../docs/PALANTIR_ACE.md)
+
+The existing [Roofline reference](https://doi.org/10.1145/1498765.1498785)
+motivates comparing arithmetic with logical bytes moved. The estimate here
+also uses explicit file throughput and block overhead when supplied. The
+[MLIR affine passes](https://mlir.llvm.org/docs/Passes/#-affine-loop-fusion)
+illustrate the wider space of possible fusion schedules. The locality-aware
+task scheduler of [Gonthier et al.](https://doi.org/10.1016/j.jpdc.2025.105170)
+is a recent comparator for out-of-core data placement and eviction. Arda
+currently processes a deterministic order of pointwise blocks on one CPU
+thread. The planner and loops are original C code and use the existing
+tensor-file decoder and native structured operator interface.

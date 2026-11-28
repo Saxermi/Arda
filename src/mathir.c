@@ -50,6 +50,10 @@ typedef struct {
 /* Accepted 0.15.4 policy: compact metadata is on by default. */
 static int enabled = 1;
 
+bool mathir_is_enabled(void) {
+    return enabled;
+}
+
 void mathir_set_enabled(int value) {
     enabled = value != 0;
 }

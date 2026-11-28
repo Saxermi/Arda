@@ -473,3 +473,34 @@ further and enable indexed capture access. That would also need a representation
 for lookup before a later declaration becomes active and separate lifetime
 handling for those cells.
 [Runtime contract and measurements](docs/PALANTIR_RUNTIME.md#per-binding-capture-analysis)
+
+## 2026-11-28 — Exact lazy graphs, explicit budgeting and bounded introspection
+
+Use explicit Float64 graphs over versioned buffers. Alias writes invalidate
+affected graphs. This keeps graph creation cheap and preserves the eager
+default. Invalidation means callers must rebuild input nodes after writing.
+Taking immutable snapshots would let planned work survive writes and would
+consume extra copy time and memory. A future API could offer an explicit
+snapshot policy for callers who need that property.
+
+Reuse scratch after each node's last consumer, tile the general evaluator and
+fuse two specific patterns with their original arithmetic order. Users can
+force a reference schedule for diagnosis. This keeps the implementation
+portable and workspace predictable. General fusion could remove more passes
+and would need a larger compiler transformation and numerical validation
+surface. Faster reassociated reductions, contraction and approximate kernels
+would need separate numerical contracts.
+
+Keep the selected plan stable and expose the estimates and observed run
+separately. A second budget check can reject a reusable plan. Adaptive retry
+could select a smaller tile when conditions change and would need to expose
+the actual plan and preserve failure ordering and output publication. Rate
+calibration is explicit so published timing estimates can be reproduced.
+
+Expose runtime contract checks and retain a bounded static cost summary.
+Unknown paths stay unknown. This keeps inspection side-effect-free and lets a
+caller give interval and recursion assumptions. It limits coverage to a
+small analyzable subset. Path-sensitive analysis or dedicated contract
+syntax could extend that subset and would require more compiler state,
+semantics for custom predicates and cost limits for the analyzer.
+[Execution and analysis contracts](docs/PALANTIR_ACE.md)

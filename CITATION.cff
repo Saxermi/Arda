@@ -4,7 +4,7 @@ title: "Arda"
 type: software
 authors:
   - name: "Arda language contributors"
-version: "0.22.1"
+version: "0.22.4"
 repository-code: "https://github.com/Saxermi/Arda"
 license: MIT
 abstract: "Arda (Adaptive Runtime for Data and Algorithms) is an independent, research-driven scientific programming language with native numerical computing, dense tensors, and sparse matrices."
