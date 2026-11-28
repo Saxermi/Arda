@@ -14,6 +14,7 @@ ADOffloadPlan *offload_plan(VM *v, Val value) {
 }
 
 Val offload_plan_new(VM *v, Val directory, Val budget, Val block) {
+    vm_require_file_access(v);
     const char *path = asstr(v, directory);
     struct stat info;
     if (!*path || stat(path, &info) || !S_ISDIR(info.st_mode))

@@ -50,6 +50,10 @@ typedef struct {
 /* Accepted 0.15.4 policy: compact metadata is on by default. */
 static int enabled = 1;
 
+bool mathir_is_enabled(void) {
+    return enabled;
+}
+
 void mathir_set_enabled(int value) {
     enabled = value != 0;
 }
@@ -652,6 +656,17 @@ static void render_loop(Writer *w, const Proto *p, int level) {
         }
     }
     put(w, "\\end{aligned}");
+}
+
+bool mathir_calls_builtin(const Proto *p, const char *name) {
+    const MathIR *ir = p->mathir;
+    if (ir && ir->has_calls)
+        for (int i = 0; i < ir->count; i++) {
+            const MathNode *node = &ir->nodes[i];
+            if (node->kind == MI_CALL && node->integer && !strcmp(node->name, name))
+                return true;
+        }
+    return false;
 }
 
 int mathir_has_loop(const Proto *p) {

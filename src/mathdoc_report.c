@@ -167,6 +167,7 @@ static bool write_report(int fd, const void *context) {
 }
 
 Val mathdoc_export(VM *v, int argc, Val *args) {
+    vm_require_file_access(v);
     if (argc != 3 && argc != 4)
         vmerror_kind(v, "arity",
                      "mathdoc.export expects target, path, format and optional options");

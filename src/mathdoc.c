@@ -1,9 +1,13 @@
+#include "analysis.h"
+#include "lazy_graph.h"
+#include "compute_structured.h"
+#include "compute_plan.h"
 #include "mathdoc_report.h"
 
-enum { TEX, ALGORITHM, ASSUMPTIONS, COMPLEXITY, COST, DERIVATIVE_TEX, SENSITIVITY, EXPORT };
+enum { TEX, ALGORITHM, ASSUMPTIONS, COMPLEXITY, COST, DERIVATIVE_TEX, SENSITIVITY, EXPORT, PLAN };
 static const char *const methods[] = {"getTex",         "getAlgorithm", "getAssumptions",
                                       "getComplexity",  "getCost",      "getDerivativeTex",
-                                      "getSensitivity", "export"};
+                                      "getSensitivity", "export",       "getPlan"};
 _Static_assert(MATHDOC_BASE + SENSITIVITY == MATHDOC_SENSITIVITY_ID, "sensitivity method ID");
 
 typedef enum { NO_COST, DENSE_SOLVE, DENSE_MATMUL, DENSE_DOT, CSR_MATVEC } CostModel;
@@ -417,6 +421,28 @@ Val mathdoc_call(VM *v, int id, int argc, Val *args) {
         vmerror(v, "unknown mathdoc query");
     if (method == EXPORT)
         return mathdoc_export(v, argc, args);
+    if (method == PLAN || method == COST) {
+        if (argc < 1 || argc > 2)
+            vmerror_kind(v, "arity",
+                         "cost and plan queries expect a target and an optional specification");
+        if (isobj(args[0], O_LAZY_NODE))
+            return graph_explain(v, graph_plan(v, args[0], argc == 2 ? args[1] : nil()));
+        if (isobj(args[0], O_LAZY_PLAN))
+            return graph_explain(v, args[0]);
+        if (isobj(args[0], O_STRUCTURED_PLAN))
+            return structured_explain(v, args[0]);
+        if (isobj(args[0], O_COMPUTE_PLAN))
+            return compute_explain(v, args[0]);
+        if (isobj(args[0], O_FUNC)) {
+            Val spec = argc == 2 ? args[1] : nil();
+            return method == PLAN ? function_plan(v, args[0], spec)
+                                  : function_cost(v, args[0], spec);
+        }
+        if (method == PLAN)
+            return nil();
+    }
+    if (method == ALGORITHM && argc == 1 && isobj(args[0], O_LAZY_RUN))
+        return text_or_nil(v, graph_run_algorithm(args[0]));
     if (argc != (method >= COST ? 2 : 1) && !(method == TEX && argc == 2))
         vmerror(v, "invalid mathdoc.%s arity", methods[method]);
     if (!documented_target(args[0]))
@@ -445,8 +471,12 @@ Val mathdoc_call(VM *v, int id, int argc, Val *args) {
             char tex[MATHIR_TEX_LIMIT];
             return mathir_tex(p, level, tex, sizeof tex) ? text_or_nil(v, tex) : nil();
         }
-        if (method == ALGORITHM)
-            return text_or_nil(v, mathir_algorithm(p));
+        if (method == ALGORITHM) {
+            const char *algorithm = mathir_algorithm(p);
+            if (algorithm)
+                return text_or_nil(v, algorithm);
+            return text_or_nil(v, function_algorithm(v, args[0]));
+        }
         if (method == ASSUMPTIONS)
             return text_or_nil(v, mathir_assumptions(p));
         return nil();
@@ -481,8 +511,11 @@ Val mathdoc_describe(VM *v, Val target, Val level) {
 }
 
 Val mathdoc_attribute(VM *v, Val target, const char *name) {
-    if (documented_target(target))
-        for (size_t i = 0; i < EXPORT; i++) {
+    bool run = isobj(target, O_LAZY_RUN);
+    if (documented_target(target) || run)
+        for (size_t i = 0; i <= PLAN; i++) {
+            if (i == EXPORT || (run && i != ALGORITHM))
+                continue;
             if (strcmp(methods[i], name))
                 continue;
             Obj *method = newobj(v, O_NATIVE);

@@ -153,6 +153,7 @@ Obj *experiment_module(VM *v) {
 }
 
 Val experiment_call(VM *v, int id, int argc, Val *args) {
+    vm_require_file_access(v);
     switch (id - EXPERIMENT_BASE) {
     case SAVE:
         if (argc == 2 || argc == 3)

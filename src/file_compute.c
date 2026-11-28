@@ -15,6 +15,7 @@ static void close_inputs(TensorFile *inputs, int count) {
 }
 
 static void open_inputs(VM *v, int count, const char *const *paths, TensorFile *inputs) {
+    vm_require_file_access(v);
     tensor_file_require_little_endian(v);
     for (int i = 0; i < count; i++) {
         int cause = tensor_file_open(paths[i], inputs + i);

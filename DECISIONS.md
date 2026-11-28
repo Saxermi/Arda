@@ -410,3 +410,97 @@ for callbacks, failures, trace memory and result lifetime.
 Run feasible cloud validation for every milestone. Collect owner-dependent
 hardware and manual tests in the final pre-1.0 acceptance matrix.
 [Contracts and cloud acceptance](research/implemented/beyond-ram.md#0214--experiment-manifests-and-amde-reports)
+
+## 2026-11-27 — Palantír syntax and iterator lifetime
+
+Use immutable tuples and sets. The set keeps first-insertion order for
+iteration and hashes the same values that Arda compares equal. This makes
+iteration reproducible and lets tuples and sets serve as stable set elements.
+Mutable sets would enable in-place updates and would need mutation and
+iterator invalidation rules.
+
+Use `f(parameter: expression)` for named arguments. Arda already accepts
+assignment expressions in calls. The colon syntax leaves those expressions
+usable and differs from the more familiar equals-sign spelling. Adopting the
+latter would need a migration rule. Type names describe public signatures.
+A type checker or enforced argument contract would need separate rules for
+conversion, shape and interoperability.
+
+Generators keep one suspended continuation. Closing it frees its state.
+Context managers run their user-defined exit on language-level scope exits.
+The first implementation rejects yielding inside a held context. Supporting
+that case would require an explicit unwinding protocol for close and
+abandonment, especially where a suspended context owns a native resource.
+[Language contracts](docs/PALANTIR_RUNTIME.md#0220-language-contracts)
+
+## 2026-11-27 — Palantír VM slots, method dispatch and limits
+
+Keep ordinary local bindings in compiler-assigned operand-stack slots when
+the function cannot create a capturing closure. Functions that can capture
+keep the heap environment. This removes repeated allocation and name
+resolution in common cases. Per-binding capture analysis could extend
+slot allocation to more functions at the cost of additional closure and
+unwind state.
+
+Resolve direct methods before argument evaluation and carry the receiver
+alongside the callee. Table layout stamps validate the cached lookup while
+the current field value remains authoritative. A class-only method cache
+would be simpler and would need additional checks for instance overrides.
+
+Measure the atomic sweep before changing its scheduling. Incremental
+reclamation could reduce the longest pause on larger heaps and would need
+a separate reclamation phase with explicit rules for resource release.
+Execution budgets apply at VM instruction boundaries. Finer-grained
+cancellation in numerical kernels would require cooperative checks in
+each implementation and its external backend contracts.
+[VM profiling and validation](docs/PALANTIR_RUNTIME.md#profiling-and-validation)
+
+## 2026-11-27 — Store captured bindings independently of other locals
+
+Track capture on each lexical binding. A function can use stack slots and
+retain selected bindings in heap environments at the same time. Nested
+functions still share mutable bindings. A closure can read an outer value
+before a declaration and the newly declared value afterward, so the compiler
+keeps both reachable bindings when necessary. Bytecode lowering resolves
+storage after the declarations and nested functions are known, then
+relocates jumps when unused scope instructions are removed.
+
+This keeps unrelated stack data out of the closure's lifetime and avoids
+allocating environments in scopes that contain no captured bindings. Closures
+sharing the same environment can still retain one another's captured bindings.
+An explicit array of shared cells for each closure could narrow retention
+further and enable indexed capture access. That would also need a representation
+for lookup before a later declaration becomes active and separate lifetime
+handling for those cells.
+[Runtime contract and measurements](docs/PALANTIR_RUNTIME.md#per-binding-capture-analysis)
+
+## 2026-11-28 — Exact lazy graphs, explicit budgeting and bounded introspection
+
+Use explicit Float64 graphs over versioned buffers. Alias writes invalidate
+affected graphs. This keeps graph creation cheap and preserves the eager
+default. Invalidation means callers must rebuild input nodes after writing.
+Taking immutable snapshots would let planned work survive writes and would
+consume extra copy time and memory. A future API could offer an explicit
+snapshot policy for callers who need that property.
+
+Reuse scratch after each node's last consumer, tile the general evaluator and
+fuse two specific patterns with their original arithmetic order. Users can
+force a reference schedule for diagnosis. This keeps the implementation
+portable and workspace predictable. General fusion could remove more passes
+and would need a larger compiler transformation and numerical validation
+surface. Faster reassociated reductions, contraction and approximate kernels
+would need separate numerical contracts.
+
+Keep the selected plan stable and expose the estimates and observed run
+separately. A second budget check can reject a reusable plan. Adaptive retry
+could select a smaller tile when conditions change and would need to expose
+the actual plan and preserve failure ordering and output publication. Rate
+calibration is explicit so published timing estimates can be reproduced.
+
+Expose runtime contract checks and retain a bounded static cost summary.
+Unknown paths stay unknown. This keeps inspection side-effect-free and lets a
+caller give interval and recursion assumptions. It limits coverage to a
+small analyzable subset. Path-sensitive analysis or dedicated contract
+syntax could extend that subset and would require more compiler state,
+semantics for custom predicates and cost limits for the analyzer.
+[Execution and analysis contracts](docs/PALANTIR_ACE.md)

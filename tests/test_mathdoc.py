@@ -138,7 +138,8 @@ class MathDocTests(unittest.TestCase):
         pedo(f.getTex(3))
         pedo(f.getAssumptions())
         pedo(f.getAlgorithm())
-        pedo(f.getComplexity(),f.getCost({}),f(3))
+        esta cost = f.getCost({})
+        pedo(f.getComplexity(),cost["min_scalar_operations"],cost["max_scalar_operations"],f(3))
         """, stress=True).splitlines()
         self.assertEqual(output[0], r"f\left(x\right)=x^{2}+2")
         self.assertEqual(output[1], r"\begin{aligned}y&=x\cdot x\\f\left(x\right)&=y+2\end{aligned}")
@@ -146,7 +147,7 @@ class MathDocTests(unittest.TestCase):
         self.assertIn(r"y&\gets ", output[3])
         self.assertIn("not inferred", output[4])
         self.assertIn("Straight-line", output[5])
-        self.assertEqual(output[6], "mun mun 11")
+        self.assertEqual(output[6], "mun 2 2 11")
 
     def test_precedence_and_names(self):
         output = self.run_code("""

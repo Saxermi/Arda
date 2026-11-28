@@ -60,6 +60,22 @@ static Node *primary(Parser *p) {
         n->integer = t->integer;
         return n;
     }
+    if (match(p, T_FSTART)) {
+        n = node(N_FORMAT, t->line);
+        while (!match(p, T_FEND)) {
+            if (match(p, T_FFIELD)) {
+                expect(p, T_LP);
+                add(n, expr(p));
+                expect(p, T_RP);
+            } else {
+                Token *part = expect(p, T_STR);
+                Node *text = node(N_STR, part->line);
+                text->str = part->lex;
+                add(n, text);
+            }
+        }
+        return n;
+    }
     if (match(p, T_STR)) {
         n = node(N_STR, t->line);
         n->str = t->lex;
@@ -95,7 +111,20 @@ static Node *primary(Parser *p) {
         return n;
     }
     if (match(p, T_LP)) {
-        n = expr(p);
+        if (match(p, T_RP))
+            return node(N_TUPLE, t->line);
+        Node *first = expr(p);
+        if (!match(p, T_COMMA)) {
+            expect(p, T_RP);
+            return first;
+        }
+        n = node(N_TUPLE, t->line);
+        add(n, first);
+        while (peek(p)->t != T_RP) {
+            add(n, expr(p));
+            if (!match(p, T_COMMA))
+                break;
+        }
         expect(p, T_RP);
         return n;
     }
@@ -122,12 +151,19 @@ static Node *primary(Parser *p) {
     }
     if (match(p, T_LB)) {
         n = node(N_MAP, t->line);
-        while (peek(p)->t != T_RB) {
+        if (peek(p)->t != T_RB) {
             add(n, expr(p));
-            expect(p, T_COLON);
-            add(n, expr(p));
-            if (!match(p, T_COMMA))
-                break;
+            if (match(p, T_COLON))
+                add(n, expr(p));
+            else
+                n->t = N_SET;
+            while (match(p, T_COMMA) && peek(p)->t != T_RB) {
+                add(n, expr(p));
+                if (n->t == N_MAP) {
+                    expect(p, T_COLON);
+                    add(n, expr(p));
+                }
+            }
         }
         expect(p, T_RB);
         return n;
@@ -142,8 +178,21 @@ static Node *postfix(Parser *p) {
         if (match(p, T_LP)) {
             Node *c = node(N_CALL, n->line);
             c->a = n;
+            bool named = false;
             while (peek(p)->t != T_RP) {
-                add(c, expr(p));
+                if (peek(p)->t == T_ID && p->ts->a[p->i + 1].t == T_COLON) {
+                    named = true;
+                    Token *key = peek(p);
+                    p->i += 2;
+                    Node *argument = node(N_NAMED_ARG, key->line);
+                    argument->str = key->lex;
+                    argument->a = expr(p);
+                    add(c, argument);
+                } else {
+                    if (named)
+                        err(p, "positional argument after named argument");
+                    add(c, expr(p));
+                }
                 if (!match(p, T_COMMA))
                     break;
             }
@@ -202,7 +251,7 @@ static Node *binary(Parser *p, int level) {
         TokenType t = peek(p)->t;
         int ok = (level == 1 && (t == T_STAR || t == T_SLASH || t == T_PERCENT)) ||
                  (level == 2 && (t == T_PLUS || t == T_MINUS)) ||
-                 (level == 3 && (t == T_LT || t == T_LE || t == T_GT || t == T_GE)) ||
+                 (level == 3 && (t == T_LT || t == T_LE || t == T_GT || t == T_GE || t == T_IN)) ||
                  (level == 4 && (t == T_EQEQ || t == T_NE)) || (level == 5 && t == T_AND) ||
                  (level == 6 && t == T_OR);
         if (!ok)
@@ -277,6 +326,9 @@ static Node *stmt(Parser *p) {
                     err(p, "duplicate parameter");
             n->names = front_resize(n->names, sizeof(char *) * (size_t)(n->n_names + 1));
             n->names[n->n_names] = s;
+            n->annotations =
+                front_resize(n->annotations, sizeof(char *) * (size_t)(n->n_names + 1));
+            n->annotations[n->n_names] = match(p, T_COLON) ? expect(p, T_ID)->lex : NULL;
             n->defaults = front_resize(n->defaults, sizeof(Node *) * (size_t)(n->n_names + 1));
             n->defaults[n->n_names] = match(p, T_EQ) ? expr(p) : NULL;
             if (n->n_names && n->defaults[n->n_names - 1] && !n->defaults[n->n_names])
@@ -286,6 +338,8 @@ static Node *stmt(Parser *p) {
                 break;
         }
         expect(p, T_RP);
+        if (match(p, T_ARROW))
+            n->return_annotation = expect(p, T_ID)->lex;
         n->a = block(p);
         return n;
     } else if (match(p, T_QUI))
@@ -311,6 +365,13 @@ static Node *stmt(Parser *p) {
         }
         n->a = block(p);
         return n;
+    } else if (match(p, T_WITH)) {
+        n = node(N_WITH, t->line);
+        n->a = expr(p);
+        if (match(p, T_AS))
+            n->str = expect(p, T_ID)->lex;
+        n->b = block(p);
+        return n;
     } else if (match(p, T_TRY)) {
         n = node(N_TRY, t->line);
         n->a = block(p);
@@ -330,8 +391,8 @@ static Node *stmt(Parser *p) {
             n->n_names = 1;
         } else if (m->t == T_STR)
             err(p, "quoted module path requires 'as name'");
-    } else if (match(p, T_NAN)) {
-        n = node(N_RETURN, t->line);
+    } else if (match(p, T_NAN) || match(p, T_YIELD)) {
+        n = node(t->t == T_YIELD ? N_YIELD : N_RETURN, t->line);
         if (peek(p)->t != T_NL)
             n->a = expr(p);
     } else if (match(p, T_THROW)) {
@@ -386,5 +447,6 @@ void free_ast(Node *n) {
         front_free(n->defaults);
     }
     front_free(n->names);
+    front_free(n->annotations);
     front_free(n);
 }

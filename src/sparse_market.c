@@ -82,6 +82,7 @@ static double market_real(VM *v, const char *token) {
 }
 
 Obj *sparse_read_mm(VM *v, const char *path) {
+    vm_require_file_access(v);
     FILE *f = fopen(path, "r");
     if (!f)
         vmerror(v, "could not open Matrix Market input");
@@ -154,6 +155,7 @@ static int market_write(FILE *f, const Sparse *s, int symmetric) {
 }
 
 void sparse_write_mm(VM *v, const char *path, Obj *matrix, int symmetric) {
+    vm_require_file_access(v);
     Obj *csr = sparse_as_csr(v, matrix);
     const Sparse *s = &S(csr);
     if (symmetric && !sparse_symmetric(s))

@@ -2,6 +2,13 @@
 
 **Status** — Arda 0.15.4 introduced static native and straight-line queries. Arda 0.15.5 adds a limited range-loop model. Arda 0.16.5 adds straight-line subscript notation. [Release validation](../../docs/RUMIL_0.15.5.md)
 
+Arda 0.22.4 adds a bounded cost tree in `src/analysis.c`. Sequential bounds
+add, branches take extrema and loops multiply by a half-open range length
+interval. An explicitly bounded direct recursive function uses an upper
+bound on the invocation tree. The tree describes source-level work.
+Run objects describe the chosen native kernel and observed execution.
+[Analysis conventions and examples](../../docs/PALANTIR_ACE.md#0224-contracts-and-amde)
+
 ## Queries
 
 For documented native functions, call `f.getTex([level])`, `f.getAlgorithm()`, `f.getAssumptions()`, `f.getComplexity()`, or `f.getCost(spec)`. The `mathdoc` module exposes the same queries with `f` supplied as the first argument. Both forms look up documentation independently of numerical execution. The registry resolves the native function identity, so importing an alias preserves its documentation. A callable-derived query bound to a function can outlive the original variable.

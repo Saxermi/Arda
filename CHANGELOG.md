@@ -2,6 +2,32 @@
 
 All notable changes to Arda are recorded here. Planned features are documented in [ROADMAP.md](ROADMAP.md), not listed as implemented.
 
+## 0.22.4 — Contracts and mathematical introspection (development)
+
+- Add explicit `contract.require`, `contract.ensure` and `contract.assume` checks.
+- Add AMDE plans and conditional cost intervals for supported scalar functions, native nested ranges and bounded direct recursion. Static queries use compiler metadata without running the function.
+- Report the selected algorithm, measured elapsed time, estimate error and bounded block trace through `compute.run` and `compute.report`.
+
+## 0.22.3 — Adaptive execution plans (development)
+
+- Explain and reuse exact whole-array, tiled and fused graph schedules. Distinguish heap, mapping and explicit file blocks. Check workspace and output against the tensor budget at planning and execution.
+- Apply canonical CSR and structured operators to vectors without densifying them.
+
+## 0.22.2 — Lazy Float64 graphs (development)
+
+- Add pure, opt-in elementwise graphs and ordered reductions with shared buffers and file inputs. Detect version changes through aliases and reuse scratch according to node lifetimes.
+- Fuse multiply-add with separate Float64 rounding and fuse the sine-decay reduction.
+
+## 0.22.1 — VM performance and execution controls (development)
+
+- Added stack slots for functions without capturing closures, guarded attribute lookups, an allocation-free immediate method-call path, and a fused integer comparison branch.
+- Refined closure capture to track lexical bindings individually, so unrelated locals can use stack slots and be released while a closure lives.
+- Added execution budgets, optional cooperative interruption, script file-access control and GC sweep diagnostics. [Runtime and profiling](docs/PALANTIR_RUNTIME.md#0221-vm-controls)
+
+## 0.22.0 — Language foundations (development)
+
+- Added immutable tuples and sets, shared iteration and generators, named arguments and descriptive annotations, formatted strings and context managers. [Language contracts](docs/PALANTIR_RUNTIME.md#0220-language-contracts)
+
 ## 0.21.4 — Beyond-RAM Data Processing and Visualization (development)
 
 - Added versioned experiment manifests with input fingerprints, output quotas and atomic publication. Added integrity checks for persistent RK45 and heat checkpoints.

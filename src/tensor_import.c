@@ -9,6 +9,7 @@
 enum { CHUNK_BYTES = 65536, NPY_HEADER_MAX = 4096, FIELD_MAX = 256 };
 
 static FILE *open_input(VM *v, const char *path, off_t *length) {
+    vm_require_file_access(v);
     int fd = open(path, O_RDONLY | O_CLOEXEC | O_NONBLOCK);
     if (fd < 0)
         vmerror_kind(v, "io", "cannot open tensor import: %s", strerror(errno));

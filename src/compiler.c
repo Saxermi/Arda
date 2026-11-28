@@ -1,13 +1,40 @@
 #include "frontend.h"
+#include "analysis.h"
 typedef struct Loop {
     struct Loop *parent;
-    int start, depth, tries;
+    int start, scope, tries;
     int *breaks, n, cap;
 } Loop;
 typedef struct {
+    int key, next, slot;
+    bool captured;
+} Local;
+
+typedef struct {
+    int parent, first, begin_slot, end_slot;
+    bool heap;
+} Scope;
+
+typedef struct {
+    int scope, key, visible;
+} Capture;
+
+typedef struct Cleanup {
+    struct Cleanup *prev;
+    const char *name;
+    int handler;
+} Cleanup;
+
+typedef struct {
     Proto *p;
-    int depth, tries, isfn;
+    int scope, tries;
+    bool isfn;
     Loop *loop;
+    Cleanup *cleanup;
+    Local *locals;
+    Scope *scopes;
+    Capture *captures;
+    int nlocals, local_cap, nscopes, scope_cap, ncaptures, capture_cap;
 } C;
 static Proto *proto(const char *name, const char *path) {
     Proto *p = front_mem(sizeof *p);
@@ -64,14 +91,24 @@ static int key(C *c, const char *s) {
 
 static void expression(C *c, Node *n);
 static void statement(C *c, Node *n);
+static int add_scope(C *c, int parent) {
+    if (c->nscopes == c->scope_cap) {
+        c->scope_cap = c->scope_cap ? 2 * c->scope_cap : 8;
+        c->scopes = front_resize(c->scopes, sizeof(Scope) * (size_t)c->scope_cap);
+    }
+    int i = c->nscopes++;
+    c->scopes[i] = (Scope){.parent = parent, .first = -1, .heap = !c->isfn};
+    return i;
+}
+
 static void scope(C *c, int line) {
-    emit(c, OP_SCOPE, 0, line);
-    c->depth++;
+    c->scope = add_scope(c, c->scope);
+    emit(c, OP_SCOPE, c->scope, line);
 }
 
 static void unscope(C *c, int line) {
-    emit(c, OP_UNSCOPE, 0, line);
-    c->depth--;
+    emit(c, OP_UNSCOPE, c->scope, line);
+    c->scope = c->scopes[c->scope].parent;
 }
 
 static void body(C *c, Node *n) {
@@ -93,13 +130,218 @@ static void block(C *c, Node *n) {
         unscope(c, n->line);
 }
 
-static int local(C *c, const char *s) {
-    if (c->depth)
-        return -1;
-    for (int i = 0; i < c->p->arity; i++)
-        if (!strcmp(c->p->params[i], s))
+static int declare_local(C *c, int name) {
+    if (c->nlocals == c->local_cap) {
+        c->local_cap = c->local_cap ? 2 * c->local_cap : 16;
+        c->locals = front_resize(c->locals, sizeof(Local) * (size_t)c->local_cap);
+    }
+    int i = c->nlocals++;
+    Scope *s = &c->scopes[c->scope];
+    c->locals[i] = (Local){.key = name, .next = s->first, .captured = !c->isfn};
+    s->first = i;
+    return i;
+}
+
+static int local_in_scope(C *c, int scope_id, int name) {
+    for (int i = c->scopes[scope_id].first; i >= 0; i = c->locals[i].next)
+        if (c->locals[i].key == name)
             return i;
     return -1;
+}
+
+static int local(C *c, int name) {
+    for (int s = c->scope; s >= 0; s = c->scopes[s].parent) {
+        int i = local_in_scope(c, s, name);
+        if (i >= 0)
+            return i;
+    }
+    return -1;
+}
+
+static void binding(C *c, const char *name, int line) {
+    int k = key(c, name);
+    int i = local_in_scope(c, c->scope, k);
+    if (i < 0)
+        i = declare_local(c, k);
+    emit(c, OP_DEFINE, i, line);
+}
+
+static void load_binding(C *c, const char *name, int line) {
+    int k = key(c, name);
+    int i = local(c, k);
+    emit(c, i >= 0 ? OP_GET_LOCAL : OP_GET, i >= 0 ? i : k, line);
+}
+
+static void capture(C *c, const char *name) {
+    if (!c->isfn)
+        return;
+    int k = key(c, name);
+    if (c->ncaptures == c->capture_cap) {
+        c->capture_cap = c->capture_cap ? 2 * c->capture_cap : 8;
+        c->captures = front_resize(c->captures, sizeof(Capture) * (size_t)c->capture_cap);
+    }
+    c->captures[c->ncaptures++] = (Capture){c->scope, k, local(c, k)};
+}
+
+/* A child can run both before and after a declaration in its enclosing
+ * scope. Keep every binding it could reach, stopping at one that already
+ * existed at the point of closure creation. */
+static bool *capture_names(C *c) {
+    Proto *p = c->p;
+    bool *free_names = front_mem(sizeof(bool) * (size_t)p->nk);
+    for (int i = 0; i < p->count; i++) {
+        Instr in = p->code[i];
+        if (in.op == OP_GET || in.op == OP_SET || in.op == OP_SET_DROP)
+            free_names[in.arg] = true;
+    }
+    for (int i = 0; i < c->ncaptures; i++) {
+        Capture use = c->captures[i];
+        for (int s = use.scope; s >= 0; s = c->scopes[s].parent) {
+            int binding = local_in_scope(c, s, use.key);
+            if (binding >= 0)
+                c->locals[binding].captured = true;
+            if (binding >= 0 && binding == use.visible)
+                break;
+        }
+        if (use.visible < 0)
+            free_names[use.key] = true;
+    }
+    return free_names;
+}
+
+static void assign_slots(C *c) {
+    Proto *p = c->p;
+    for (int i = 0; i < p->arity; i++)
+        p->heap_params += c->locals[i].captured;
+    if (p->heap_params)
+        p->param_slots = front_mem(sizeof(int) * (size_t)p->arity);
+    int stack_param = 0, heap_param = 0;
+    for (int i = 0; i < p->arity; i++) {
+        Local *local = &c->locals[i];
+        local->slot = local->captured ? heap_param++ : stack_param++;
+        if (p->param_slots)
+            p->param_slots[i] = local->captured ? -1 - local->slot : local->slot;
+    }
+
+    for (int i = 0; i < c->nscopes; i++) {
+        Scope *s = &c->scopes[i];
+        int slot = i ? c->scopes[s->parent].end_slot : stack_param;
+        s->begin_slot = slot;
+        for (int j = s->first; j >= 0; j = c->locals[j].next) {
+            Local *local = &c->locals[j];
+            if (local->captured)
+                s->heap = true;
+            else if (j >= p->arity)
+                local->slot = slot++;
+        }
+        s->end_slot = slot;
+        if (slot > p->slots)
+            p->slots = slot;
+    }
+    p->heap_scope = c->scopes[0].heap;
+}
+
+static void lower_local(C *c, Instr *in) {
+    int id = in->arg;
+    Local *local = &c->locals[id];
+    if (!local->captured || id < c->p->arity) {
+        if (in->op == OP_DEFINE)
+            in->op = OP_SET_LOCAL_DROP;
+        in->arg = local->slot;
+        in->aux = local->captured;
+    } else {
+        if (in->op == OP_GET_LOCAL)
+            in->op = OP_GET;
+        else if (in->op == OP_SET_LOCAL)
+            in->op = OP_SET;
+        else if (in->op == OP_SET_LOCAL_DROP)
+            in->op = OP_SET_DROP;
+        in->arg = local->key;
+    }
+}
+
+static void lower_instructions(C *c) {
+    Proto *p = c->p;
+    int *targets = front_mem(sizeof(int) * ((size_t)p->count + 1));
+    int written = 0;
+    for (int i = 0; i < p->count; i++) {
+        Instr in = p->code[i];
+        targets[i] = written;
+        switch (in.op) {
+        case OP_SCOPE:
+            if (!c->scopes[in.arg].heap)
+                continue;
+            in.arg = 0;
+            break;
+        case OP_UNSCOPE: {
+            Scope *s = &c->scopes[in.arg];
+            in.arg = s->begin_slot;
+            in.aux = s->end_slot;
+            if (!s->heap) {
+                if (in.arg == in.aux)
+                    continue;
+                in.op = OP_CLEAR_LOCALS;
+            }
+            break;
+        }
+        case OP_TRY:
+            in.aux = c->scopes[in.aux].end_slot;
+            break;
+        case OP_DEFINE:
+        case OP_GET_LOCAL:
+        case OP_SET_LOCAL:
+        case OP_SET_LOCAL_DROP:
+            lower_local(c, &in);
+            break;
+        default:
+            break;
+        }
+        p->code[written++] = in;
+    }
+    targets[p->count] = written;
+    p->count = written;
+    for (int i = 0; i < written; i++) {
+        Instr *in = &p->code[i];
+        switch (in->op) {
+        case OP_JUMP:
+        case OP_JTRUE:
+        case OP_JFALSE:
+        case OP_JFALSE_LT:
+        case OP_JFALSE_LT_CONST:
+        case OP_NEXT:
+        case OP_TRY:
+        case OP_JPRESENT:
+            in->arg = targets[in->arg];
+            break;
+        default:
+            break;
+        }
+    }
+    front_free(targets);
+}
+
+static bool *finish(C *c) {
+    bool *free_names = capture_names(c);
+    assign_slots(c);
+    lower_instructions(c);
+    front_free(c->captures);
+    front_free(c->scopes);
+    front_free(c->locals);
+    return free_names;
+}
+
+static void exit_handlers(C *c, int keep, int line) {
+    Cleanup *cleanup = c->cleanup;
+    for (int i = c->tries; i > keep; i--) {
+        emit(c, OP_END_TRY, 0, line);
+        if (cleanup && cleanup->handler == i) {
+            load_binding(c, cleanup->name, line);
+            emit(c, OP_NIL, 0, line);
+            emit(c, OP_CALL, 1, line);
+            emit(c, OP_POP, 0, line);
+            cleanup = cleanup->prev;
+        }
+    }
 }
 
 static void function(C *c, Node *n) {
@@ -108,10 +350,22 @@ static void function(C *c, Node *n) {
     p->arity = n->n_names;
     p->required = p->arity;
     p->params = front_mem(sizeof(char *) * (size_t)p->arity);
-    for (int i = 0; i < p->arity; i++)
+    if (n->annotations)
+        p->annotations = front_mem(sizeof(char *) * (size_t)p->arity);
+    for (int i = 0; i < p->arity; i++) {
         p->params[i] = front_copystr(n->names[i]);
+        if (n->annotations && n->annotations[i])
+            p->annotations[i] = front_copystr(n->annotations[i]);
+    }
+    if (n->return_annotation)
+        p->return_annotation = front_copystr(n->return_annotation);
     p->mathir = mathir_extract(n);
-    C child = {.p = p, .isfn = 1};
+    if (mathir_is_enabled())
+        p->analysis = function_analyze(n);
+    C child = {.p = p, .isfn = true};
+    add_scope(&child, -1);
+    for (int i = 0; i < p->arity; i++)
+        declare_local(&child, key(&child, p->params[i]));
     for (int i = 0; i < p->arity; i++)
         if (n->defaults && n->defaults[i]) {
             if (p->required == p->arity)
@@ -130,6 +384,19 @@ static void function(C *c, Node *n) {
         body(&child, n->a);
     emit(&child, OP_NIL, 0, n->line);
     emit(&child, OP_RETURN, 0, n->line);
+    bool *free_names = finish(&child);
+    for (int i = 0; i < p->nk; i++)
+        if (free_names[i])
+            capture(c, p->k[i].s);
+    front_free(free_names);
+    /* AMDE queries some builtins against the closure environment even
+     * when the function body has a local binding by the same name. */
+    if (mathir_has_loop(p))
+        capture(c, "range");
+    const char *const functions[] = {"sin", "cos", "sqrt"};
+    for (size_t i = 0; i < sizeof functions / sizeof *functions; i++)
+        if (mathir_calls_builtin(p, functions[i]))
+            capture(c, functions[i]);
     emit(c, OP_CLOSURE, constant(c, (Constant){.type = K_PROTO, .p = p}), n->line);
 }
 
@@ -152,8 +419,7 @@ static void expression(C *c, Node *n) {
         emit(c, n->num ? OP_TRUE : OP_FALSE, 0, l);
         break;
     case N_VAR: {
-        int i = local(c, n->str);
-        emit(c, i >= 0 ? OP_GET_LOCAL : OP_GET, i >= 0 ? i : key(c, n->str), l);
+        load_binding(c, n->str, l);
         break;
     }
     case N_LAMBDA:
@@ -165,7 +431,7 @@ static void expression(C *c, Node *n) {
         emit(c, OP_ITER, 0, l);
         int start = c->p->count, end = emit(c, OP_NEXT, 0, l);
         scope(c, l);
-        emit(c, OP_DEFINE, key(c, n->str), l);
+        binding(c, n->str, l);
         int skip = -1;
         if (n->c) {
             expression(c, n->c);
@@ -181,11 +447,23 @@ static void expression(C *c, Node *n) {
         emit(c, OP_POP, 0, l);
         break;
     }
-    case N_LIST:
-    case N_MAP:
+    case N_FORMAT:
         for (int i = 0; i < n->count; i++)
             expression(c, n->items[i]);
-        emit(c, n->t == N_LIST ? OP_LIST : OP_MAP, n->count, l);
+        emit(c, OP_FORMAT, n->count, l);
+        break;
+    case N_LIST:
+    case N_MAP:
+    case N_TUPLE:
+    case N_SET:
+        for (int i = 0; i < n->count; i++)
+            expression(c, n->items[i]);
+        emit(c,
+             n->t == N_LIST    ? OP_LIST
+             : n->t == N_MAP   ? OP_MAP
+             : n->t == N_TUPLE ? OP_TUPLE
+                               : OP_SET_LITERAL,
+             n->count, l);
         break;
     case N_INDEX:
         expression(c, n->a);
@@ -211,8 +489,9 @@ static void expression(C *c, Node *n) {
     case N_ASSIGN:
         if (n->a->t == N_VAR) {
             expression(c, n->b);
-            int i = local(c, n->a->str);
-            emit(c, i >= 0 ? OP_SET_LOCAL : OP_SET, i >= 0 ? i : key(c, n->a->str), l);
+            int k = key(c, n->a->str);
+            int i = local(c, k);
+            emit(c, i >= 0 ? OP_SET_LOCAL : OP_SET, i >= 0 ? i : k, l);
         } else {
             expression(c, n->a->a);
             if (n->a->t == N_INDEX)
@@ -281,6 +560,9 @@ static void expression(C *c, Node *n) {
         case T_GE:
             op = OP_GE;
             break;
+        case T_IN:
+            op = OP_IN;
+            break;
         default:
             err(c, n, "unknown operator");
             return;
@@ -288,12 +570,29 @@ static void expression(C *c, Node *n) {
         emit(c, op, 0, l);
         break;
     }
-    case N_CALL:
-        expression(c, n->a);
-        for (int i = 0; i < n->count; i++)
-            expression(c, n->items[i]);
-        emit(c, OP_CALL, n->count, l);
+    case N_CALL: {
+        bool attribute = n->a->t == N_ATTR;
+        if (attribute) {
+            expression(c, n->a->a);
+            emit(c, OP_ATTR_CALL, key(c, n->a->str), n->a->line);
+        } else {
+            expression(c, n->a);
+        }
+        int named = 0;
+        for (int i = 0; i < n->count; i++) {
+            Node *argument = n->items[i];
+            if (argument->t == N_NAMED_ARG) {
+                emit(c, OP_CONST, key(c, argument->str), argument->line);
+                named++;
+                argument = argument->a;
+            }
+            expression(c, argument);
+        }
+        Op op = attribute ? OP_CALL_ATTR : named ? OP_CALL_NAMED : OP_CALL;
+        int call = emit(c, op, n->count - named, l);
+        c->p->code[call].aux = named;
         break;
+    }
     default:
         err(c, n, "invalid expression");
     }
@@ -307,6 +606,11 @@ static int false_jump(C *c, Node *n, int line) {
         int j = emit(c, OP_JFALSE_LT_CONST, 0, line);
         c->p->code[j].aux = k;
         return j;
+    }
+    if (n->t == N_BINARY && n->op == T_LT) {
+        expression(c, n->a);
+        expression(c, n->b);
+        return emit(c, OP_JFALSE_LT, 0, line);
     }
     expression(c, n);
     return emit(c, OP_JFALSE, 0, line);
@@ -324,11 +628,11 @@ static void statement(C *c, Node *n) {
     switch (n->t) {
     case N_DECLARE:
         expression(c, n->a);
-        emit(c, OP_DEFINE, key(c, n->str), l);
+        binding(c, n->str, l);
         break;
     case N_FUNCTION:
         function(c, n);
-        emit(c, OP_DEFINE, key(c, n->str), l);
+        binding(c, n->str, l);
         break;
     case N_EXPR:
         expression(c, n->a);
@@ -359,7 +663,7 @@ static void statement(C *c, Node *n) {
         break;
     }
     case N_WHILE: {
-        Loop loop = {.parent = c->loop, .start = c->p->count, .depth = c->depth, .tries = c->tries};
+        Loop loop = {.parent = c->loop, .start = c->p->count, .scope = c->scope, .tries = c->tries};
         c->loop = &loop;
         int end = false_jump(c, n->a, l);
         block(c, n->b);
@@ -372,11 +676,11 @@ static void statement(C *c, Node *n) {
         scope(c, l);
         expression(c, n->a);
         emit(c, OP_ITER, 0, l);
-        Loop loop = {.parent = c->loop, .start = c->p->count, .depth = c->depth, .tries = c->tries};
+        Loop loop = {.parent = c->loop, .start = c->p->count, .scope = c->scope, .tries = c->tries};
         c->loop = &loop;
         int end = emit(c, OP_NEXT, 0, l);
         scope(c, l);
-        emit(c, OP_DEFINE, key(c, n->str), l);
+        binding(c, n->str, l);
         body(c, n->b);
         unscope(c, l);
         emit(c, OP_JUMP, loop.start, l);
@@ -393,10 +697,9 @@ static void statement(C *c, Node *n) {
             err(c, n, "loop control outside loop");
             break;
         }
-        for (int i = c->tries; i > loop->tries; i--)
-            emit(c, OP_END_TRY, 0, l);
-        for (int i = c->depth; i > loop->depth; i--)
-            emit(c, OP_UNSCOPE, 0, l);
+        exit_handlers(c, loop->tries, l);
+        for (int i = c->scope; i != loop->scope; i = c->scopes[i].parent)
+            emit(c, OP_UNSCOPE, i, l);
         if (n->t == N_CONTINUE)
             emit(c, OP_JUMP, loop->start, l);
         else {
@@ -415,7 +718,21 @@ static void statement(C *c, Node *n) {
             expression(c, n->a);
         else
             emit(c, OP_NIL, 0, l);
+        if (c->cleanup)
+            exit_handlers(c, 0, l);
         emit(c, OP_RETURN, 0, l);
+        break;
+    case N_YIELD:
+        if (!c->isfn)
+            err(c, n, "yield outside function");
+        if (c->cleanup)
+            err(c, n, "yield inside with is unsupported");
+        c->p->generator = true;
+        if (n->a)
+            expression(c, n->a);
+        else
+            emit(c, OP_NIL, 0, l);
+        emit(c, OP_YIELD, 0, l);
         break;
     case N_CLASS:
         if (n->b)
@@ -424,7 +741,7 @@ static void statement(C *c, Node *n) {
             emit(c, OP_NIL, 0, l);
         emit(c, OP_CLASS, key(c, n->str), l);
         emit(c, OP_DUP, 0, l);
-        emit(c, OP_DEFINE, key(c, n->str), l);
+        binding(c, n->str, l);
         for (int i = 0; i < n->a->count; i++) {
             Node *m = n->a->items[i];
             if (m->t == N_PASS)
@@ -438,10 +755,50 @@ static void statement(C *c, Node *n) {
         break;
     case N_IMPORT:
         emit(c, OP_IMPORT, key(c, n->str), l);
-        emit(c, OP_DEFINE, key(c, n->n_names ? n->names[0] : n->str), l);
+        binding(c, n->n_names ? n->names[0] : n->str, l);
         break;
+    case N_WITH: {
+        char exit_name[48], error_name[48];
+        snprintf(exit_name, sizeof exit_name, "@exit:%d", c->p->count);
+        snprintf(error_name, sizeof error_name, "@error:%d", c->p->count);
+        scope(c, l);
+        expression(c, n->a);
+        emit(c, OP_DUP, 0, l);
+        emit(c, OP_ATTR, key(c, "__exit__"), l);
+        binding(c, exit_name, l);
+        emit(c, OP_ATTR, key(c, "__enter__"), l);
+        emit(c, OP_CALL, 0, l);
+        if (n->str)
+            binding(c, n->str, l);
+        else
+            emit(c, OP_POP, 0, l);
+        int handler = emit(c, OP_TRY, 0, l);
+        c->p->code[handler].aux = c->scope;
+        Cleanup cleanup = {.prev = c->cleanup, .name = exit_name, .handler = ++c->tries};
+        c->cleanup = &cleanup;
+        block(c, n->b);
+        exit_handlers(c, c->tries - 1, l);
+        c->tries--;
+        c->cleanup = cleanup.prev;
+        int normal = emit(c, OP_JUMP, 0, l);
+        patch(c, handler);
+        scope(c, l);
+        binding(c, error_name, l);
+        load_binding(c, exit_name, l);
+        load_binding(c, error_name, l);
+        emit(c, OP_CALL, 1, l);
+        int suppressed = emit(c, OP_JTRUE, 0, l);
+        load_binding(c, error_name, l);
+        emit(c, OP_THROW, 0, l);
+        patch(c, suppressed);
+        unscope(c, l);
+        patch(c, normal);
+        unscope(c, l);
+        break;
+    }
     case N_TRY: {
         int catchip = emit(c, OP_TRY, 0, l);
+        c->p->code[catchip].aux = c->scope;
         c->tries++;
         block(c, n->a);
         c->tries--;
@@ -449,7 +806,7 @@ static void statement(C *c, Node *n) {
         int end = emit(c, OP_JUMP, 0, l);
         patch(c, catchip);
         scope(c, l);
-        emit(c, OP_DEFINE, key(c, n->str), l);
+        binding(c, n->str, l);
         body(c, n->b);
         unscope(c, l);
         patch(c, end);
@@ -469,9 +826,11 @@ static void statement(C *c, Node *n) {
 Proto *compile(Node *root, const char *path) {
     Proto *p = proto("<main>", path);
     C c = {.p = p};
+    add_scope(&c, -1);
     body(&c, root);
     emit(&c, OP_NIL, 0, root->line);
     emit(&c, OP_RETURN, 0, root->line);
+    front_free(finish(&c));
     return p;
 }
 
@@ -482,10 +841,17 @@ void freeproto(Proto *p) {
         if (p->k[i].type == K_PROTO)
             freeproto(p->k[i].p);
     }
-    for (int i = 0; i < p->arity; i++)
+    for (int i = 0; i < p->arity; i++) {
         front_free(p->params[i]);
+        if (p->annotations)
+            front_free(p->annotations[i]);
+    }
+    front_free(p->annotations);
+    front_free(p->return_annotation);
+    front_free(p->param_slots);
     front_free(p->params);
     front_free(p->mathir);
+    front_free(p->analysis);
     front_free(p->k);
     front_free(p->code);
     front_free(p->name);
@@ -549,7 +915,17 @@ void disassemble(Proto *p, int depth) {
                                   "ADD_INT_CONST",
                                   "SUB_INT_CONST",
                                   "MUL_INT_CONST",
-                                  "JFALSE_LT_CONST"};
+                                  "JFALSE_LT_CONST",
+                                  "CLEAR_LOCALS",
+                                  "TUPLE",
+                                  "SET_LITERAL",
+                                  "IN",
+                                  "ATTR_CALL",
+                                  "CALL_ATTR",
+                                  "CALL_NAMED",
+                                  "FORMAT",
+                                  "YIELD",
+                                  "JFALSE_LT"};
     printf("%*s== %s (%s) ==\n", depth * 2, "", p->name, p->path);
     for (int i = 0; i < p->count; i++) {
         Instr x = p->code[i];
@@ -570,6 +946,8 @@ void disassemble(Proto *p, int depth) {
         }
         if (x.op == OP_JFALSE_LT_CONST)
             printf("  if not < %" PRId64, p->k[x.aux].i);
+        if ((x.op == OP_GET_LOCAL || x.op == OP_SET_LOCAL || x.op == OP_SET_LOCAL_DROP) && x.aux)
+            fputs("  heap parameter", stdout);
         puts("");
     }
     for (int i = 0; i < p->nk; i++)

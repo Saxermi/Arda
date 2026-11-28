@@ -1,0 +1,27 @@
+import compute as c
+import lazy as l
+import mathdoc as m
+import tensor as t
+import contract
+
+def accumulate(n, k):
+    let total = 0
+    for i in range(n):
+        for j in range(k):
+            total = total + i*j
+    return total
+
+let bounds = m.getCost(accumulate,{"parameters":{"n":[2,4],"k":3}})
+contract.require(bounds["max_scalar_operations"] == 24)
+print("Static scalar operation interval",bounds["min_scalar_operations"],
+      bounds["max_scalar_operations"])
+
+let x = l.input(t.array([0.0,1.0,2.0,3.0,4.0],"float64"))
+let graph = l.sum(l.mul(l.sin(x),l.exp(l.neg(x))))
+let plan = c.plan("graph",graph,{"block_elements":2})
+let run = c.run(plan,2)
+let report = c.report(run)
+contract.ensure(report["blocks"] == 3)
+print(run.getAlgorithm())
+print("Reduction",report["value"])
+print("Blocks recorded and omitted",len(report["trace"]),report["trace_omitted"])

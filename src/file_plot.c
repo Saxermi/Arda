@@ -435,6 +435,7 @@ static bool svg_shape(PlotJob *job) {
 }
 
 static Val run_export(VM *v, const char *source, const char *destination, PlotJob *job, bool svg) {
+    vm_require_file_access(v);
     tensor_file_require_little_endian(v);
     int cause = tensor_file_open(source, &job->input);
     if (cause)

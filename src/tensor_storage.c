@@ -130,6 +130,7 @@ int tensor_file_open(const char *path, TensorFile *file) {
 }
 
 static int open_tensor(VM *v, const char *path, TypedTensor *tensor, size_t *size) {
+    vm_require_file_access(v);
     tensor_file_require_little_endian(v);
     TensorFile file;
     int cause = tensor_file_open(path, &file);
@@ -383,6 +384,7 @@ bool offload_read_chunk(const Buffer *buffer, size_t byte_offset, unsigned char 
 }
 
 Val offload_snapshot(VM *v, ADOffloadPlan *plan, const TypedTensor *input) {
+    vm_require_file_access(v);
     tensor_file_require_little_endian(v);
     if (input->n > (PTRDIFF_MAX - HEADER_SIZE) / sizeof(double))
         vmerror_kind(v, "disk_budget", "activation file exceeds addressable storage");
@@ -523,6 +525,7 @@ void tensor_output_abort(Obj *object) {
 }
 
 Val tensor_open_output(VM *v, Val path_value, Val shape, Val type, Val budget) {
+    vm_require_file_access(v);
     tensor_file_require_little_endian(v);
     const char *path = asstr(v, path_value);
     int dimensions[8];
@@ -656,6 +659,7 @@ static bool write_checkpoint(int fd, const void *context) {
 
 Val checkpoint_save_state(VM *v, Val path, CheckpointKind kind, Val state,
                           const uint64_t words[CHECKPOINT_WORDS], Val budget) {
+    vm_require_file_access(v);
     tensor_file_require_little_endian(v);
     const char *filename = asstr(v, path);
     CheckpointWrite record = {0};
@@ -721,6 +725,7 @@ static bool decode_checkpoint(const unsigned char *header, off_t size, Checkpoin
 }
 
 Val checkpoint_load_state(VM *v, Val path, CheckpointKind kind, uint64_t words[CHECKPOINT_WORDS]) {
+    vm_require_file_access(v);
     tensor_file_require_little_endian(v);
     const char *filename = asstr(v, path);
     int fd = open(filename, O_RDONLY | O_CLOEXEC | O_NONBLOCK);
@@ -776,6 +781,7 @@ Val checkpoint_load_state(VM *v, Val path, CheckpointKind kind, uint64_t words[C
 }
 
 Val tensor_save(VM *v, Val path_value, Val input, Val budget) {
+    vm_require_file_access(v);
     tensor_file_require_little_endian(v);
     const char *path = asstr(v, path_value);
     TypedTensor t = typed_tensor(v, input);

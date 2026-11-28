@@ -12,7 +12,11 @@ Its long-term goal is to combine scientifically validated numerical algorithms w
 
 *Development codename: Mithril*
 
-**Development version** — Arda 0.21.4 — Beyond-RAM Data Processing and Visualization
+**Development version** — Arda 0.22.4 — Adaptive Execution and Mathematical Introspection
+
+Arda supports tuples, sets, lazy generators, named arguments, annotations,
+formatted strings and context managers. The VM exposes opt-in resource limits
+and GC sweep profiling. [Language and runtime contracts](docs/PALANTIR_RUNTIME.md)
 
 Use `experiment.save` to persist a small, checksummed run manifest, and
 `mathdoc.export` to attach mathematical documentation and supplied verification
@@ -225,6 +229,11 @@ print(magnitude(3, 4))
 The 0.17 development examples use both keyword styles. For lazy ranges, import precedence, and caught error maps, see [Vilya runtime contracts](docs/VILYA_RUNTIME.md).
 
 ## Implemented features
+
+Arda can plan and execute opt-in lazy Float64 graphs with explicit memory budgets,
+including reductions over tensor files. AMDE can explain plans, report runtime
+measurements and bound operations in supported scalar functions without calling
+them. [ACE and AMDE guide](docs/PALANTIR_ACE.md)
 
 | Area | Current capabilities |
 | --- | --- |
